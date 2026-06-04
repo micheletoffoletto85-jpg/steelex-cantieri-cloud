@@ -17,7 +17,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     utente = db.query(Utente).filter(Utente.email == data.email, Utente.attivo == True).first()
     if not utente or not verify_password(data.password, utente.password_hash):
         raise HTTPException(status_code=401, detail="Email o password errati")
-    token = create_access_token({"sub": utente.id})
+    token = create_access_token({"sub": str(utente.id)})
     return {"access_token": token, "utente": utente}
 
 @router.get("/me", response_model=UtenteOut)
