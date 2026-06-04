@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 from app.models.utente import RuoloUtente
@@ -6,7 +6,7 @@ from app.models.utente import RuoloUtente
 class UtenteBase(BaseModel):
     nome: str
     cognome: str
-    email: EmailStr
+    email: str
     ruolo: RuoloUtente = RuoloUtente.capo_cantiere
 
 class UtenteCreate(UtenteBase):
@@ -27,7 +27,7 @@ class UtenteOut(UtenteBase):
         from_attributes = True
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class TokenResponse(BaseModel):
