@@ -17,10 +17,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
+cors_origins = settings.CORS_ORIGINS.split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS.split(","),
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=False,  # JWT in header, no cookie — no credentials needed
     allow_methods=["*"],
     allow_headers=["*"],
 )
