@@ -13,11 +13,11 @@ from app.config import settings
 
 router = APIRouter(prefix="/cantieri/{cantiere_id}/diari", tags=["Diario Giornaliero"])
 
-@router.get("/", response_model=List[DiarioOut])
+@router.get("", response_model=List[DiarioOut])
 def lista_diari(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     return db.query(DiarioGiornaliero).filter(DiarioGiornaliero.cantiere_id == cantiere_id).order_by(DiarioGiornaliero.data.desc()).all()
 
-@router.post("/", response_model=DiarioOut, status_code=201)
+@router.post("", response_model=DiarioOut, status_code=201)
 def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     diario = DiarioGiornaliero(**data.model_dump(), autore_id=user.id, cantiere_id=cantiere_id)
     db.add(diario)

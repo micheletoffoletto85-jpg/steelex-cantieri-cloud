@@ -10,11 +10,11 @@ from app.auth import get_current_user
 
 router = APIRouter(prefix="/cantieri/{cantiere_id}/checklist", tags=["Checklist"])
 
-@router.get("/", response_model=List[ChecklistItemOut])
+@router.get("", response_model=List[ChecklistItemOut])
 def lista_checklist(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     return db.query(ChecklistItem).filter(ChecklistItem.cantiere_id == cantiere_id).order_by(ChecklistItem.ordine).all()
 
-@router.post("/", response_model=ChecklistItemOut, status_code=201)
+@router.post("", response_model=ChecklistItemOut, status_code=201)
 def crea_item(cantiere_id: int, data: ChecklistItemCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     item = ChecklistItem(**data.model_dump(), cantiere_id=cantiere_id)
     db.add(item)

@@ -16,7 +16,7 @@ def _check_accesso(cantiere: Cantiere, user: Utente):
         return
     raise HTTPException(status_code=403, detail="Accesso negato")
 
-@router.get("/", response_model=List[CantiereOut])
+@router.get("", response_model=List[CantiereOut])
 def lista_cantieri(
     stato: Optional[StatoCantiere] = None,
     db: Session = Depends(get_db),
@@ -29,7 +29,7 @@ def lista_cantieri(
         q = q.filter(Cantiere.stato == stato)
     return q.order_by(Cantiere.creato_il.desc()).all()
 
-@router.post("/", response_model=CantiereOut, status_code=201)
+@router.post("", response_model=CantiereOut, status_code=201)
 def crea_cantiere(data: CantiereCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     if user.ruolo not in [RuoloUtente.admin, RuoloUtente.capo_cantiere]:
         raise HTTPException(status_code=403, detail="Non autorizzato")

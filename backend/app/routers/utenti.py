@@ -8,11 +8,11 @@ from app.auth import get_current_user, require_admin, hash_password
 
 router = APIRouter(prefix="/utenti", tags=["Utenti"])
 
-@router.get("/", response_model=List[UtenteOut])
+@router.get("", response_model=List[UtenteOut])
 def lista_utenti(db: Session = Depends(get_db), _=Depends(require_admin)):
     return db.query(Utente).all()
 
-@router.post("/", response_model=UtenteOut, status_code=201)
+@router.post("", response_model=UtenteOut, status_code=201)
 def crea_utente(data: UtenteCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
     if db.query(Utente).filter(Utente.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email già registrata")
