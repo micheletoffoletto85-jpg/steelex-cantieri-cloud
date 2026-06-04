@@ -1,11 +1,12 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { LayoutDashboard, HardHat, LogOut, Menu, X } from 'lucide-react'
+import { LayoutDashboard, HardHat, LogOut, Menu, X, Users } from 'lucide-react'
 import { useState } from 'react'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/cantieri', label: 'Cantieri', icon: HardHat },
+  { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
 ]
 
 export default function Layout() {
@@ -37,7 +38,7 @@ export default function Layout() {
       <div className="flex flex-1">
         {/* Sidebar desktop */}
         <nav className="hidden sm:flex flex-col w-56 bg-white border-r border-gray-200 p-3 gap-1">
-          {navItems.map(({ to, label, icon: Icon, end }) => (
+          {navItems.filter(i => !i.adminOnly || utente?.ruolo === 'admin').map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-colors ${isActive ? 'bg-steelex-orange text-white' : 'text-gray-700 hover:bg-gray-100'}`
@@ -51,7 +52,7 @@ export default function Layout() {
         {/* Menu mobile */}
         {menuOpen && (
           <div className="absolute top-14 left-0 right-0 bg-white border-b border-gray-200 p-3 z-40 sm:hidden flex flex-col gap-1">
-            {navItems.map(({ to, label, icon: Icon, end }) => (
+            {navItems.filter(i => !i.adminOnly || utente?.ruolo === 'admin').map(({ to, label, icon: Icon, end }) => (
               <NavLink key={to} to={to} end={end} onClick={() => setMenuOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-colors ${isActive ? 'bg-steelex-orange text-white' : 'text-gray-700 hover:bg-gray-100'}`

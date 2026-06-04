@@ -34,3 +34,4 @@ class Cantiere(Base):
     responsabile = relationship("Utente", back_populates="cantieri")
     diari = relationship("DiarioGiornaliero", back_populates="cantiere", cascade="all, delete-orphan")
     documenti = relationship("Documento", back_populates="cantiere", cascade="all, delete-orphan")
+    checklist = relationship("ChecklistItem", back_populates="cantiere", cascade="all, delete-orphan")

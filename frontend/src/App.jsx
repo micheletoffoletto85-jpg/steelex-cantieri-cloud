@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import CantieriPage from './pages/CantieriPage'
 import CantierePage from './pages/CantierePage'
+import UtentiPage from './pages/UtentiPage'
 import Layout from './components/Layout'
 
 function PrivateRoute({ children }) {
@@ -22,6 +23,7 @@ export default function App() {
           <Route index element={<DashboardPage />} />
           <Route path="cantieri" element={<CantieriPage />} />
           <Route path="cantieri/:id" element={<CantierePage />} />
+          <Route path="utenti" element={<UtentiPage />} />
         </Route>
       </Routes>
     </AuthProvider>
