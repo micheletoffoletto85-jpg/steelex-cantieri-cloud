@@ -24,19 +24,23 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 def get_me(current_user: Utente = Depends(get_current_user)):
     return current_user
 
-@router.post("/registra", response_model=UtenteOut, status_code=201)
+@router.post("/registra", status_code=201)
 def registra_admin(data: UtenteCreate, db: Session = Depends(get_db)):
-    # Solo il primo utente può registrarsi liberamente (diventa admin)
-    if db.query(Utente).count() > 0:
-        raise HTTPException(status_code=403, detail="Registrazione pubblica disabilitata")
-    utente = Utente(
-        nome=data.nome,
-        cognome=data.cognome,
-        email=data.email,
-        password_hash=hash_password(data.password),
-        ruolo=RuoloUtente.admin,
-    )
-    db.add(utente)
-    db.commit()
-    db.refresh(utente)
-    return utente
+    try:
+        if db.query(Utente).count() > 0:
+            raise HTTPException(status_code=403, detail="Registrazione pubblica disabilitata")
+        utente = Utente(
+            nome=data.nome,
+            cognome=data.cognome,
+            email=data.email,
+            password_hash=hash_password(data.password),
+            ruolo=RuoloUtente.admin,
+        )
+        db.add(utente)
+        db.commit()
+        db.refresh(utente)
+        return {"id": utente.id, "email": utente.email, "nome": utente.nome, "ruolo": str(utente.ruolo)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
