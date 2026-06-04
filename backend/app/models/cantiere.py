@@ -20,7 +20,7 @@ class Cantiere(Base):
     indirizzo = Column(String)
     citta = Column(String)
     provincia = Column(String(2))
-    stato = Column(Enum(StatoCantiere), default=StatoCantiere.preventivo)
+    stato = Column(Enum(StatoCantiere, native_enum=False), default=StatoCantiere.preventivo)
     avanzamento = Column(Float, default=0.0)  # 0-100%
     data_inizio = Column(Date)
     data_fine_prevista = Column(Date)

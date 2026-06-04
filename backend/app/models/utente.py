@@ -18,7 +18,7 @@ class Utente(Base):
     cognome = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
-    ruolo = Column(Enum(RuoloUtente), default=RuoloUtente.capo_cantiere)
+    ruolo = Column(Enum(RuoloUtente, native_enum=False), default=RuoloUtente.capo_cantiere)
     attivo = Column(Boolean, default=True)
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
     aggiornato_il = Column(DateTime(timezone=True), onupdate=func.now())

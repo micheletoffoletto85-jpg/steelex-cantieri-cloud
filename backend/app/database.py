@@ -4,12 +4,12 @@ from sqlalchemy.orm import sessionmaker
 from app.config import settings
 
 db_url = settings.DATABASE_URL
-# Railway PostgreSQL richiede SSL
-connect_args = {}
-if "railway" in db_url or "postgres" in db_url:
-    connect_args = {"sslmode": "require"} if "sslmode" not in db_url else {}
+# Railway PostgreSQL richiede SSL — aggiunge sslmode se non presente
+if "sslmode" not in db_url and ("railway" in db_url or "postgres" in db_url):
+    separator = "&" if "?" in db_url else "?"
+    db_url = f"{db_url}{separator}sslmode=require"
 
-engine = create_engine(db_url, connect_args=connect_args)
+engine = create_engine(db_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
