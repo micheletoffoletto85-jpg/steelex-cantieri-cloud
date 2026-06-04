@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://steelex-cantieri-cloud-production.up.railway.app/api/:path*"
+    }
+  ]
+}
