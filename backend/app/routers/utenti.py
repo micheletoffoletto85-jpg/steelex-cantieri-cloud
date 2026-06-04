@@ -16,11 +16,15 @@ def lista_utenti(db: Session = Depends(get_db), _=Depends(require_admin)):
 def crea_utente(data: UtenteCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
     if db.query(Utente).filter(Utente.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email già registrata")
-    utente = Utente(**data.model_dump(exclude={"password"}), password_hash=hash_password(data.password))
-    db.add(utente)
-    db.commit()
-    db.refresh(utente)
-    return utente
+    try:
+        utente = Utente(**data.model_dump(exclude={"password"}), password_hash=hash_password(data.password))
+        db.add(utente)
+        db.commit()
+        db.refresh(utente)
+        return utente
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{utente_id}", response_model=UtenteOut)
 def aggiorna_utente(utente_id: int, data: UtenteUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):

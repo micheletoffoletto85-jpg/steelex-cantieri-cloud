@@ -19,7 +19,13 @@ export default function UtentiPage() {
     data => api.post('/utenti', data),
     {
       onSuccess: () => { qc.invalidateQueries('utenti'); setShowForm(false); setForm({ nome: '', cognome: '', email: '', password: '', ruolo: 'capo_cantiere' }); toast.success('Utente creato!') },
-      onError: err => toast.error(err.response?.data?.detail || 'Errore creazione')
+      onError: err => {
+        const d = err.response?.data?.detail
+        const msg = Array.isArray(d)
+          ? d.map(e => e.msg || JSON.stringify(e)).join(', ')
+          : (d || err.message || 'Errore creazione')
+        toast.error(msg)
+      }
     }
   )
 
