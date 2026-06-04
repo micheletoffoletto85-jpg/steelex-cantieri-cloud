@@ -15,6 +15,7 @@ app = FastAPI(
     title="STEELEX Cantieri API",
     description="Piattaforma gestione cantieri STEELEX",
     version="1.0.0",
+    redirect_slashes=False,
 )
 
 cors_origins = settings.CORS_ORIGINS.split(",")
