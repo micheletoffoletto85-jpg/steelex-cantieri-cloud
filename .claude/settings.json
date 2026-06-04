@@ -1,0 +1,13 @@
+{
+  "projectName": "STEELEX Cantieri App",
+  "model": "claude-sonnet-4-6",
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)"
+    ]
+  },
+  "autoApprove": true
+}
