@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import dayjs from 'dayjs'
@@ -60,7 +60,7 @@ export default function CantierePage() {
 
       {/* Tab bar */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-        {[['info', 'Info', null], ['checklist', 'Checklist', CheckSquare], ['diario', 'Diario', BookOpen]].map(([key, label, Icon]) => (
+        {[['info', 'Info', null], ['checklist', 'Checklist', CheckSquare], ['diario', 'Diario', BookOpen], ['voce', 'Voce AI', Mic]].map(([key, label, Icon]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors ${tab === key ? 'bg-white shadow text-steelex-orange' : 'text-gray-500'}`}>
             {Icon && <Icon size={14} />}{label}
@@ -71,6 +71,7 @@ export default function CantierePage() {
       {tab === 'info' && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} />}
       {tab === 'checklist' && <ChecklistTab cantiereId={id} />}
       {tab === 'diario' && <DiarioTab cantiereId={id} />}
+      {tab === 'voce' && <VoceAITab cantiereId={id} />}
     </div>
   )
 }
@@ -180,6 +181,180 @@ function ChecklistTab({ cantiereId }) {
           </div>}
     </div>
   )
+}
+
+/* ─── TAB VOCE AI ─── */
+function VoceAITab({ cantiereId }) {
+  const qc = useQueryClient()
+  const [stato, setStato] = useState('idle') // idle | recording | processing | done
+  const [secondi, setSecondi] = useState(0)
+  const [risultato, setRisultato] = useState(null)
+  const [salvando, setSalvando] = useState(false)
+
+  const mediaRef = useRef(null)
+  const chunksRef = useRef([])
+  const timerRef = useRef(null)
+
+  useEffect(() => () => {
+    clearInterval(timerRef.current)
+    mediaRef.current?.stream?.getTracks().forEach(t => t.stop())
+  }, [])
+
+  const avviaRegistrazione = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream, { mimeType: getSupportedMimeType() })
+      chunksRef.current = []
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      recorder.onstop = () => elaboraAudio(stream)
+      recorder.start()
+      mediaRef.current = recorder
+      setStato('recording')
+      setSecondi(0)
+      timerRef.current = setInterval(() => setSecondi(s => s + 1), 1000)
+    } catch {
+      toast.error('Microfono non accessibile. Controlla i permessi del browser.')
+    }
+  }
+
+  const fermaRegistrazione = () => {
+    clearInterval(timerRef.current)
+    mediaRef.current?.stop()
+  }
+
+  const elaboraAudio = async (stream) => {
+    stream.getTracks().forEach(t => t.stop())
+    setStato('processing')
+    try {
+      const mimeType = getSupportedMimeType()
+      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
+      const blob = new Blob(chunksRef.current, { type: mimeType })
+      const fd = new FormData()
+      fd.append('file', blob, `audio.${ext}`)
+      const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setRisultato(r.data)
+      setStato('done')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Errore trascrizione')
+      setStato('idle')
+    }
+  }
+
+  const salvaNelDiario = async () => {
+    if (!risultato) return
+    setSalvando(true)
+    try {
+      const oggi = new Date().toISOString().split('T')[0]
+      await api.post(`/cantieri/${cantiereId}/diari`, {
+        data: oggi,
+        attivita: risultato.testo_italiano,
+        cantiere_id: Number(cantiereId),
+        operai_presenti: 0,
+      })
+      qc.invalidateQueries(['diari', cantiereId])
+      toast.success('Salvato nel diario!')
+      setRisultato(null)
+      setStato('idle')
+    } catch {
+      toast.error('Errore salvataggio')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+
+  return (
+    <div className="space-y-4">
+      {/* Pannello registrazione */}
+      <div className="card text-center space-y-4 py-6">
+        <div className="flex items-center justify-center gap-2 text-gray-500 mb-1">
+          <Languages size={18} />
+          <span className="text-sm font-medium">Registra in qualsiasi lingua — traduco io in italiano</span>
+        </div>
+
+        {stato === 'idle' && (
+          <>
+            <button onClick={avviaRegistrazione}
+              className="mx-auto flex items-center justify-center w-24 h-24 bg-steelex-orange text-white rounded-full shadow-lg hover:bg-orange-600 active:scale-95 transition-all">
+              <Mic size={40} />
+            </button>
+            <p className="text-gray-400 text-sm">Premi per registrare</p>
+          </>
+        )}
+
+        {stato === 'recording' && (
+          <>
+            <div className="relative mx-auto w-24 h-24">
+              <div className="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-50" />
+              <button onClick={fermaRegistrazione}
+                className="relative flex items-center justify-center w-24 h-24 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 active:scale-95 transition-all">
+                <MicOff size={36} />
+              </button>
+            </div>
+            <p className="text-2xl font-mono font-bold text-red-500">{fmt(secondi)}</p>
+            <p className="text-gray-400 text-sm">Registrazione in corso… premi per fermare</p>
+          </>
+        )}
+
+        {stato === 'processing' && (
+          <>
+            <div className="mx-auto flex items-center justify-center w-24 h-24 bg-gray-100 rounded-full">
+              <Loader2 size={40} className="text-steelex-orange animate-spin" />
+            </div>
+            <p className="text-gray-500 text-sm">Trascrizione in corso con Whisper AI…</p>
+          </>
+        )}
+      </div>
+
+      {/* Risultato trascrizione */}
+      {stato === 'done' && risultato && (
+        <div className="card space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+              Rilevato: {risultato.lingua_nome}
+            </span>
+            {risultato.lingua_rilevata !== 'it' && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-600">
+                Tradotto in italiano
+              </span>
+            )}
+          </div>
+
+          {risultato.lingua_rilevata !== 'it' && (
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Originale ({risultato.lingua_nome})</p>
+              <p className="text-sm text-gray-500 italic bg-gray-50 rounded-lg p-3">{risultato.testo_originale}</p>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs text-gray-400 mb-1">Testo in italiano</p>
+            <textarea
+              className="input-field h-28 resize-none text-sm"
+              value={risultato.testo_italiano}
+              onChange={e => setRisultato(r => ({ ...r, testo_italiano: e.target.value }))}
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={() => { setRisultato(null); setStato('idle') }} className="btn-secondary flex-1">
+              Scarta
+            </button>
+            <button onClick={salvaNelDiario} disabled={salvando} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              {salvando ? <Loader2 size={16} className="animate-spin" /> : <BookOpen size={16} />}
+              Salva nel Diario
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function getSupportedMimeType() {
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
+  return types.find(t => MediaRecorder.isTypeSupported(t)) || 'audio/webm'
 }
 
 /* ─── TAB DIARIO ─── */

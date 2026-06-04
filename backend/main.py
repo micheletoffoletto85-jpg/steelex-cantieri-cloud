@@ -6,7 +6,7 @@ import os
 from app.config import settings
 from app.database import engine, Base
 from app.models import utente, cantiere, diario, documento, checklist  # importa tutti i modelli
-from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router
+from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni
 
 # Crea tabelle al primo avvio
 Base.metadata.create_all(bind=engine)
@@ -36,6 +36,7 @@ app.include_router(utenti.router, prefix="/api/v1")
 app.include_router(cantieri.router, prefix="/api/v1")
 app.include_router(diari.router, prefix="/api/v1")
 app.include_router(checklist_router.router, prefix="/api/v1")
+app.include_router(trascrizioni.router, prefix="/api/v1")
 
 @app.get("/")
 def root():
