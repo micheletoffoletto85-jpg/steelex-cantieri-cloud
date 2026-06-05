@@ -17,6 +17,7 @@ class UtenteUpdate(BaseModel):
     cognome: Optional[str] = None
     ruolo: Optional[RuoloUtente] = None
     attivo: Optional[bool] = None
+    password: Optional[str] = None
 
 class UtenteOut(UtenteBase):
     id: int

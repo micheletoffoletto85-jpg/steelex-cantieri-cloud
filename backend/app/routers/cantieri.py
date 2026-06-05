@@ -14,6 +14,9 @@ def _check_accesso(cantiere: Cantiere, user: Utente):
         return
     if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
         return
+    # fornitore e cliente: sola lettura su tutti i cantieri
+    if user.ruolo in (RuoloUtente.fornitore, RuoloUtente.cliente):
+        return
     raise HTTPException(status_code=403, detail="Accesso negato")
 
 @router.get("", response_model=List[CantiereOut])
@@ -25,6 +28,7 @@ def lista_cantieri(
     q = db.query(Cantiere)
     if user.ruolo == RuoloUtente.capo_cantiere:
         q = q.filter(Cantiere.responsabile_id == user.id)
+    # fornitore e cliente vedono tutti i cantieri in sola lettura
     if stato:
         q = q.filter(Cantiere.stato == stato)
     return q.order_by(Cantiere.creato_il.desc()).all()

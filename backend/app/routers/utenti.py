@@ -31,8 +31,21 @@ def aggiorna_utente(utente_id: int, data: UtenteUpdate, db: Session = Depends(ge
     utente = db.query(Utente).filter(Utente.id == utente_id).first()
     if not utente:
         raise HTTPException(status_code=404, detail="Utente non trovato")
-    for k, v in data.model_dump(exclude_none=True).items():
+    update_data = data.model_dump(exclude_none=True)
+    if "password" in update_data:
+        utente.password_hash = hash_password(update_data.pop("password"))
+    for k, v in update_data.items():
         setattr(utente, k, v)
     db.commit()
     db.refresh(utente)
     return utente
+
+@router.delete("/{utente_id}", status_code=204)
+def elimina_utente(utente_id: int, db: Session = Depends(get_db), current_user=Depends(require_admin)):
+    if utente_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Non puoi eliminare te stesso")
+    utente = db.query(Utente).filter(Utente.id == utente_id).first()
+    if not utente:
+        raise HTTPException(status_code=404, detail="Utente non trovato")
+    db.delete(utente)
+    db.commit()
