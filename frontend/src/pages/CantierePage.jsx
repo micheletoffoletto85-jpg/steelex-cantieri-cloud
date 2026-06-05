@@ -356,6 +356,34 @@ function VoceAITab({ cantiereId }) {
 
 /* ─── TAB MAPPE ─── */
 const API_BASE = '/api/v1'
+
+// Hook: scarica un'immagine con auth token e restituisce un blob URL
+function useAuthImage(url) {
+  const [src, setSrc] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    if (!url) return
+    let objectUrl = null
+    setLoading(true)
+    setError(false)
+    setSrc(null)
+
+    api.get(url, { responseType: 'blob' })
+      .then(r => {
+        objectUrl = URL.createObjectURL(r.data)
+        setSrc(objectUrl)
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false))
+
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [url])
+
+  return { src, loading, error }
+}
+
 const TIPO_PIN = {
   lavorazione: { label: 'Lavorazione', color: '#2563eb', bg: 'bg-blue-100 text-blue-700' },
   criticita: { label: 'Criticità', color: '#dc2626', bg: 'bg-red-100 text-red-700' },
@@ -459,7 +487,6 @@ function MappeTab({ cantiereId }) {
     setPinForm({ tipo: 'lavorazione', nota: '' })
   }
 
-  // Supporta preview per PDF e immagini tramite endpoint backend
   const supportsPreview = (doc) => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'].includes(doc?.tipo?.toLowerCase())
   const previewUrl = (doc) => `${API_BASE}/cantieri/${cantiereId}/documenti/${doc.id}/preview`
 
@@ -532,39 +559,16 @@ function MappeTab({ cantiereId }) {
               )}
 
               {/* Contenitore immagine con pin overlay */}
-              <div
-                ref={imgContainerRef}
-                className="relative w-full rounded-xl overflow-hidden border border-gray-200 bg-gray-100 select-none"
-                style={{ cursor: canWrite ? 'crosshair' : 'default' }}
-                onClick={onClickMappa}
-              >
-                <img
-                  src={previewUrl(docSelezionato)}
-                  alt={docSelezionato.nome}
-                  className="w-full h-auto block"
-                  draggable={false}
-                  onError={e => { e.target.style.display = 'none' }}
-                />
-
-                {/* Pin overlay */}
-                {(docSelezionato.pin_dati || []).map(pin => (
-                  <button
-                    key={pin.id}
-                    onClick={e => { e.stopPropagation(); setPinSelezionato(pinSelezionato?.id === pin.id ? null : pin) }}
-                    style={{
-                      position: 'absolute',
-                      left: `calc(${pin.x * 100}% - 12px)`,
-                      top: `calc(${pin.y * 100}% - 28px)`,
-                      color: TIPO_PIN[pin.tipo]?.color || '#888',
-                      filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.5))',
-                      zIndex: 10,
-                    }}
-                    title={pin.nota}
-                  >
-                    <MapPin size={28} fill="currentColor" />
-                  </button>
-                ))}
-              </div>
+              <MappaViewer
+                url={previewUrl(docSelezionato)}
+                nome={docSelezionato.nome}
+                pins={docSelezionato.pin_dati || []}
+                canWrite={canWrite}
+                pinSelezionato={pinSelezionato}
+                onClickMappa={onClickMappa}
+                onClickPin={(pin) => setPinSelezionato(pinSelezionato?.id === pin.id ? null : pin)}
+                containerRef={imgContainerRef}
+              />
 
               {/* Dettaglio pin selezionato */}
               {pinSelezionato && (
@@ -639,6 +643,63 @@ function MappeTab({ cantiereId }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ─── COMPONENTE VIEWER MAPPA ─── */
+function MappaViewer({ url, nome, pins, canWrite, pinSelezionato, onClickMappa, onClickPin, containerRef }) {
+  const { src, loading, error } = useAuthImage(url)
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full rounded-xl overflow-hidden border border-gray-200 bg-gray-100 select-none"
+      style={{ cursor: canWrite ? 'crosshair' : 'default', minHeight: 120 }}
+      onClick={onClickMappa}
+    >
+      {loading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-gray-400">
+          <Loader2 size={28} className="animate-spin text-steelex-orange" />
+          <span className="text-sm">Caricamento mappa...</span>
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-red-400">
+          <FileText size={28} />
+          <span className="text-sm">Impossibile caricare la mappa</span>
+        </div>
+      )}
+      {src && (
+        <img
+          src={src}
+          alt={nome}
+          className="w-full h-auto block"
+          draggable={false}
+        />
+      )}
+      {/* Pin overlay — visibili solo se l'immagine è caricata */}
+      {src && pins.map(pin => (
+        <button
+          key={pin.id}
+          onClick={e => { e.stopPropagation(); onClickPin(pin) }}
+          style={{
+            position: 'absolute',
+            left: `calc(${pin.x * 100}% - 14px)`,
+            top: `calc(${pin.y * 100}% - 32px)`,
+            color: TIPO_PIN[pin.tipo]?.color || '#888',
+            filter: pinSelezionato?.id === pin.id
+              ? 'drop-shadow(0 0 6px rgba(0,0,0,0.7))'
+              : 'drop-shadow(0 2px 3px rgba(0,0,0,0.5))',
+            transform: pinSelezionato?.id === pin.id ? 'scale(1.3)' : 'scale(1)',
+            transition: 'transform 0.15s, filter 0.15s',
+            zIndex: 10,
+          }}
+          title={pin.nota}
+        >
+          <MapPin size={28} fill="currentColor" />
+        </button>
+      ))}
     </div>
   )
 }
