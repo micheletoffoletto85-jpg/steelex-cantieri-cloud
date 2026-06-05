@@ -115,6 +115,33 @@ def aggiorna_pin(
     db.refresh(doc)
     return doc
 
+@router.get("/{cantiere_id}/documenti/{doc_id}/debug")
+def debug_documento(cantiere_id: int, doc_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Debug: mostra info sul file senza scaricarlo."""
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        return {"errore": "documento non trovato nel DB"}
+    rel = doc.url.removeprefix("/uploads/")
+    percorso = os.path.join(settings.UPLOAD_DIR, rel)
+    try:
+        import fitz
+        fitz_ok = True
+        fitz_ver = fitz.__version__
+    except ImportError as e:
+        fitz_ok = False
+        fitz_ver = str(e)
+    return {
+        "doc_url": doc.url,
+        "rel_path": rel,
+        "percorso_assoluto": percorso,
+        "file_esiste": os.path.exists(percorso),
+        "upload_dir": settings.UPLOAD_DIR,
+        "tipo": doc.tipo,
+        "pymupdf_disponibile": fitz_ok,
+        "pymupdf_versione": fitz_ver,
+        "contenuto_upload_dir": os.listdir(settings.UPLOAD_DIR) if os.path.exists(settings.UPLOAD_DIR) else "cartella non esiste",
+    }
+
 @router.get("/{cantiere_id}/documenti/{doc_id}/preview")
 def preview_documento(
     cantiere_id: int,
