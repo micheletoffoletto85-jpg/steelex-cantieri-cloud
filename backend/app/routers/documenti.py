@@ -152,7 +152,7 @@ def preview_documento(
                     tmp.write(contenuto)
                     tmp_path = tmp.name
                 pdf = fitz.open(tmp_path)
-                pix = pdf[0].get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+                pix = pdf[0].get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
                 pix.save(cache_path)
                 pdf.close()
                 os.unlink(tmp_path)

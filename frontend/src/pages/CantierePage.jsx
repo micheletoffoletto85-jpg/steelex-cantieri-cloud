@@ -24,7 +24,9 @@ export default function CantierePage() {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(null)
 
+  const { utente } = useAuth()
   const { data: cantiere, isLoading } = useQuery(['cantiere', id], () => api.get(`/cantieri/${id}`).then(r => r.data), {
+    enabled: !!utente,
     onSuccess: d => { if (!form) setForm(d) }
   })
 
@@ -413,7 +415,8 @@ function MappeTab({ cantiereId }) {
 
   const { data: docs = [], isLoading } = useQuery(
     ['documenti', cantiereId],
-    () => api.get(`/cantieri/${cantiereId}/documenti`).then(r => r.data)
+    () => api.get(`/cantieri/${cantiereId}/documenti`).then(r => r.data),
+    { enabled: !!utente, retry: 2, staleTime: 0 }
   )
 
   // Aggiorna il doc selezionato quando arrivano dati freschi
