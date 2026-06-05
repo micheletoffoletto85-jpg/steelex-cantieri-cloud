@@ -30,6 +30,14 @@ class StatoSAL(str, enum.Enum):
     emesso = "emesso"
     pagato = "pagato"
 
+class CategoriaSpesa(str, enum.Enum):
+    materiali = "materiali"
+    manodopera = "manodopera"
+    nolo = "nolo"
+    servizi = "servizi"
+    trasporto = "trasporto"
+    altro = "altro"
+
 class StatoFase(str, enum.Enum):
     pianificata = "pianificata"
     in_corso = "in_corso"
@@ -158,6 +166,26 @@ class BollaConsegna(Base):
 
     cantiere = relationship("Cantiere", back_populates="bolle")
     fattura = relationship("FatturaFornitore", back_populates="bolle")
+
+
+class Spesa(Base):
+    """Registro semplice delle spese — sostituisce Ordini + Bolle + Fatture."""
+    __tablename__ = "spese"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cantiere_id = Column(Integer, ForeignKey("cantieri.id", ondelete="CASCADE"), nullable=False)
+    descrizione = Column(String, nullable=False)
+    fornitore = Column(String)
+    categoria = Column(Enum(CategoriaSpesa, native_enum=False), default=CategoriaSpesa.materiali)
+    importo = Column(Float, nullable=False, default=0.0)
+    data = Column(Date)
+    note = Column(String)
+    allegato_url = Column(String)          # foto o PDF allegato
+    allegato_tipo = Column(String)         # "foto" o "pdf"
+    creato_da = Column(Integer, ForeignKey("utenti.id"))
+    creato_il = Column(DateTime(timezone=True), server_default=func.now())
+
+    cantiere = relationship("Cantiere", back_populates="spese")
 
 
 class FaseLavoro(Base):

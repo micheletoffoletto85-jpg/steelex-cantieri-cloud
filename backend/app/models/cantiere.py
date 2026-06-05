@@ -41,3 +41,4 @@ class Cantiere(Base):
     preventivi = relationship("PreventivoCantiere", back_populates="cantiere", cascade="all, delete-orphan")
     bolle = relationship("BollaConsegna", back_populates="cantiere", cascade="all, delete-orphan")
     fasi = relationship("FaseLavoro", back_populates="cantiere", cascade="all, delete-orphan")
+    spese = relationship("Spesa", back_populates="cantiere", cascade="all, delete-orphan")
