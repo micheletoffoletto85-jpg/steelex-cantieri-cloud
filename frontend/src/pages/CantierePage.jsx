@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2 } from 'lucide-react'
+import EconomiaTab from './EconomiaTab'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -61,21 +62,22 @@ export default function CantierePage() {
         )}
       </div>
 
-      {/* Tab bar — due righe su mobile */}
-      <div className="grid grid-cols-3 gap-1 bg-gray-100 rounded-xl p-1 sm:grid-cols-5">
-        {[['info', 'Info', null], ['checklist', 'Checklist', CheckSquare], ['diario', 'Diario', BookOpen], ['mappe', 'Mappe', Map], ['voce', 'Voce AI', Mic]].map(([key, label, Icon]) => (
+      {/* Tab bar */}
+      <div className="grid grid-cols-3 gap-1 bg-gray-100 rounded-xl p-1 sm:grid-cols-6">
+        {[['info','Info',null],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro],['voce','Voce AI',Mic]].map(([key,label,Icon]) => (
           <button key={key} onClick={() => setTab(key)}
-            className={`flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-colors ${tab === key ? 'bg-white shadow text-steelex-orange' : 'text-gray-500'}`}>
-            {Icon && <Icon size={13} />}{label}
+            className={`flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-colors ${tab===key ? 'bg-white shadow text-steelex-orange' : 'text-gray-500'}`}>
+            {Icon && <Icon size={12} />}{label}
           </button>
         ))}
       </div>
 
-      {tab === 'info' && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} />}
-      {tab === 'checklist' && <ChecklistTab cantiereId={id} />}
-      {tab === 'diario' && <DiarioTab cantiereId={id} />}
-      {tab === 'mappe' && <MappeTab cantiereId={id} />}
-      {tab === 'voce' && <VoceAITab cantiereId={id} />}
+      {tab === 'info'     && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} />}
+      {tab === 'checklist'&& <ChecklistTab cantiereId={id} />}
+      {tab === 'diario'   && <DiarioTab cantiereId={id} />}
+      {tab === 'mappe'    && <MappeTab cantiereId={id} />}
+      {tab === 'economia' && <EconomiaTab cantiereId={id} />}
+      {tab === 'voce'     && <VoceAITab cantiereId={id} />}
     </div>
   )
 }
