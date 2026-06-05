@@ -399,10 +399,16 @@ def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Uten
 def crea_preventivo(cantiere_id: int, data: PreventivoCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
     _solo_admin_capo(user)
-    prev = PreventivoCantiere(cantiere_id=cantiere_id, **data.model_dump())
-    _calcola_preventivo(prev, data.voci, data.iva_perc, data.acconto_perc)
-    db.add(prev); db.commit(); db.refresh(prev)
-    return prev
+    try:
+        dump = data.model_dump()
+        voci = dump.pop("voci", [])
+        prev = PreventivoCantiere(cantiere_id=cantiere_id, **dump)
+        _calcola_preventivo(prev, voci, data.iva_perc, data.acconto_perc)
+        db.add(prev); db.commit(); db.refresh(prev)
+        return prev
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore creazione preventivo: {str(e)}")
 
 @router.put("/{cantiere_id}/preventivi/{prev_id}", response_model=PreventivoOut)
 def aggiorna_preventivo(cantiere_id: int, prev_id: int, data: PreventivoUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
