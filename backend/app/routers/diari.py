@@ -22,7 +22,8 @@ def lista_diari(cantiere_id: int, db: Session = Depends(get_db), user: Utente = 
 
 @router.post("", response_model=DiarioOut, status_code=201)
 def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    diario = DiarioGiornaliero(**data.model_dump(), autore_id=user.id, cantiere_id=cantiere_id)
+    # exclude cantiere_id dal body — arriva già dall'URL path
+    diario = DiarioGiornaliero(**data.model_dump(exclude={"cantiere_id"}), autore_id=user.id, cantiere_id=cantiere_id)
     db.add(diario)
     db.commit()
     db.refresh(diario)

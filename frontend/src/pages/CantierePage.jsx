@@ -80,7 +80,7 @@ export default function CantierePage() {
 
       {/* Tab bar — scroll orizzontale su mobile */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {[['info','Info',null],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro],['voce','Voce AI',Mic]].map(([key,label,Icon]) => (
+        {[['info','Info',null],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro],['voce','Report',Mic]].map(([key,label,Icon]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             {Icon && <Icon size={12} />}{label}
@@ -294,8 +294,9 @@ function VoceAITab({ cantiereId }) {
       <div className="card text-center space-y-4 py-6">
         <div className="flex items-center justify-center gap-2 text-gray-500 mb-1">
           <Languages size={18} />
-          <span className="text-sm font-medium">Registra in qualsiasi lingua — traduco io in italiano</span>
+          <span className="text-sm font-medium">Registra in qualsiasi lingua → trascrivo in italiano</span>
         </div>
+        <p className="text-xs text-gray-400">Usa anche il 🎙️ nei pin per registrare direttamente sul punto di lavoro</p>
 
         {stato === 'idle' && (
           <>
@@ -435,6 +436,11 @@ function MappeTab({ cantiereId }) {
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [reportTesto, setReportTesto] = useState('')
+  const [pinRecStato, setPinRecStato] = useState('idle') // idle | recording | processing
+  const pinRecorderRef = useRef(null)
+  const pinChunksRef = useRef([])
+  const pinTimerRef = useRef(null)
+  const [pinRecSecondi, setPinRecSecondi] = useState(0)
   const [uploadingFoto, setUploadingFoto] = useState(false)
   const imgContainerRef = useRef(null)
 
@@ -527,6 +533,43 @@ function MappeTab({ cantiereId }) {
       setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId]); setReportTesto(''); toast.success('Report aggiunto')
     } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
   }
+
+  // ── Registrazione vocale nel pin ──
+  const avviaPinRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = getSupportedMimeType()
+      const recorder = new MediaRecorder(stream, { mimeType })
+      pinChunksRef.current = []
+      recorder.ondataavailable = e => { if (e.data.size > 0) pinChunksRef.current.push(e.data) }
+      recorder.onstop = () => elaboraPinAudio(stream)
+      recorder.start()
+      pinRecorderRef.current = recorder
+      setPinRecStato('recording')
+      setPinRecSecondi(0)
+      pinTimerRef.current = setInterval(() => setPinRecSecondi(s => s + 1), 1000)
+    } catch { toast.error('Microfono non accessibile') }
+  }
+  const fermaPinRec = () => { clearInterval(pinTimerRef.current); pinRecorderRef.current?.stop() }
+  const elaboraPinAudio = async (stream) => {
+    stream.getTracks().forEach(t => t.stop())
+    setPinRecStato('processing')
+    try {
+      const mimeType = getSupportedMimeType()
+      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
+      const blob = new Blob(pinChunksRef.current, { type: mimeType })
+      const fd = new FormData()
+      fd.append('file', blob, `audio.${ext}`)
+      const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setReportTesto(prev => prev ? prev + ' ' + r.data.testo_italiano : r.data.testo_italiano)
+      toast.success('Trascritto! Modifica se vuoi, poi premi Invia.')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Errore trascrizione')
+    } finally {
+      setPinRecStato('idle')
+    }
+  }
+  const fmtPinSec = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
 
   const uploadFotoPin = async (file) => {
     if (!pinSelezionato) return
@@ -673,11 +716,34 @@ function MappeTab({ cantiereId }) {
                     </div>
                   ))}
                   {canContrib && (
-                    <div className="flex gap-2 pt-1">
-                      <input className="input-field text-sm py-2 flex-1" placeholder="Aggiungi aggiornamento..."
-                        value={reportTesto} onChange={e => setReportTesto(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && aggiungiReport()} />
-                      <button onClick={aggiungiReport} disabled={!reportTesto.trim()} className="btn-primary px-3 py-2 text-sm">Invia</button>
+                    <div className="space-y-2 pt-1">
+                      {/* Pulsante registrazione vocale */}
+                      {pinRecStato === 'idle' && (
+                        <button onClick={avviaPinRec} className="flex items-center gap-2 text-xs text-steelex-orange hover:underline">
+                          <Mic size={14} /> Registra voce → testo automatico
+                        </button>
+                      )}
+                      {pinRecStato === 'recording' && (
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                          <span className="text-xs text-red-500 font-mono">{fmtPinSec(pinRecSecondi)}</span>
+                          <button onClick={fermaPinRec} className="text-xs text-red-500 font-medium hover:underline flex items-center gap-1">
+                            <MicOff size={12} /> Ferma
+                          </button>
+                        </div>
+                      )}
+                      {pinRecStato === 'processing' && (
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                          <Loader2 size={12} className="animate-spin" /> Trascrizione in corso…
+                        </div>
+                      )}
+                      {/* Campo testo + invio */}
+                      <div className="flex gap-2">
+                        <input className="input-field text-sm py-2 flex-1" placeholder="Scrivi o registra un aggiornamento..."
+                          value={reportTesto} onChange={e => setReportTesto(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && aggiungiReport()} />
+                        <button onClick={aggiungiReport} disabled={!reportTesto.trim()} className="btn-primary px-3 py-2 text-sm">Invia</button>
+                      </div>
                     </div>
                   )}
                 </div>
