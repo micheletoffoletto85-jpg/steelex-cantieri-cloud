@@ -1,5 +1,6 @@
 import os
 import tempfile
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -16,6 +17,9 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/cantieri", tags=["Documenti"])
 
 ESTENSIONI_CONSENTITE = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".webp"}
+RUOLI_VALIDI = {"admin", "capo_cantiere", "fornitore", "cliente"}
+
+# ─── AUTORIZZAZIONI ───────────────────────────────────────────────────────────
 
 def _get_cantiere_con_accesso(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
@@ -30,7 +34,37 @@ def _get_cantiere_con_accesso(cantiere_id: int, db: Session, user: Utente) -> Ca
     raise HTTPException(status_code=403, detail="Accesso negato")
 
 def _can_write(user: Utente) -> bool:
+    """Può caricare documenti e aggiungere pin."""
+    return user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere)
+
+def _can_contribute(user: Utente) -> bool:
+    """Può aggiungere report e foto ai pin (anche fornitore)."""
     return user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.fornitore)
+
+def _pin_visibile(pin: dict, user: Utente) -> bool:
+    """Controlla se il pin è visibile per questo utente."""
+    ruolo = user.ruolo.value
+    visibilita = pin.get("visibilita", ["admin", "capo_cantiere", "fornitore", "cliente"])
+    if ruolo in visibilita:
+        return True
+    if ruolo == "fornitore" and pin.get("assegnato_a") == "fornitore":
+        return True
+    return False
+
+def _filtra_pin(pins: list, user: Utente) -> list:
+    if user.ruolo == RuoloUtente.admin or user.ruolo == RuoloUtente.capo_cantiere:
+        return pins
+    return [p for p in pins if _pin_visibile(p, user)]
+
+def _get_pin(doc: Documento, pin_id: int) -> Optional[dict]:
+    return next((p for p in (doc.pin_dati or []) if p.get("id") == pin_id), None)
+
+def _salva_pin_dati(doc: Documento, pins: list, db: Session):
+    doc.pin_dati = pins
+    db.commit()
+    db.refresh(doc)
+
+# ─── SCHEMAS ─────────────────────────────────────────────────────────────────
 
 class DocumentoOut(BaseModel):
     id: int
@@ -41,88 +75,215 @@ class DocumentoOut(BaseModel):
     versione: int
     pin_dati: Any
     caricato_da: Optional[int]
-
     class Config:
         from_attributes = True
+
+class PinCreate(BaseModel):
+    x: float
+    y: float
+    tipo: str = "lavorazione"  # lavorazione, criticita, nota
+    nota: str
+    assegnato_a: str = "capo_cantiere"  # ruolo destinatario
+    visibilita: List[str] = ["admin", "capo_cantiere", "fornitore"]
+    stato: str = "aperto"  # aperto, in_lavorazione, risolto
 
 class PinUpdate(BaseModel):
     pin_dati: list
 
+class PinStatoUpdate(BaseModel):
+    stato: str  # aperto, in_lavorazione, risolto
+
+class ReportCreate(BaseModel):
+    testo: str
+
+# ─── DOCUMENTI ───────────────────────────────────────────────────────────────
+
 @router.get("/{cantiere_id}/documenti", response_model=List[DocumentoOut])
 def lista_documenti(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _get_cantiere_con_accesso(cantiere_id, db, user)
-    return db.query(Documento).filter(Documento.cantiere_id == cantiere_id).order_by(Documento.creato_il.desc()).all()
+    docs = db.query(Documento).filter(Documento.cantiere_id == cantiere_id).order_by(Documento.creato_il.desc()).all()
+    # Filtra pin per ruolo
+    for doc in docs:
+        doc.pin_dati = _filtra_pin(doc.pin_dati or [], user)
+    return docs
 
 @router.post("/{cantiere_id}/documenti", response_model=DocumentoOut, status_code=201)
 async def carica_documento(
-    cantiere_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
+    cantiere_id: int, file: UploadFile = File(...),
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
 ):
     _get_cantiere_con_accesso(cantiere_id, db, user)
     if not _can_write(user):
         raise HTTPException(status_code=403, detail="Non autorizzato al caricamento")
-
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ESTENSIONI_CONSENTITE:
         raise HTTPException(status_code=400, detail=f"Tipo file non consentito: {ext}")
-
     contenuto = await file.read()
     if len(contenuto) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File troppo grande (max 50MB)")
-
-    tipo = ext.lstrip(".")
     url, chiave = salva_file(contenuto, f"documenti/{cantiere_id}", ext)
-
     doc = Documento(
-        cantiere_id=cantiere_id,
-        nome=file.filename or chiave,
-        tipo=tipo,
-        url=url,
-        dimensione=len(contenuto),
-        caricato_da=user.id,
-        pin_dati=[],
+        cantiere_id=cantiere_id, nome=file.filename or chiave,
+        tipo=ext.lstrip("."), url=url, dimensione=len(contenuto),
+        caricato_da=user.id, pin_dati=[],
     )
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
+    db.add(doc); db.commit(); db.refresh(doc)
     return doc
 
-@router.put("/{cantiere_id}/documenti/{doc_id}/pin", response_model=DocumentoOut)
-def aggiorna_pin(
-    cantiere_id: int,
-    doc_id: int,
-    data: PinUpdate,
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
+@router.delete("/{cantiere_id}/documenti/{doc_id}", status_code=204)
+def elimina_documento(
+    cantiere_id: int, doc_id: int,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
 ):
     _get_cantiere_con_accesso(cantiere_id, db, user)
     if not _can_write(user):
-        raise HTTPException(status_code=403, detail="Non autorizzato a modificare i pin")
+        raise HTTPException(status_code=403, detail="Non autorizzato")
     doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento non trovato")
-    doc.pin_dati = data.pin_dati
-    db.commit()
-    db.refresh(doc)
+    elimina_file(_chiave_da_url(doc.url))
+    db.delete(doc); db.commit()
+
+# ─── PIN ─────────────────────────────────────────────────────────────────────
+
+@router.post("/{cantiere_id}/documenti/{doc_id}/pin", response_model=DocumentoOut)
+def aggiungi_pin(
+    cantiere_id: int, doc_id: int, data: PinCreate,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_write(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato ad aggiungere pin")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pin = {
+        "id": int(datetime.now().timestamp() * 1000),
+        "x": data.x, "y": data.y,
+        "tipo": data.tipo, "nota": data.nota,
+        "autore": f"{user.nome} {user.cognome}",
+        "ruolo_autore": user.ruolo.value,
+        "assegnato_a": data.assegnato_a,
+        "visibilita": data.visibilita,
+        "stato": data.stato,
+        "creato_il": datetime.now().isoformat(),
+        "foto_urls": [],
+        "reports": [],
+    }
+    pins = list(doc.pin_dati or [])
+    pins.append(pin)
+    _salva_pin_dati(doc, pins, db)
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc
+
+@router.put("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/stato", response_model=DocumentoOut)
+def aggiorna_stato_pin(
+    cantiere_id: int, doc_id: int, pin_id: int, data: PinStatoUpdate,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_write(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pins = list(doc.pin_dati or [])
+    pin = _get_pin(doc, pin_id)
+    if not pin:
+        raise HTTPException(status_code=404, detail="Pin non trovato")
+    pin["stato"] = data.stato
+    _salva_pin_dati(doc, pins, db)
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
+    return doc
+
+@router.delete("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}", response_model=DocumentoOut)
+def elimina_pin(
+    cantiere_id: int, doc_id: int, pin_id: int,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_write(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pins = [p for p in (doc.pin_dati or []) if p.get("id") != pin_id]
+    _salva_pin_dati(doc, pins, db)
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
+    return doc
+
+# ─── PIN FOTO ────────────────────────────────────────────────────────────────
+
+@router.post("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/foto", response_model=DocumentoOut)
+async def upload_foto_pin(
+    cantiere_id: int, doc_id: int, pin_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_contribute(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pin = _get_pin(doc, pin_id)
+    if not pin:
+        raise HTTPException(status_code=404, detail="Pin non trovato")
+    # Fornitore può caricare solo su pin assegnati a lui
+    if user.ruolo == RuoloUtente.fornitore and pin.get("assegnato_a") != "fornitore":
+        raise HTTPException(status_code=403, detail="Pin non assegnato a te")
+    ext = os.path.splitext(file.filename or "foto.jpg")[1].lower() or ".jpg"
+    contenuto = await file.read()
+    url, _ = salva_file(contenuto, f"pin-foto/{cantiere_id}", ext)
+    pin.setdefault("foto_urls", []).append(url)
+    _salva_pin_dati(doc, doc.pin_dati, db)
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
+    return doc
+
+# ─── PIN REPORT ──────────────────────────────────────────────────────────────
+
+@router.post("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/report", response_model=DocumentoOut)
+def aggiungi_report_pin(
+    cantiere_id: int, doc_id: int, pin_id: int, data: ReportCreate,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_contribute(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pin = _get_pin(doc, pin_id)
+    if not pin:
+        raise HTTPException(status_code=404, detail="Pin non trovato")
+    # Fornitore solo su pin assegnati a lui
+    if user.ruolo == RuoloUtente.fornitore and pin.get("assegnato_a") != "fornitore":
+        raise HTTPException(status_code=403, detail="Pin non assegnato a te")
+    report = {
+        "id": int(datetime.now().timestamp() * 1000),
+        "testo": data.testo,
+        "autore": f"{user.nome} {user.cognome}",
+        "ruolo": user.ruolo.value,
+        "data": datetime.now().isoformat(),
+    }
+    pin.setdefault("reports", []).append(report)
+    _salva_pin_dati(doc, doc.pin_dati, db)
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
+    return doc
+
+# ─── PREVIEW ─────────────────────────────────────────────────────────────────
 
 @router.get("/{cantiere_id}/documenti/{doc_id}/preview")
 def preview_documento(
-    cantiere_id: int,
-    doc_id: int,
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
+    cantiere_id: int, doc_id: int,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
 ):
     _get_cantiere_con_accesso(cantiere_id, db, user)
     doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento non trovato")
-
     tipo = (doc.tipo or "").lower()
 
-    # Immagini su R2: scarica lato server e restituisci direttamente (evita CORS)
     if doc.url.startswith("http") and tipo in ("jpg", "jpeg", "png", "gif", "webp"):
         try:
             import urllib.request
@@ -133,70 +294,39 @@ def preview_documento(
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Errore lettura file R2: {e}")
 
-    # Per PDF (da R2 o locale): converti prima pagina in PNG
     if tipo == "pdf":
         try:
             contenuto, _ = leggi_file(_chiave_da_url(doc.url))
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"File non trovato: {e}")
-
-        # Cache PNG su disco locale
-        cache_key = f"preview_{doc.id}.png"
-        cache_path = os.path.join(settings.UPLOAD_DIR, "cache", cache_key)
+        cache_path = os.path.join(settings.UPLOAD_DIR, "cache", f"preview_{doc.id}.png")
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-
         if not os.path.exists(cache_path):
             try:
                 import fitz
                 with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                    tmp.write(contenuto)
-                    tmp_path = tmp.name
+                    tmp.write(contenuto); tmp_path = tmp.name
                 pdf = fitz.open(tmp_path)
                 pix = pdf[0].get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
-                pix.save(cache_path)
-                pdf.close()
-                os.unlink(tmp_path)
+                pix.save(cache_path); pdf.close(); os.unlink(tmp_path)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Errore conversione PDF: {e}")
-
         with open(cache_path, "rb") as f:
-            png_data = f.read()
-        return Response(content=png_data, media_type="image/png")
+            return Response(content=f.read(), media_type="image/png")
 
-    # Immagini da filesystem locale
     if tipo in ("jpg", "jpeg", "png", "gif", "webp"):
         try:
-            contenuto, content_type = leggi_file(_chiave_da_url(doc.url))
-            return Response(content=contenuto, media_type=content_type)
+            contenuto, ct = leggi_file(_chiave_da_url(doc.url))
+            return Response(content=contenuto, media_type=ct)
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"File non trovato: {e}")
 
     raise HTTPException(status_code=415, detail="Tipo non supportato per anteprima")
 
-@router.delete("/{cantiere_id}/documenti/{doc_id}", status_code=204)
-def elimina_documento(
-    cantiere_id: int,
-    doc_id: int,
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
-):
-    _get_cantiere_con_accesso(cantiere_id, db, user)
-    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
-        raise HTTPException(status_code=403, detail="Solo admin e capo cantiere possono eliminare documenti")
-    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Documento non trovato")
-    elimina_file(_chiave_da_url(doc.url))
-    db.delete(doc)
-    db.commit()
+# ─── HELPER ──────────────────────────────────────────────────────────────────
 
 def _chiave_da_url(url: str) -> str:
-    """Estrae chiave R2 o percorso locale dall'URL salvata nel DB."""
     if url.startswith("http"):
-        # URL R2 pubblica: https://pub-xxx.r2.dev/documenti/1/file.pdf
-        # Ritorna solo la chiave (parte dopo il dominio)
         from urllib.parse import urlparse
         return urlparse(url).path.lstrip("/")
-    # URL locale: /uploads/documenti/1/file.pdf
-    percorso_rel = url.removeprefix("/uploads/")
-    return os.path.join(settings.UPLOAD_DIR, percorso_rel)
+    return os.path.join(settings.UPLOAD_DIR, url.removeprefix("/uploads/"))

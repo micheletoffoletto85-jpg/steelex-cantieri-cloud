@@ -396,22 +396,30 @@ function useAuthImage(url) {
 
 const TIPO_PIN = {
   lavorazione: { label: 'Lavorazione', color: '#2563eb', bg: 'bg-blue-100 text-blue-700' },
-  criticita: { label: 'Criticità', color: '#dc2626', bg: 'bg-red-100 text-red-700' },
-  nota: { label: 'Nota', color: '#d97706', bg: 'bg-yellow-100 text-yellow-700' },
+  criticita:   { label: 'Criticità',   color: '#dc2626', bg: 'bg-red-100 text-red-700'   },
+  nota:        { label: 'Nota',        color: '#d97706', bg: 'bg-yellow-100 text-yellow-700' },
 }
+const STATO_PIN = {
+  aperto:        { label: 'Aperto',        bg: 'bg-red-100 text-red-700'    },
+  in_lavorazione:{ label: 'In Lavorazione',bg: 'bg-yellow-100 text-yellow-700'},
+  risolto:       { label: 'Risolto',       bg: 'bg-green-100 text-green-700' },
+}
+const ASSEGNATO_LABEL = { admin:'Admin', capo_cantiere:'Capo Cantiere', fornitore:'Fornitore', cliente:'Cliente' }
 
 function MappeTab({ cantiereId }) {
   const { utente } = useAuth()
   const qc = useQueryClient()
   const [docSelezionato, setDocSelezionato] = useState(null)
-  const [modalPin, setModalPin] = useState(null) // { x, y } coordinate relative 0-1
-  const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '' })
+  const [modalPin, setModalPin] = useState(null)
+  const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [uploading, setUploading] = useState(false)
-  const [imgDims, setImgDims] = useState(null) // { width, height } del contenitore
+  const [reportTesto, setReportTesto] = useState('')
+  const [uploadingFoto, setUploadingFoto] = useState(false)
   const imgContainerRef = useRef(null)
 
-  const canWrite = utente?.ruolo !== 'cliente'
+  const canWrite   = ['admin','capo_cantiere'].includes(utente?.ruolo)
+  const canContrib = ['admin','capo_cantiere','fornitore'].includes(utente?.ruolo)
 
   const { data: docs = [], isLoading } = useQuery(
     ['documenti', cantiereId],
@@ -419,86 +427,83 @@ function MappeTab({ cantiereId }) {
     { enabled: !!utente, retry: 2, staleTime: 0 }
   )
 
-  // Aggiorna il doc selezionato quando arrivano dati freschi
   useEffect(() => {
     if (docSelezionato) {
-      const aggiornato = docs.find(d => d.id === docSelezionato.id)
-      if (aggiornato) setDocSelezionato(aggiornato)
+      const ag = docs.find(d => d.id === docSelezionato.id)
+      if (ag) setDocSelezionato(ag)
     }
   }, [docs])
 
-  const uploadMutation = useMutation(
-    async (file) => {
-      const fd = new FormData()
-      fd.append('file', file)
-      return api.post(`/cantieri/${cantiereId}/documenti`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-    },
-    {
-      onSuccess: (r) => {
-        qc.invalidateQueries(['documenti', cantiereId])
-        setDocSelezionato(r.data)
-        toast.success('Mappa caricata!')
-      },
-      onError: err => toast.error(err.response?.data?.detail || 'Errore upload'),
+  // Aggiorna pin selezionato con dati freschi
+  useEffect(() => {
+    if (pinSelezionato && docSelezionato) {
+      const pin = (docSelezionato.pin_dati || []).find(p => p.id === pinSelezionato.id)
+      if (pin) setPinSelezionato(pin)
     }
-  )
+  }, [docSelezionato])
 
+  const uploadMutation = useMutation(
+    async (file) => { const fd = new FormData(); fd.append('file', file); return api.post(`/cantieri/${cantiereId}/documenti`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }) },
+    { onSuccess: r => { qc.invalidateQueries(['documenti', cantiereId]); setDocSelezionato(r.data); toast.success('Mappa caricata!') },
+      onError: err => toast.error(err.response?.data?.detail || 'Errore upload') }
+  )
   const deleteMutation = useMutation(
     (docId) => api.delete(`/cantieri/${cantiereId}/documenti/${docId}`),
-    {
-      onSuccess: () => {
-        qc.invalidateQueries(['documenti', cantiereId])
-        setDocSelezionato(null)
-        toast.success('Documento eliminato')
-      }
-    }
+    { onSuccess: () => { qc.invalidateQueries(['documenti', cantiereId]); setDocSelezionato(null); toast.success('Eliminato') } }
   )
 
   const salvaPin = async () => {
     if (!docSelezionato || !modalPin || !pinForm.nota.trim()) return
-    const nuovi = [...(docSelezionato.pin_dati || []), {
-      id: Date.now(),
-      x: modalPin.x,
-      y: modalPin.y,
-      tipo: pinForm.tipo,
-      nota: pinForm.nota,
-      autore: `${utente?.nome || ''} ${utente?.cognome || ''}`.trim(),
-    }]
     try {
-      const r = await api.put(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin`, { pin_dati: nuovi })
-      setDocSelezionato(r.data)
-      qc.invalidateQueries(['documenti', cantiereId])
-      setModalPin(null)
-      setPinForm({ tipo: 'lavorazione', nota: '' })
-      toast.success('Pin aggiunto!')
-    } catch { toast.error('Errore salvataggio pin') }
+      const r = await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin`, { x: modalPin.x, y: modalPin.y, ...pinForm })
+      setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId])
+      setModalPin(null); toast.success('Pin aggiunto!')
+    } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
   }
 
   const eliminaPin = async (pinId) => {
-    const nuovi = (docSelezionato.pin_dati || []).filter(p => p.id !== pinId)
     try {
-      const r = await api.put(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin`, { pin_dati: nuovi })
-      setDocSelezionato(r.data)
-      qc.invalidateQueries(['documenti', cantiereId])
-      setPinSelezionato(null)
-      toast.success('Pin eliminato')
-    } catch { toast.error('Errore eliminazione pin') }
+      const r = await api.delete(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinId}`)
+      setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId]); setPinSelezionato(null); toast.success('Pin eliminato')
+    } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
+  }
+
+  const aggiornaStato = async (pinId, stato) => {
+    try {
+      const r = await api.put(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinId}/stato`, { stato })
+      setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId]); toast.success('Stato aggiornato')
+    } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
+  }
+
+  const aggiungiReport = async () => {
+    if (!reportTesto.trim() || !pinSelezionato) return
+    try {
+      const r = await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/report`, { testo: reportTesto })
+      setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId]); setReportTesto(''); toast.success('Report aggiunto')
+    } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
+  }
+
+  const uploadFotoPin = async (file) => {
+    if (!pinSelezionato) return
+    setUploadingFoto(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId]); toast.success('Foto aggiunta')
+    } catch (e) { toast.error(e.response?.data?.detail || 'Errore upload foto')
+    } finally { setUploadingFoto(false) }
   }
 
   const onClickMappa = (e) => {
     if (!canWrite) return
-    // Se ho cliccato su un pin (ha stopPropagation), non arrivo qui
-    const container = imgContainerRef.current
-    if (!container) return
+    const container = imgContainerRef.current; if (!container) return
     const rect = container.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / rect.width
-    const y = (e.clientY - rect.top) / rect.height
+    setModalPin({ x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height })
+    setPinForm({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
     setPinSelezionato(null)
-    setModalPin({ x, y })
-    setPinForm({ tipo: 'lavorazione', nota: '' })
   }
 
-  const supportsPreview = (doc) => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'].includes(doc?.tipo?.toLowerCase())
+  const supportsPreview = (doc) => ['jpg','jpeg','png','gif','webp','pdf'].includes(doc?.tipo?.toLowerCase())
   const previewUrl = (doc) => `/cantieri/${cantiereId}/documenti/${doc.id}/preview`
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
@@ -514,114 +519,138 @@ function MappeTab({ cantiereId }) {
             <p className="text-xs text-gray-400">JPG, PNG, PDF — max 50MB</p>
           </div>
           <input type="file" className="hidden" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf"
-            onChange={e => {
-              if (e.target.files[0]) {
-                setUploading(true)
-                uploadMutation.mutate(e.target.files[0], { onSettled: () => setUploading(false) })
-              }
-            }} disabled={uploading} />
+            onChange={e => { if (e.target.files[0]) { setUploading(true); uploadMutation.mutate(e.target.files[0], { onSettled: () => setUploading(false) }) } }} disabled={uploading} />
         </label>
       )}
 
       {/* Lista documenti */}
       {docs.length === 0 ? (
-        <div className="card text-center py-8 text-gray-400">
-          <Map size={32} className="mx-auto mb-2 opacity-30" />
-          <p>Nessuna mappa caricata</p>
-        </div>
+        <div className="card text-center py-8 text-gray-400"><Map size={32} className="mx-auto mb-2 opacity-30" /><p>Nessuna mappa caricata</p></div>
       ) : (
         <div className="space-y-2">
           {docs.map(doc => (
-            <div key={doc.id}
-              className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 transition-colors ${docSelezionato?.id === doc.id ? 'border-steelex-orange' : 'border-transparent'}`}
+            <div key={doc.id} className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 transition-colors ${docSelezionato?.id === doc.id ? 'border-steelex-orange' : 'border-transparent'}`}
               onClick={() => { setDocSelezionato(docSelezionato?.id === doc.id ? null : doc); setPinSelezionato(null) }}>
-              <div className="p-2 bg-gray-100 rounded-lg">
-                {doc.tipo === 'pdf' ? <FileText size={18} className="text-red-500" /> : <Map size={18} className="text-steelex-orange" />}
-              </div>
+              <div className="p-2 bg-gray-100 rounded-lg">{doc.tipo === 'pdf' ? <FileText size={18} className="text-red-500" /> : <Map size={18} className="text-steelex-orange" />}</div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{doc.nome}</p>
                 <p className="text-xs text-gray-400">{doc.tipo?.toUpperCase()} · {doc.pin_dati?.length || 0} pin</p>
               </div>
-              {(utente?.ruolo === 'admin' || utente?.ruolo === 'capo_cantiere') && (
-                <button onClick={e => { e.stopPropagation(); if (confirm('Eliminare questo documento?')) deleteMutation.mutate(doc.id) }}
-                  className="p-1 text-gray-300 hover:text-red-500 transition-colors">
-                  <Trash2 size={16} />
-                </button>
+              {canWrite && (
+                <button onClick={e => { e.stopPropagation(); if (confirm('Eliminare?')) deleteMutation.mutate(doc.id) }} className="p-1 text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
               )}
             </div>
           ))}
         </div>
       )}
 
-      {/* Viewer mappa selezionata */}
+      {/* Viewer */}
       {docSelezionato && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-sm text-gray-800 truncate">{docSelezionato.nome}</h3>
-            <button onClick={() => { setDocSelezionato(null); setPinSelezionato(null) }} className="p-1 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+            <button onClick={() => { setDocSelezionato(null); setPinSelezionato(null) }} className="p-1 text-gray-400"><X size={16} /></button>
           </div>
 
-          {supportsPreview(docSelezionato) ? (
-            <>
-              {canWrite && (
-                <p className="text-xs text-steelex-orange bg-orange-50 rounded-lg px-3 py-2 flex items-center gap-2">
-                  <MapPin size={12} /> Clicca sulla mappa per aggiungere un pin
-                </p>
-              )}
+          {supportsPreview(docSelezionato) ? (<>
+            {canWrite && <p className="text-xs text-steelex-orange bg-orange-50 rounded-lg px-3 py-2 flex items-center gap-2"><MapPin size={12} /> Clicca sulla mappa per aggiungere un pin</p>}
 
-              {/* Contenitore immagine con pin overlay */}
-              <MappaViewer
-                url={previewUrl(docSelezionato)}
-                nome={docSelezionato.nome}
-                pins={docSelezionato.pin_dati || []}
-                canWrite={canWrite}
-                pinSelezionato={pinSelezionato}
-                onClickMappa={onClickMappa}
-                onClickPin={(pin) => setPinSelezionato(pinSelezionato?.id === pin.id ? null : pin)}
-                containerRef={imgContainerRef}
-              />
+            <MappaViewer url={previewUrl(docSelezionato)} nome={docSelezionato.nome}
+              pins={docSelezionato.pin_dati || []} canWrite={canWrite}
+              pinSelezionato={pinSelezionato}
+              onClickMappa={onClickMappa}
+              onClickPin={pin => setPinSelezionato(pinSelezionato?.id === pin.id ? null : pin)}
+              containerRef={imgContainerRef} />
 
-              {/* Dettaglio pin selezionato */}
-              {pinSelezionato && (
-                <div className="rounded-xl border-2 p-3 space-y-1" style={{ borderColor: TIPO_PIN[pinSelezionato.tipo]?.color }}>
+            {/* Dettaglio pin selezionato */}
+            {pinSelezionato && (
+              <div className="rounded-xl border-2 space-y-3 overflow-hidden" style={{ borderColor: TIPO_PIN[pinSelezionato.tipo]?.color }}>
+                {/* Header pin */}
+                <div className="p-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TIPO_PIN[pinSelezionato.tipo]?.bg}`}>
-                        {TIPO_PIN[pinSelezionato.tipo]?.label}
-                      </span>
-                      <p className="mt-1.5 text-sm text-gray-800">{pinSelezionato.nota}</p>
-                      {pinSelezionato.autore && <p className="text-xs text-gray-400 mt-0.5">— {pinSelezionato.autore}</p>}
+                    <div className="flex flex-wrap gap-1">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TIPO_PIN[pinSelezionato.tipo]?.bg}`}>{TIPO_PIN[pinSelezionato.tipo]?.label}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATO_PIN[pinSelezionato.stato]?.bg || 'bg-gray-100 text-gray-600'}`}>{STATO_PIN[pinSelezionato.stato]?.label || pinSelezionato.stato}</span>
+                      {pinSelezionato.assegnato_a && <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">→ {ASSEGNATO_LABEL[pinSelezionato.assegnato_a]}</span>}
                     </div>
                     {canWrite && (
-                      <button onClick={() => eliminaPin(pinSelezionato.id)} className="text-red-400 hover:text-red-600 p-1 flex-shrink-0">
-                        <Trash2 size={16} />
-                      </button>
+                      <button onClick={() => eliminaPin(pinSelezionato.id)} className="text-red-400 hover:text-red-600 p-1 flex-shrink-0"><Trash2 size={15} /></button>
                     )}
                   </div>
-                </div>
-              )}
+                  <p className="text-sm text-gray-800 font-medium">{pinSelezionato.nota}</p>
+                  {pinSelezionato.autore && <p className="text-xs text-gray-400">Creato da {pinSelezionato.autore}</p>}
 
-              {/* Legenda pin */}
-              {(docSelezionato.pin_dati?.length > 0) && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pin ({docSelezionato.pin_dati.length})</p>
-                  {docSelezionato.pin_dati.map(pin => (
-                    <button key={pin.id} onClick={() => setPinSelezionato(pinSelezionato?.id === pin.id ? null : pin)}
-                      className={`w-full text-left flex items-start gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors ${pinSelezionato?.id === pin.id ? 'bg-gray-100' : 'hover:bg-gray-50'}`}>
-                      <MapPin size={14} style={{ color: TIPO_PIN[pin.tipo]?.color, flexShrink: 0, marginTop: 2 }} fill="currentColor" />
-                      <span className="flex-1 truncate text-gray-700">{pin.nota}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${TIPO_PIN[pin.tipo]?.bg}`}>{TIPO_PIN[pin.tipo]?.label}</span>
-                    </button>
-                  ))}
+                  {/* Cambia stato */}
+                  {canWrite && (
+                    <div className="flex gap-1 pt-1">
+                      {Object.entries(STATO_PIN).map(([k, v]) => (
+                        <button key={k} onClick={() => aggiornaStato(pinSelezionato.id, k)}
+                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinSelezionato.stato === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="card text-center py-6 text-gray-400">
-              <FileText size={32} className="mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Formato non supportato per anteprima</p>
-              <p className="text-xs mt-1">{docSelezionato.tipo?.toUpperCase()}</p>
-            </div>
+
+                {/* Foto pin */}
+                {(pinSelezionato.foto_urls?.length > 0 || canContrib) && (
+                  <div className="px-3 space-y-2">
+                    {pinSelezionato.foto_urls?.length > 0 && (
+                      <div className="flex gap-2 flex-wrap">
+                        {pinSelezionato.foto_urls.map((url, i) => (
+                          <img key={i} src={url} className="w-20 h-20 object-cover rounded-lg border" alt={`foto ${i+1}`} />
+                        ))}
+                      </div>
+                    )}
+                    {canContrib && (
+                      <label className={`flex items-center gap-2 text-xs text-steelex-orange cursor-pointer hover:underline ${uploadingFoto ? 'opacity-50' : ''}`}>
+                        <Camera size={14} />{uploadingFoto ? 'Caricamento...' : 'Aggiungi foto'}
+                        <input type="file" accept="image/*" capture="environment" className="hidden"
+                          onChange={e => e.target.files[0] && uploadFotoPin(e.target.files[0])} disabled={uploadingFoto} />
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                {/* Reports */}
+                <div className="bg-gray-50 px-3 py-3 space-y-2">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Aggiornamenti ({pinSelezionato.reports?.length || 0})</p>
+                  {(pinSelezionato.reports || []).map(rep => (
+                    <div key={rep.id} className="bg-white rounded-lg p-2 border space-y-0.5">
+                      <p className="text-sm text-gray-800">{rep.testo}</p>
+                      <p className="text-xs text-gray-400">{rep.autore} · {new Date(rep.data).toLocaleDateString('it-IT')}</p>
+                    </div>
+                  ))}
+                  {canContrib && (
+                    <div className="flex gap-2 pt-1">
+                      <input className="input-field text-sm py-2 flex-1" placeholder="Aggiungi aggiornamento..."
+                        value={reportTesto} onChange={e => setReportTesto(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && aggiungiReport()} />
+                      <button onClick={aggiungiReport} disabled={!reportTesto.trim()} className="btn-primary px-3 py-2 text-sm">Invia</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Legenda pin */}
+            {(docSelezionato.pin_dati?.length > 0) && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pin ({docSelezionato.pin_dati.length})</p>
+                {docSelezionato.pin_dati.map(pin => (
+                  <button key={pin.id} onClick={() => setPinSelezionato(pinSelezionato?.id === pin.id ? null : pin)}
+                    className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors ${pinSelezionato?.id === pin.id ? 'bg-gray-100' : 'hover:bg-gray-50'}`}>
+                    <MapPin size={14} style={{ color: TIPO_PIN[pin.tipo]?.color, flexShrink: 0 }} fill="currentColor" />
+                    <span className="flex-1 truncate text-gray-700">{pin.nota}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${STATO_PIN[pin.stato]?.bg || 'bg-gray-100 text-gray-500'}`}>{STATO_PIN[pin.stato]?.label || '—'}</span>
+                    {pin.reports?.length > 0 && <span className="text-xs text-gray-400">{pin.reports.length} rep.</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>) : (
+            <div className="text-center py-6 text-gray-400"><FileText size={32} className="mx-auto mb-2 opacity-30" /><p className="text-sm">Formato non supportato</p></div>
           )}
         </div>
       )}
@@ -630,23 +659,41 @@ function MappeTab({ cantiereId }) {
       {modalPin && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setModalPin(null)}>
           <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3 shadow-xl" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-gray-900">Aggiungi pin</h3>
+            <h3 className="font-bold text-gray-900">Nuovo pin</h3>
+            {/* Tipo */}
             <div className="grid grid-cols-3 gap-2">
               {Object.entries(TIPO_PIN).map(([k, v]) => (
                 <button key={k} onClick={() => setPinForm(f => ({ ...f, tipo: k }))}
-                  className={`py-3 rounded-xl text-xs font-medium border-2 transition-colors flex flex-col items-center gap-1 ${pinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
-                  {k === 'criticita' ? <AlertTriangle size={16} /> : k === 'lavorazione' ? <Wrench size={16} /> : <MapPin size={16} />}
+                  className={`py-2.5 rounded-xl text-xs font-medium border-2 transition-colors flex flex-col items-center gap-1 ${pinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
+                  {k === 'criticita' ? <AlertTriangle size={15} /> : k === 'lavorazione' ? <Wrench size={15} /> : <MapPin size={15} />}
                   {v.label}
                 </button>
               ))}
             </div>
-            <textarea
-              className="input-field h-24 resize-none"
-              placeholder="Descrivi la lavorazione o criticità..."
-              value={pinForm.nota}
-              onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))}
-              autoFocus
-            />
+            {/* Descrizione */}
+            <textarea className="input-field h-20 resize-none" placeholder="Descrizione..." value={pinForm.nota} onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))} autoFocus />
+            {/* Assegnato a */}
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Assegnato a</label>
+              <select className="input-field" value={pinForm.assegnato_a} onChange={e => setPinForm(f => ({ ...f, assegnato_a: e.target.value }))}>
+                <option value="capo_cantiere">Capo Cantiere</option>
+                <option value="fornitore">Fornitore</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            {/* Visibilità */}
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>
+              <div className="flex gap-2 flex-wrap">
+                {['admin','capo_cantiere','fornitore','cliente'].map(r => (
+                  <button key={r} onClick={() => setPinForm(f => ({
+                    ...f, visibilita: f.visibilita.includes(r) ? f.visibilita.filter(x=>x!==r) : [...f.visibilita, r]
+                  }))} className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinForm.visibilita.includes(r) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
+                    {ASSEGNATO_LABEL[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="flex gap-2">
               <button onClick={() => setModalPin(null)} className="btn-secondary flex-1">Annulla</button>
               <button onClick={salvaPin} disabled={!pinForm.nota.trim()} className="btn-primary flex-1">Aggiungi</button>
