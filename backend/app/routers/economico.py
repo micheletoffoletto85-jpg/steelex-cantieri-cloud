@@ -4,7 +4,8 @@ from typing import List, Optional
 from datetime import date
 import os
 from app.database import get_db
-from app.models.economico import OrdineAcquisto, FatturaFornitore, SAL, StatoOrdine, StatoFattura, StatoSAL, CategoriaOrdine
+from app.models.economico import OrdineAcquisto, FatturaFornitore, SAL, StatoOrdine, StatoFattura, StatoSAL, CategoriaOrdine, PreventivoCantiere, BollaConsegna, StatoPreventivo, StatoBolla
+from typing import Any
 from app.models.cantiere import Cantiere
 from app.models.utente import RuoloUtente, Utente
 from app.auth import get_current_user
@@ -158,18 +159,25 @@ def overview_economia(cantiere_id: int, db: Session = Depends(get_db), user: Ute
     fatture = db.query(FatturaFornitore).filter(FatturaFornitore.cantiere_id == cantiere_id).all()
     sal_list = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).all()
 
+    preventivi = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).all()
+    bolle = db.query(BollaConsegna).filter(BollaConsegna.cantiere_id == cantiere_id).all()
+
     impegnato = sum(o.importo_totale for o in ordini if o.stato in ("confermato", "evaso"))
     spesa_reale = sum(f.importo_totale for f in fatture if f.stato == "pagata")
+    spesa_bolle = sum(b.importo_stimato for b in bolle if b.stato == "aperta")
     fatturato = sum(s.importo for s in sal_list if s.stato in ("emesso", "pagato"))
     da_incassare = sum(s.importo for s in sal_list if s.stato == "emesso")
+    # Preventivo accettato = ricavo atteso
+    prev_accettato = next((p for p in preventivi if p.stato == "accettato"), None)
+    ricavo_atteso = prev_accettato.totale if prev_accettato else (cantiere.budget or 0)
 
     return EconomiaOverview(
-        budget=cantiere.budget or 0,
+        budget=ricavo_atteso,
         impegnato=impegnato,
-        spesa_reale=spesa_reale,
+        spesa_reale=spesa_reale + spesa_bolle,
         fatturato=fatturato,
         da_incassare=da_incassare,
-        margine=(cantiere.budget or 0) - spesa_reale,
+        margine=ricavo_atteso - (spesa_reale + spesa_bolle),
     )
 
 
@@ -313,3 +321,192 @@ def elimina_sal(cantiere_id: int, sal_id: int, db: Session = Depends(get_db), us
     if not sal:
         raise HTTPException(status_code=404, detail="SAL non trovato")
     db.delete(sal); db.commit()
+
+
+# ─── PREVENTIVI ───────────────────────────────────────────────────────────────
+
+class PreventivoOut(BaseModel):
+    id: int
+    cantiere_id: int
+    numero: Optional[str]
+    data: Optional[date]
+    validita_giorni: int
+    voci: Any
+    subtotale: float
+    costo_totale: float
+    iva_perc: float
+    totale: float
+    acconto_perc: float
+    acconto_importo: float
+    acconto_ricevuto: float
+    data_acconto: Optional[date]
+    stato: str
+    pdf_url: Optional[str]
+    note: Optional[str]
+    creato_il: Optional[str]
+    class Config:
+        from_attributes = True
+
+class PreventivoCreate(BaseModel):
+    numero: Optional[str] = None
+    data: Optional[date] = None
+    validita_giorni: int = 30
+    voci: list = []
+    iva_perc: float = 22.0
+    acconto_perc: float = 30.0
+    note: Optional[str] = None
+
+class PreventivoUpdate(BaseModel):
+    numero: Optional[str] = None
+    data: Optional[date] = None
+    voci: Optional[list] = None
+    iva_perc: Optional[float] = None
+    acconto_perc: Optional[float] = None
+    acconto_ricevuto: Optional[float] = None
+    data_acconto: Optional[date] = None
+    stato: Optional[str] = None
+    note: Optional[str] = None
+
+def _calcola_preventivo(prev: PreventivoCantiere, voci: list, iva_perc: float, acconto_perc: float):
+    subtotale = sum(v.get("totale_cliente", 0) for v in voci)
+    costo_totale = sum(v.get("totale_costo", 0) for v in voci)
+    totale = round(subtotale * (1 + iva_perc / 100), 2)
+    acconto_importo = round(totale * acconto_perc / 100, 2)
+    prev.voci = voci
+    prev.subtotale = subtotale
+    prev.costo_totale = costo_totale
+    prev.iva_perc = iva_perc
+    prev.totale = totale
+    prev.acconto_perc = acconto_perc
+    prev.acconto_importo = acconto_importo
+
+@router.get("/{cantiere_id}/preventivi", response_model=List[PreventivoOut])
+def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    return db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).order_by(PreventivoCantiere.creato_il.desc()).all()
+
+@router.post("/{cantiere_id}/preventivi", response_model=PreventivoOut, status_code=201)
+def crea_preventivo(cantiere_id: int, data: PreventivoCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    prev = PreventivoCantiere(cantiere_id=cantiere_id, **data.model_dump())
+    _calcola_preventivo(prev, data.voci, data.iva_perc, data.acconto_perc)
+    db.add(prev); db.commit(); db.refresh(prev)
+    return prev
+
+@router.put("/{cantiere_id}/preventivi/{prev_id}", response_model=PreventivoOut)
+def aggiorna_preventivo(cantiere_id: int, prev_id: int, data: PreventivoUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    prev = db.query(PreventivoCantiere).filter(PreventivoCantiere.id == prev_id, PreventivoCantiere.cantiere_id == cantiere_id).first()
+    if not prev:
+        raise HTTPException(status_code=404, detail="Preventivo non trovato")
+    upd = data.model_dump(exclude_none=True)
+    voci = upd.pop("voci", prev.voci)
+    iva = upd.pop("iva_perc", prev.iva_perc)
+    acc = upd.pop("acconto_perc", prev.acconto_perc)
+    for k, v in upd.items():
+        setattr(prev, k, v)
+    _calcola_preventivo(prev, voci, iva, acc)
+    db.commit(); db.refresh(prev)
+    return prev
+
+@router.post("/{cantiere_id}/preventivi/{prev_id}/pdf", response_model=PreventivoOut)
+async def upload_pdf_preventivo(cantiere_id: int, prev_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    prev = db.query(PreventivoCantiere).filter(PreventivoCantiere.id == prev_id, PreventivoCantiere.cantiere_id == cantiere_id).first()
+    if not prev:
+        raise HTTPException(status_code=404, detail="Preventivo non trovato")
+    contenuto = await file.read()
+    ext = os.path.splitext(file.filename or "preventivo.pdf")[1].lower() or ".pdf"
+    url, _ = salva_file(contenuto, f"preventivi/{cantiere_id}", ext)
+    prev.pdf_url = url
+    db.commit(); db.refresh(prev)
+    return prev
+
+@router.delete("/{cantiere_id}/preventivi/{prev_id}", status_code=204)
+def elimina_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    prev = db.query(PreventivoCantiere).filter(PreventivoCantiere.id == prev_id, PreventivoCantiere.cantiere_id == cantiere_id).first()
+    if not prev:
+        raise HTTPException(status_code=404, detail="Preventivo non trovato")
+    db.delete(prev); db.commit()
+
+
+# ─── BOLLE ────────────────────────────────────────────────────────────────────
+
+class BollaOut(BaseModel):
+    id: int
+    cantiere_id: int
+    fattura_id: Optional[int]
+    fornitore_nome: str
+    numero_bolla: Optional[str]
+    data: Optional[date]
+    importo_stimato: float
+    descrizione: Optional[str]
+    foto_url: Optional[str]
+    stato: str
+    creato_il: Optional[str]
+    class Config:
+        from_attributes = True
+
+class BollaCreate(BaseModel):
+    fornitore_nome: str
+    numero_bolla: Optional[str] = None
+    data: Optional[date] = None
+    importo_stimato: float = 0.0
+    descrizione: Optional[str] = None
+
+class BollaUpdate(BaseModel):
+    fattura_id: Optional[int] = None
+    stato: Optional[str] = None
+    importo_stimato: Optional[float] = None
+    descrizione: Optional[str] = None
+
+@router.get("/{cantiere_id}/bolle", response_model=List[BollaOut])
+def lista_bolle(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    return db.query(BollaConsegna).filter(BollaConsegna.cantiere_id == cantiere_id).order_by(BollaConsegna.creato_il.desc()).all()
+
+@router.post("/{cantiere_id}/bolle", response_model=BollaOut, status_code=201)
+def crea_bolla(cantiere_id: int, data: BollaCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    bolla = BollaConsegna(cantiere_id=cantiere_id, **data.model_dump())
+    db.add(bolla); db.commit(); db.refresh(bolla)
+    return bolla
+
+@router.put("/{cantiere_id}/bolle/{bolla_id}", response_model=BollaOut)
+def aggiorna_bolla(cantiere_id: int, bolla_id: int, data: BollaUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    bolla = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
+    if not bolla:
+        raise HTTPException(status_code=404, detail="Bolla non trovata")
+    for k, v in data.model_dump(exclude_none=True).items():
+        setattr(bolla, k, v)
+    if data.fattura_id:
+        bolla.stato = "fatturata"
+    db.commit(); db.refresh(bolla)
+    return bolla
+
+@router.post("/{cantiere_id}/bolle/{bolla_id}/foto", response_model=BollaOut)
+async def upload_foto_bolla(cantiere_id: int, bolla_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    bolla = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
+    if not bolla:
+        raise HTTPException(status_code=404, detail="Bolla non trovata")
+    contenuto = await file.read()
+    ext = os.path.splitext(file.filename or "bolla.jpg")[1].lower() or ".jpg"
+    url, _ = salva_file(contenuto, f"bolle/{cantiere_id}", ext)
+    bolla.foto_url = url
+    db.commit(); db.refresh(bolla)
+    return bolla
+
+@router.delete("/{cantiere_id}/bolle/{bolla_id}", status_code=204)
+def elimina_bolla(cantiere_id: int, bolla_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    bolla = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
+    if not bolla:
+        raise HTTPException(status_code=404, detail="Bolla non trovata")
+    db.delete(bolla); db.commit()

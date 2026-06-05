@@ -38,3 +38,5 @@ class Cantiere(Base):
     ordini = relationship("OrdineAcquisto", back_populates="cantiere", cascade="all, delete-orphan")
     fatture = relationship("FatturaFornitore", back_populates="cantiere", cascade="all, delete-orphan")
     sal = relationship("SAL", back_populates="cantiere", cascade="all, delete-orphan")
+    preventivi = relationship("PreventivoCantiere", back_populates="cantiere", cascade="all, delete-orphan")
+    bolle = relationship("BollaConsegna", back_populates="cantiere", cascade="all, delete-orphan")
