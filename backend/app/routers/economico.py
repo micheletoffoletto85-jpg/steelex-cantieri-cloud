@@ -9,7 +9,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
-from datetime import date
+from datetime import date, datetime
 from app.database import get_db
 from app.models.economico import (
     PreventivoCantiere, SAL, StatoSAL, StatoPreventivo,
@@ -102,7 +102,7 @@ class PreventivoOut(BaseModel):
     validita_giorni: int; voci: Any; subtotale: float; costo_totale: float
     iva_perc: float; totale: float; acconto_perc: float; acconto_importo: float
     acconto_ricevuto: float; data_acconto: Optional[date]; stato: str
-    pdf_url: Optional[str]; note: Optional[str]; creato_il: Optional[str]
+    pdf_url: Optional[str]; note: Optional[str]; creato_il: Optional[datetime]
     class Config: from_attributes = True
 
 class PreventivoCreate(BaseModel):
@@ -200,7 +200,7 @@ def elimina_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(get
 class SpesaOut(BaseModel):
     id: int; cantiere_id: int; descrizione: str; fornitore: Optional[str]
     categoria: str; importo: float; data: Optional[date]; note: Optional[str]
-    allegato_url: Optional[str]; allegato_tipo: Optional[str]; creato_il: Optional[str]
+    allegato_url: Optional[str]; allegato_tipo: Optional[str]; creato_il: Optional[datetime]
     class Config: from_attributes = True
 
 class SpesaCreate(BaseModel):
@@ -269,7 +269,7 @@ def elimina_spesa(cantiere_id: int, spesa_id: int, db: Session = Depends(get_db)
 class SALOut(BaseModel):
     id: int; cantiere_id: int; numero: int; titolo: str
     percentuale: float; importo: float; data: Optional[date]
-    stato: str; note: Optional[str]; creato_il: Optional[str]
+    stato: str; note: Optional[str]; creato_il: Optional[datetime]
     class Config: from_attributes = True
 
 class SALCreate(BaseModel):
@@ -317,7 +317,7 @@ class FaseOut(BaseModel):
     id: int; cantiere_id: int; sal_id: Optional[int]; nome: str
     categoria: str; colore: str; ordine: int; data_inizio: Optional[date]
     data_fine_prevista: Optional[date]; data_fine_reale: Optional[date]
-    percentuale: float; stato: str; note: Optional[str]; creato_il: Optional[str]
+    percentuale: float; stato: str; note: Optional[str]; creato_il: Optional[datetime]
     class Config: from_attributes = True
 
 class FaseCreate(BaseModel):
