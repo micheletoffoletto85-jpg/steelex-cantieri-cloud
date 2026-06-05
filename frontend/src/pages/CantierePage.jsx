@@ -436,7 +436,8 @@ function MappeTab({ cantiereId }) {
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [reportTesto, setReportTesto] = useState('')
-  const [pinRecStato, setPinRecStato] = useState('idle') // idle | recording | processing
+  const [pinRecStato, setPinRecStato] = useState('idle') // idle | recording | processing (per aggiornamenti)
+  const [pinFormRecStato, setPinFormRecStato] = useState('idle') // idle | recording | processing (per nuovo pin)
   const pinRecorderRef = useRef(null)
   const pinChunksRef = useRef([])
   const pinTimerRef = useRef(null)
@@ -570,6 +571,36 @@ function MappeTab({ cantiereId }) {
     }
   }
   const fmtPinSec = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
+
+  // Registrazione vocale per il form "Nuovo pin" (testo → nota)
+  const avviaPinFormRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = getSupportedMimeType()
+      const recorder = new MediaRecorder(stream, { mimeType })
+      pinChunksRef.current = []
+      recorder.ondataavailable = e => { if (e.data.size > 0) pinChunksRef.current.push(e.data) }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        setPinFormRecStato('processing')
+        try {
+          const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
+          const blob = new Blob(pinChunksRef.current, { type: mimeType })
+          const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
+          const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+          setPinForm(f => ({ ...f, nota: f.nota ? f.nota + ' ' + r.data.testo_italiano : r.data.testo_italiano }))
+          toast.success('Trascritto! Modifica se vuoi, poi premi Aggiungi.')
+        } catch (err) { toast.error(err.response?.data?.detail || 'Errore trascrizione') }
+        finally { setPinFormRecStato('idle') }
+      }
+      recorder.start()
+      pinRecorderRef.current = recorder
+      setPinFormRecStato('recording')
+      setPinRecSecondi(0)
+      pinTimerRef.current = setInterval(() => setPinRecSecondi(s => s + 1), 1000)
+    } catch { toast.error('Microfono non accessibile') }
+  }
+  const fermaPinFormRec = () => { clearInterval(pinTimerRef.current); pinRecorderRef.current?.stop() }
 
   const uploadFotoPin = async (file) => {
     if (!pinSelezionato) return
@@ -785,8 +816,26 @@ function MappeTab({ cantiereId }) {
                 </button>
               ))}
             </div>
-            {/* Descrizione */}
-            <textarea className="input-field h-20 resize-none" placeholder="Descrizione..." value={pinForm.nota} onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))} autoFocus />
+            {/* Descrizione + Registrazione vocale */}
+            {pinFormRecStato === 'idle' && (
+              <button onClick={avviaPinFormRec}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-steelex-orange text-steelex-orange font-medium hover:bg-orange-50 active:scale-95 transition-all">
+                <Mic size={18} /> 🎙️ Registra descrizione vocale
+              </button>
+            )}
+            {pinFormRecStato === 'recording' && (
+              <button onClick={fermaPinFormRec}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-red-500 text-white font-medium active:scale-95 transition-all">
+                <div className="w-2.5 h-2.5 bg-white rounded-full animate-pulse" />
+                <MicOff size={18} /> {fmtPinSec(pinRecSecondi)} — Premi per fermare
+              </button>
+            )}
+            {pinFormRecStato === 'processing' && (
+              <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-100 text-gray-500">
+                <Loader2 size={18} className="animate-spin" /> Trascrizione…
+              </div>
+            )}
+            <textarea className="input-field h-20 resize-none" placeholder="Descrizione (o usa il microfono sopra)..." value={pinForm.nota} onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))} />
             {/* Assegnato a — ruolo */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Assegnato a</label>
