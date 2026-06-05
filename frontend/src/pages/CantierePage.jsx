@@ -237,7 +237,8 @@ function VoceAITab({ cantiereId }) {
       setRisultato(r.data)
       setStato('done')
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Errore trascrizione')
+      const detail = err.response?.data?.detail || err.message || 'Errore trascrizione'
+      toast.error(detail, { duration: 6000 })
       setStato('idle')
     }
   }
@@ -784,7 +785,7 @@ function DiarioTab({ cantiereId }) {
             {d.foto_urls?.length > 0 && (
               <div className="flex gap-2 flex-wrap mt-2">
                 {d.foto_urls.map((url, i) => (
-                  <img key={i} src={`https://steelex-cantieri-cloud-production.up.railway.app${url}`}
+                  <img key={i} src={url}
                     className="w-20 h-20 object-cover rounded-lg border" alt={`foto ${i + 1}`} />
                 ))}
               </div>

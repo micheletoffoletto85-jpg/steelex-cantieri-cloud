@@ -5,7 +5,11 @@
       "destination": "https://steelex-cantieri-cloud-production.up.railway.app/api/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/uploads/:path*",
+      "destination": "https://steelex-cantieri-cloud-production.up.railway.app/uploads/:path*"
+    },
+    {
+      "source": "/((?!api/|uploads/).*)",
       "destination": "/index.html"
     }
   ]
