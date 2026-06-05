@@ -412,6 +412,7 @@ function MappeTab({ cantiereId }) {
   const [docSelezionato, setDocSelezionato] = useState(null)
   const [modalPin, setModalPin] = useState(null)
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
+  const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [reportTesto, setReportTesto] = useState('')
@@ -456,8 +457,25 @@ function MappeTab({ cantiereId }) {
     if (!docSelezionato || !modalPin || !pinForm.nota.trim()) return
     try {
       const r = await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin`, { x: modalPin.x, y: modalPin.y, ...pinForm })
-      setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId])
-      setModalPin(null); toast.success('Pin aggiunto!')
+      setDocSelezionato(r.data)
+      qc.invalidateQueries(['documenti', cantiereId])
+      // Seleziona automaticamente il pin appena creato per mostrare il pannello foto/report
+      const nuoviPin = r.data.pin_dati || []
+      const ultimoPin = nuoviPin[nuoviPin.length - 1]
+      // Carica le foto selezionate nel modal
+      if (ultimoPin && fotePinModal.length > 0) {
+        for (const foto of fotePinModal) {
+          const fd = new FormData(); fd.append('file', foto)
+          await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${ultimoPin.id}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        }
+        const rAggiornato = await api.get(`/cantieri/${cantiereId}/documenti`).then(res => res.data.find(d => d.id === docSelezionato.id))
+        if (rAggiornato) { setDocSelezionato(rAggiornato); const p = (rAggiornato.pin_dati||[]).find(p=>p.id===ultimoPin.id); if(p) setPinSelezionato(p) }
+      } else if (ultimoPin) {
+        setPinSelezionato(ultimoPin)
+      }
+      setFotePinModal([])
+      setModalPin(null)
+      toast.success('Pin aggiunto!')
     } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
   }
 
@@ -500,6 +518,7 @@ function MappeTab({ cantiereId }) {
     const rect = container.getBoundingClientRect()
     setModalPin({ x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height })
     setPinForm({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
+    setFotePinModal([])
     setPinSelezionato(null)
   }
 
@@ -694,8 +713,25 @@ function MappeTab({ cantiereId }) {
                 ))}
               </div>
             </div>
+            {/* Foto opzionali */}
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Foto (opzionale)</label>
+              <label className="flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline">
+                <Camera size={16} />
+                {fotePinModal.length > 0 ? `${fotePinModal.length} foto selezionat${fotePinModal.length===1?'a':'e'}` : 'Aggiungi foto'}
+                <input type="file" accept="image/*" multiple className="hidden"
+                  onChange={e => setFotePinModal(Array.from(e.target.files))} />
+              </label>
+              {fotePinModal.length > 0 && (
+                <div className="flex gap-2 flex-wrap mt-2">
+                  {fotePinModal.map((f, i) => (
+                    <img key={i} src={URL.createObjectURL(f)} className="w-16 h-16 object-cover rounded-lg border" alt="" />
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="flex gap-2">
-              <button onClick={() => setModalPin(null)} className="btn-secondary flex-1">Annulla</button>
+              <button onClick={() => { setModalPin(null); setFotePinModal([]) }} className="btn-secondary flex-1">Annulla</button>
               <button onClick={salvaPin} disabled={!pinForm.nota.trim()} className="btn-primary flex-1">Aggiungi</button>
             </div>
           </div>
