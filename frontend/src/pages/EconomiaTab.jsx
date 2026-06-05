@@ -410,9 +410,11 @@ function BolleSection({ cantiereId, canWrite }) {
         </div>
       )}
 
-      <button onClick={() => setShowForm(!showForm)} className="btn-primary w-full flex items-center justify-center gap-2">
-        <Plus size={16} /> Registra Bolla/DDT
-      </button>
+      {canWrite && (
+        <button onClick={() => setShowForm(!showForm)} className="btn-primary w-full flex items-center justify-center gap-2">
+          <Plus size={16} /> Registra Bolla/DDT
+        </button>
+      )}
 
       {showForm && (
         <div className="card space-y-3">

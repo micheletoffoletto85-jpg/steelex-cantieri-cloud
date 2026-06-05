@@ -473,6 +473,7 @@ def lista_bolle(cantiere_id: int, db: Session = Depends(get_db), user: Utente = 
 @router.post("/{cantiere_id}/bolle", response_model=BollaOut, status_code=201)
 def crea_bolla(cantiere_id: int, data: BollaCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)  # solo admin e capo cantiere registrano le bolle aziendali
     bolla = BollaConsegna(cantiere_id=cantiere_id, **data.model_dump())
     db.add(bolla); db.commit(); db.refresh(bolla)
     return bolla
@@ -480,6 +481,7 @@ def crea_bolla(cantiere_id: int, data: BollaCreate, db: Session = Depends(get_db
 @router.put("/{cantiere_id}/bolle/{bolla_id}", response_model=BollaOut)
 def aggiorna_bolla(cantiere_id: int, bolla_id: int, data: BollaUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
     bolla = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
     if not bolla:
         raise HTTPException(status_code=404, detail="Bolla non trovata")
@@ -493,6 +495,7 @@ def aggiorna_bolla(cantiere_id: int, bolla_id: int, data: BollaUpdate, db: Sessi
 @router.post("/{cantiere_id}/bolle/{bolla_id}/foto", response_model=BollaOut)
 async def upload_foto_bolla(cantiere_id: int, bolla_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)  # solo admin e capo cantiere fotografano le bolle
     bolla = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
     if not bolla:
         raise HTTPException(status_code=404, detail="Bolla non trovata")
@@ -506,6 +509,7 @@ async def upload_foto_bolla(cantiere_id: int, bolla_id: int, file: UploadFile = 
 @router.delete("/{cantiere_id}/bolle/{bolla_id}", status_code=204)
 def elimina_bolla(cantiere_id: int, bolla_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
     bolla = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
     if not bolla:
         raise HTTPException(status_code=404, detail="Bolla non trovata")
