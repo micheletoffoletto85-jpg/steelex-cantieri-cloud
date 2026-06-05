@@ -122,10 +122,16 @@ def preview_documento(
 
     tipo = (doc.tipo or "").lower()
 
-    # Se l'URL è pubblica (R2), redirect diretto per immagini
+    # Immagini su R2: scarica lato server e restituisci direttamente (evita CORS)
     if doc.url.startswith("http") and tipo in ("jpg", "jpeg", "png", "gif", "webp"):
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=doc.url)
+        try:
+            import urllib.request
+            with urllib.request.urlopen(doc.url, timeout=10) as resp:
+                data = resp.read()
+            ct = "image/jpeg" if tipo in ("jpg", "jpeg") else f"image/{tipo}"
+            return Response(content=data, media_type=ct)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Errore lettura file R2: {e}")
 
     # Per PDF (da R2 o locale): converti prima pagina in PNG
     if tipo == "pdf":
