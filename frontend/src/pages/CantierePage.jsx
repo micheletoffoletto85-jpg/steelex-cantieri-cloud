@@ -411,7 +411,7 @@ function MappeTab({ cantiereId }) {
   const qc = useQueryClient()
   const [docSelezionato, setDocSelezionato] = useState(null)
   const [modalPin, setModalPin] = useState(null)
-  const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
+  const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -421,6 +421,14 @@ function MappeTab({ cantiereId }) {
 
   const canWrite   = ['admin','capo_cantiere'].includes(utente?.ruolo)
   const canContrib = ['admin','capo_cantiere','fornitore'].includes(utente?.ruolo)
+
+  // Lista utenti per assegnazione pin (solo admin/capo_cantiere)
+  const { data: utenti = [] } = useQuery(
+    'utenti',
+    () => api.get('/utenti').then(r => r.data),
+    { enabled: canWrite, staleTime: 60000 }
+  )
+  const fornitori = utenti.filter(u => u.ruolo === 'fornitore' && u.attivo)
 
   const { data: docs = [], isLoading } = useQuery(
     ['documenti', cantiereId],
@@ -517,7 +525,7 @@ function MappeTab({ cantiereId }) {
     const container = imgContainerRef.current; if (!container) return
     const rect = container.getBoundingClientRect()
     setModalPin({ x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height })
-    setPinForm({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
+    setPinForm({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
     setFotePinModal([])
     setPinSelezionato(null)
   }
@@ -590,7 +598,11 @@ function MappeTab({ cantiereId }) {
                     <div className="flex flex-wrap gap-1">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TIPO_PIN[pinSelezionato.tipo]?.bg}`}>{TIPO_PIN[pinSelezionato.tipo]?.label}</span>
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATO_PIN[pinSelezionato.stato]?.bg || 'bg-gray-100 text-gray-600'}`}>{STATO_PIN[pinSelezionato.stato]?.label || pinSelezionato.stato}</span>
-                      {pinSelezionato.assegnato_a && <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">→ {ASSEGNATO_LABEL[pinSelezionato.assegnato_a]}</span>}
+                      {pinSelezionato.assegnato_a && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                          → {pinSelezionato.assegnato_a_nome || ASSEGNATO_LABEL[pinSelezionato.assegnato_a]}
+                        </span>
+                      )}
                     </div>
                     {canWrite && (
                       <button onClick={() => eliminaPin(pinSelezionato.id)} className="text-red-400 hover:text-red-600 p-1 flex-shrink-0"><Trash2 size={15} /></button>
@@ -691,15 +703,38 @@ function MappeTab({ cantiereId }) {
             </div>
             {/* Descrizione */}
             <textarea className="input-field h-20 resize-none" placeholder="Descrizione..." value={pinForm.nota} onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))} autoFocus />
-            {/* Assegnato a */}
+            {/* Assegnato a — ruolo */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Assegnato a</label>
-              <select className="input-field" value={pinForm.assegnato_a} onChange={e => setPinForm(f => ({ ...f, assegnato_a: e.target.value }))}>
+              <select className="input-field" value={pinForm.assegnato_a} onChange={e => setPinForm(f => ({ ...f, assegnato_a: e.target.value, assegnato_a_user_id: null, assegnato_a_nome: null }))}>
                 <option value="capo_cantiere">Capo Cantiere</option>
-                <option value="fornitore">Fornitore</option>
+                <option value="fornitore">Fornitore / Artigiano</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
+            {/* Se fornitore: selezione utente specifico */}
+            {pinForm.assegnato_a === 'fornitore' && (
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">
+                  Seleziona artigiano specifico <span className="text-gray-400">(opzionale)</span>
+                </label>
+                {fornitori.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">Nessun fornitore registrato — aggiungili in Utenti</p>
+                ) : (
+                  <select className="input-field" value={pinForm.assegnato_a_user_id || ''}
+                    onChange={e => {
+                      const id = e.target.value ? parseInt(e.target.value) : null
+                      const user = fornitori.find(u => u.id === id)
+                      setPinForm(f => ({ ...f, assegnato_a_user_id: id, assegnato_a_nome: user ? `${user.nome} ${user.cognome}` : null }))
+                    }}>
+                    <option value="">— Tutti i fornitori —</option>
+                    {fornitori.map(u => (
+                      <option key={u.id} value={u.id}>{u.nome} {u.cognome}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             {/* Visibilità */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>

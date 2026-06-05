@@ -45,8 +45,13 @@ def _pin_visibile(pin: dict, user: Utente) -> bool:
     """Controlla se il pin è visibile per questo utente."""
     ruolo = user.ruolo.value
     visibilita = pin.get("visibilita", ["admin", "capo_cantiere", "fornitore", "cliente"])
+    # Se il pin è assegnato a un utente specifico (per ID)
+    if pin.get("assegnato_a_user_id") and str(pin["assegnato_a_user_id"]) == str(user.id):
+        return True
+    # Visibilità per ruolo
     if ruolo in visibilita:
         return True
+    # Fornitore vede i pin assegnati al ruolo fornitore generico
     if ruolo == "fornitore" and pin.get("assegnato_a") == "fornitore":
         return True
     return False
@@ -81,11 +86,13 @@ class DocumentoOut(BaseModel):
 class PinCreate(BaseModel):
     x: float
     y: float
-    tipo: str = "lavorazione"  # lavorazione, criticita, nota
+    tipo: str = "lavorazione"
     nota: str
-    assegnato_a: str = "capo_cantiere"  # ruolo destinatario
+    assegnato_a: str = "capo_cantiere"          # ruolo generico
+    assegnato_a_user_id: Optional[int] = None   # utente specifico (opzionale)
+    assegnato_a_nome: Optional[str] = None       # nome visualizzato
     visibilita: List[str] = ["admin", "capo_cantiere", "fornitore"]
-    stato: str = "aperto"  # aperto, in_lavorazione, risolto
+    stato: str = "aperto"
 
 class PinUpdate(BaseModel):
     pin_dati: list
@@ -164,6 +171,8 @@ def aggiungi_pin(
         "autore": f"{user.nome} {user.cognome}",
         "ruolo_autore": user.ruolo.value,
         "assegnato_a": data.assegnato_a,
+        "assegnato_a_user_id": data.assegnato_a_user_id,
+        "assegnato_a_nome": data.assegnato_a_nome,
         "visibilita": data.visibilita,
         "stato": data.stato,
         "creato_il": datetime.now().isoformat(),
