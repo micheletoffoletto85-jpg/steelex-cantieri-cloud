@@ -355,7 +355,6 @@ function VoceAITab({ cantiereId }) {
 }
 
 /* ─── TAB MAPPE ─── */
-const API_BASE = '/api/v1'
 
 // Hook: scarica un'immagine con auth token e restituisce un blob URL
 function useAuthImage(url) {
@@ -488,7 +487,7 @@ function MappeTab({ cantiereId }) {
   }
 
   const supportsPreview = (doc) => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'].includes(doc?.tipo?.toLowerCase())
-  const previewUrl = (doc) => `${API_BASE}/cantieri/${cantiereId}/documenti/${doc.id}/preview`
+  const previewUrl = (doc) => `/cantieri/${cantiereId}/documenti/${doc.id}/preview`
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
 
