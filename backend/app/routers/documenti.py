@@ -1,6 +1,7 @@
 import os
 import tempfile
 from datetime import datetime
+from app.routers.notifiche import invia_notifica
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -202,6 +203,25 @@ def aggiorna_stato_pin(
         raise HTTPException(status_code=404, detail="Pin non trovato")
     pin["stato"] = data.stato
     _salva_pin_dati(doc, pins, db)
+
+    # Notifica admin e capo cantiere quando un fornitore risolve un pin
+    if data.stato == "risolto" and user.ruolo == RuoloUtente.fornitore:
+        try:
+            from app.models.cantiere import Cantiere as CantiereModel
+            from app.models.utente import Utente as UtenteModel
+            cantiere = db.query(CantiereModel).filter(CantiereModel.id == cantiere_id).first()
+            destinatari = db.query(UtenteModel).filter(
+                UtenteModel.ruolo.in_(["admin", "capo_cantiere"]),
+                UtenteModel.attivo == True
+            ).all()
+            invia_notifica(db, [u.id for u in destinatari],
+                titolo="✅ Lavorazione completata",
+                corpo=f"{user.nome} {user.cognome}: {pin.get('nota','')[:60]}",
+                url=f"/cantieri/{cantiere_id}",
+            )
+        except Exception:
+            pass  # notifica fallita, non blocca la risposta
+
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc
 
@@ -277,6 +297,23 @@ def aggiungi_report_pin(
     }
     pin.setdefault("reports", []).append(report)
     _salva_pin_dati(doc, doc.pin_dati, db)
+
+    # Notifica admin e capo cantiere quando il fornitore aggiunge un report
+    if user.ruolo == RuoloUtente.fornitore:
+        try:
+            from app.models.utente import Utente as UtenteModel
+            destinatari = db.query(UtenteModel).filter(
+                UtenteModel.ruolo.in_(["admin", "capo_cantiere"]),
+                UtenteModel.attivo == True
+            ).all()
+            invia_notifica(db, [u.id for u in destinatari],
+                titolo=f"💬 Aggiornamento da {user.nome} {user.cognome}",
+                corpo=f"{data.testo[:80]} — Pin: {pin.get('nota','')[:40]}",
+                url=f"/cantieri/{cantiere_id}",
+            )
+        except Exception:
+            pass
+
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc
 

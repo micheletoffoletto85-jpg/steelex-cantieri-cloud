@@ -1,7 +1,8 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { LayoutDashboard, HardHat, LogOut, Menu, X, Users } from 'lucide-react'
-import { useState } from 'react'
+import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -13,8 +14,31 @@ export default function Layout() {
   const { utente, logout } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [notifiche, setNotifiche] = useState(null) // null=non verificato, true=attive, false=disattive
+
+  // Verifica stato notifiche all'avvio
+  useEffect(() => {
+    if (!supportaNotifiche()) return
+    if (!['admin', 'capo_cantiere', 'fornitore'].includes(utente?.ruolo)) return
+    navigator.serviceWorker.getRegistration('/sw.js').then(reg => {
+      if (reg) reg.pushManager.getSubscription().then(sub => setNotifiche(!!sub))
+    })
+  }, [utente])
+
+  const toggleNotifiche = async () => {
+    if (notifiche) {
+      await disattivaPushNotifications()
+      setNotifiche(false)
+    } else {
+      const ok = await registraPushNotifications()
+      setNotifiche(ok)
+      if (ok) alert('✅ Notifiche attivate! Riceverai aggiornamenti dai tuoi cantieri.')
+      else alert('⚠️ Non è stato possibile attivare le notifiche. Verifica i permessi del browser.')
+    }
+  }
 
   const handleLogout = () => { logout(); navigate('/login') }
+  const mostraNotificheBell = supportaNotifiche() && ['admin', 'capo_cantiere', 'fornitore'].includes(utente?.ruolo)
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -24,8 +48,16 @@ export default function Layout() {
           <div className="w-8 h-8 bg-steelex-orange rounded-lg flex items-center justify-center font-black text-white text-sm">S</div>
           <span className="font-bold text-lg tracking-wide">STEELEX Cantieri</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span className="text-sm text-gray-300 hidden sm:block">{utente?.nome} {utente?.cognome}</span>
+          {/* Pulsante notifiche */}
+          {mostraNotificheBell && (
+            <button onClick={toggleNotifiche}
+              className={`p-2 rounded-lg transition-colors ${notifiche ? 'text-steelex-orange hover:bg-white/10' : 'text-gray-400 hover:bg-white/10'}`}
+              title={notifiche ? 'Notifiche attive — clicca per disattivare' : 'Attiva notifiche push'}>
+              {notifiche ? <Bell size={20} /> : <BellOff size={20} />}
+            </button>
+          )}
           <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
             <LogOut size={20} />
           </button>
