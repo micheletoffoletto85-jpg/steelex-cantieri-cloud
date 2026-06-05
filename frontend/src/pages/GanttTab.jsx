@@ -36,15 +36,15 @@ export default function GanttTab({ cantiereId }) {
   const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#FF6B00', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'' })
   const setF = (k,v) => setForm(f => ({...f, [k]:v}))
 
-  const { data: fasi = [], isLoading } = useQuery(
+  const { data: fasi = [], isLoading, isError, error } = useQuery(
     ['fasi', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/fasi`).then(r => r.data),
-    { staleTime: 0 }
+    { staleTime: 0, retry: 1 }
   )
   const { data: salList = [] } = useQuery(
     ['sal', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/sal`).then(r => r.data),
-    { staleTime: 0 }
+    { staleTime: 0, retry: 1 }
   )
 
   const createMutation = useMutation(
@@ -77,6 +77,7 @@ export default function GanttTab({ cantiereId }) {
   }
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
+  if (isError) return <div className="card text-center py-8 text-red-500">⚠️ Errore caricamento fasi: {error?.response?.data?.detail || error?.message || 'Errore sconosciuto'}</div>
 
   return (
     <div className="space-y-3">
