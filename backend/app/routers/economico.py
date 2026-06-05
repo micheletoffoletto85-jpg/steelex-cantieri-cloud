@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import date
 import os
 from app.database import get_db
-from app.models.economico import OrdineAcquisto, FatturaFornitore, SAL, StatoOrdine, StatoFattura, StatoSAL, CategoriaOrdine, PreventivoCantiere, BollaConsegna, StatoPreventivo, StatoBolla
+from app.models.economico import OrdineAcquisto, FatturaFornitore, SAL, StatoOrdine, StatoFattura, StatoSAL, CategoriaOrdine, PreventivoCantiere, BollaConsegna, StatoPreventivo, StatoBolla, FaseLavoro, StatoFase
 from typing import Any
 from app.models.cantiere import Cantiere
 from app.models.utente import RuoloUtente, Utente
@@ -525,3 +525,103 @@ def elimina_bolla(cantiere_id: int, bolla_id: int, db: Session = Depends(get_db)
     if not bolla:
         raise HTTPException(status_code=404, detail="Bolla non trovata")
     db.delete(bolla); db.commit()
+
+
+# ─── GANTT / CRONOPROGRAMMA ───────────────────────────────────────────────────
+
+class FaseOut(BaseModel):
+    id: int
+    cantiere_id: int
+    sal_id: Optional[int]
+    nome: str
+    categoria: str
+    colore: str
+    ordine: int
+    data_inizio: Optional[date]
+    data_fine_prevista: Optional[date]
+    data_fine_reale: Optional[date]
+    percentuale: float
+    stato: str
+    note: Optional[str]
+    creato_il: Optional[str]
+    class Config:
+        from_attributes = True
+
+class FaseCreate(BaseModel):
+    nome: str
+    categoria: str = "lavorazione"
+    colore: str = "#FF6B00"
+    ordine: int = 0
+    data_inizio: Optional[date] = None
+    data_fine_prevista: Optional[date] = None
+    sal_id: Optional[int] = None
+    percentuale: float = 0.0
+    stato: str = "pianificata"
+    note: Optional[str] = None
+
+class FaseUpdate(BaseModel):
+    nome: Optional[str] = None
+    categoria: Optional[str] = None
+    colore: Optional[str] = None
+    ordine: Optional[int] = None
+    data_inizio: Optional[date] = None
+    data_fine_prevista: Optional[date] = None
+    data_fine_reale: Optional[date] = None
+    percentuale: Optional[float] = None
+    stato: Optional[str] = None
+    sal_id: Optional[int] = None
+    note: Optional[str] = None
+
+@router.get("/{cantiere_id}/fasi", response_model=List[FaseOut])
+def lista_fasi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    return db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine, FaseLavoro.data_inizio).all()
+
+@router.post("/{cantiere_id}/fasi", response_model=FaseOut, status_code=201)
+def crea_fase(cantiere_id: int, data: FaseCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    fase = FaseLavoro(cantiere_id=cantiere_id, **data.model_dump())
+    db.add(fase); db.commit(); db.refresh(fase)
+    return fase
+
+@router.put("/{cantiere_id}/fasi/{fase_id}", response_model=FaseOut)
+def aggiorna_fase(cantiere_id: int, fase_id: int, data: FaseUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    fase = db.query(FaseLavoro).filter(FaseLavoro.id == fase_id, FaseLavoro.cantiere_id == cantiere_id).first()
+    if not fase:
+        raise HTTPException(status_code=404, detail="Fase non trovata")
+    for k, v in data.model_dump(exclude_none=True).items():
+        setattr(fase, k, v)
+    # Auto-aggiorna stato in base a percentuale e date
+    from datetime import date as date_today
+    oggi = date_today.today()
+    if fase.percentuale >= 100:
+        fase.stato = "completata"
+        if not fase.data_fine_reale:
+            fase.data_fine_reale = oggi
+    elif fase.data_fine_prevista and oggi > fase.data_fine_prevista and fase.percentuale < 100:
+        fase.stato = "in_ritardo"
+    elif fase.percentuale > 0:
+        fase.stato = "in_corso"
+    db.commit(); db.refresh(fase)
+    return fase
+
+@router.put("/{cantiere_id}/fasi/riordina", status_code=204)
+def riordina_fasi(cantiere_id: int, ordini: List[dict], db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Aggiorna l'ordine di tutte le fasi. Body: [{id, ordine}, ...]"""
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    for item in ordini:
+        db.query(FaseLavoro).filter(FaseLavoro.id == item["id"]).update({"ordine": item["ordine"]})
+    db.commit()
+
+@router.delete("/{cantiere_id}/fasi/{fase_id}", status_code=204)
+def elimina_fase(cantiere_id: int, fase_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check_accesso(cantiere_id, db, user)
+    _solo_admin_capo(user)
+    fase = db.query(FaseLavoro).filter(FaseLavoro.id == fase_id, FaseLavoro.cantiere_id == cantiere_id).first()
+    if not fase:
+        raise HTTPException(status_code=404, detail="Fase non trovata")
+    db.delete(fase); db.commit()

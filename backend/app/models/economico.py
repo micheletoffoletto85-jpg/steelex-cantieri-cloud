@@ -30,6 +30,13 @@ class StatoSAL(str, enum.Enum):
     emesso = "emesso"
     pagato = "pagato"
 
+class StatoFase(str, enum.Enum):
+    pianificata = "pianificata"
+    in_corso = "in_corso"
+    completata = "completata"
+    in_ritardo = "in_ritardo"
+    sospesa = "sospesa"
+
 class StatoPreventivo(str, enum.Enum):
     bozza = "bozza"
     inviato = "inviato"
@@ -103,6 +110,7 @@ class SAL(Base):
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 
     cantiere = relationship("Cantiere", back_populates="sal")
+    fasi = relationship("FaseLavoro", back_populates="sal")
 
 
 class PreventivoCantiere(Base):
@@ -150,3 +158,26 @@ class BollaConsegna(Base):
 
     cantiere = relationship("Cantiere", back_populates="bolle")
     fattura = relationship("FatturaFornitore", back_populates="bolle")
+
+
+class FaseLavoro(Base):
+    """Fase/attività del cronoprogramma (riga del diagramma di Gantt)."""
+    __tablename__ = "fasi_lavoro"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cantiere_id = Column(Integer, ForeignKey("cantieri.id", ondelete="CASCADE"), nullable=False)
+    sal_id = Column(Integer, ForeignKey("sal.id"), nullable=True)  # SAL di riferimento
+    nome = Column(String, nullable=False)
+    categoria = Column(String, default="lavorazione")  # lavorazione, fornitura, collaudo, admin
+    colore = Column(String, default="#FF6B00")  # hex color
+    ordine = Column(Integer, default=0)
+    data_inizio = Column(Date)
+    data_fine_prevista = Column(Date)
+    data_fine_reale = Column(Date)
+    percentuale = Column(Float, default=0.0)
+    stato = Column(Enum(StatoFase, native_enum=False), default=StatoFase.pianificata)
+    note = Column(String)
+    creato_il = Column(DateTime(timezone=True), server_default=func.now())
+
+    cantiere = relationship("Cantiere", back_populates="fasi")
+    sal = relationship("SAL", back_populates="fasi")
