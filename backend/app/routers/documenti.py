@@ -1,22 +1,21 @@
 import os
-import uuid
+import tempfile
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional, Any
 from app.database import get_db
 from app.models.documento import Documento
 from app.models.cantiere import Cantiere
 from app.models.utente import RuoloUtente, Utente
 from app.auth import get_current_user
 from app.config import settings
+from app.storage import salva_file, leggi_file, elimina_file
 from pydantic import BaseModel
-from typing import Optional, Any
 
 router = APIRouter(prefix="/cantieri", tags=["Documenti"])
 
-TIPI_CONSENTITI = {"image/jpeg", "image/png", "image/gif", "application/pdf", "image/webp"}
-ESTENSIONI_CONSENTITE = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".webp", ".dxf"}
+ESTENSIONI_CONSENTITE = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".webp"}
 
 def _get_cantiere_con_accesso(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
@@ -27,7 +26,7 @@ def _get_cantiere_con_accesso(cantiere_id: int, db: Session, user: Utente) -> Ca
     if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
         return cantiere
     if user.ruolo in (RuoloUtente.fornitore, RuoloUtente.cliente):
-        return cantiere  # sola lettura, controllata nei singoli endpoint
+        return cantiere
     raise HTTPException(status_code=403, detail="Accesso negato")
 
 def _can_write(user: Utente) -> bool:
@@ -73,20 +72,14 @@ async def carica_documento(
     if len(contenuto) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File troppo grande (max 50MB)")
 
-    nome_file = f"{uuid.uuid4()}{ext}"
-    cartella = os.path.join(settings.UPLOAD_DIR, "documenti", str(cantiere_id))
-    os.makedirs(cartella, exist_ok=True)
-    percorso = os.path.join(cartella, nome_file)
-
-    with open(percorso, "wb") as f:
-        f.write(contenuto)
-
     tipo = ext.lstrip(".")
+    url, chiave = salva_file(contenuto, f"documenti/{cantiere_id}", ext)
+
     doc = Documento(
         cantiere_id=cantiere_id,
-        nome=file.filename or nome_file,
+        nome=file.filename or chiave,
         tipo=tipo,
-        url=f"/uploads/documenti/{cantiere_id}/{nome_file}",
+        url=url,
         dimensione=len(contenuto),
         caricato_da=user.id,
         pin_dati=[],
@@ -115,33 +108,6 @@ def aggiorna_pin(
     db.refresh(doc)
     return doc
 
-@router.get("/{cantiere_id}/documenti/{doc_id}/debug")
-def debug_documento(cantiere_id: int, doc_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Debug: mostra info sul file senza scaricarlo."""
-    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
-    if not doc:
-        return {"errore": "documento non trovato nel DB"}
-    rel = doc.url.removeprefix("/uploads/")
-    percorso = os.path.join(settings.UPLOAD_DIR, rel)
-    try:
-        import fitz
-        fitz_ok = True
-        fitz_ver = fitz.__version__
-    except ImportError as e:
-        fitz_ok = False
-        fitz_ver = str(e)
-    return {
-        "doc_url": doc.url,
-        "rel_path": rel,
-        "percorso_assoluto": percorso,
-        "file_esiste": os.path.exists(percorso),
-        "upload_dir": settings.UPLOAD_DIR,
-        "tipo": doc.tipo,
-        "pymupdf_disponibile": fitz_ok,
-        "pymupdf_versione": fitz_ver,
-        "contenuto_upload_dir": os.listdir(settings.UPLOAD_DIR) if os.path.exists(settings.UPLOAD_DIR) else "cartella non esiste",
-    }
-
 @router.get("/{cantiere_id}/documenti/{doc_id}/preview")
 def preview_documento(
     cantiere_id: int,
@@ -149,40 +115,56 @@ def preview_documento(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    """Restituisce la prima pagina del PDF come PNG, oppure l'immagine originale."""
     _get_cantiere_con_accesso(cantiere_id, db, user)
     doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento non trovato")
 
-    percorso = os.path.join(settings.UPLOAD_DIR, doc.url.removeprefix("/uploads/"))
-    if not os.path.exists(percorso):
-        raise HTTPException(status_code=404, detail="File non trovato")
-
     tipo = (doc.tipo or "").lower()
 
-    # Immagini: restituisci direttamente
-    if tipo in ("jpg", "jpeg", "png", "gif", "webp"):
-        media_type = "image/jpeg" if tipo in ("jpg", "jpeg") else f"image/{tipo}"
-        return FileResponse(percorso, media_type=media_type)
+    # Se l'URL è pubblica (R2), redirect diretto per immagini
+    if doc.url.startswith("http") and tipo in ("jpg", "jpeg", "png", "gif", "webp"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=doc.url)
 
-    # PDF: converti prima pagina in PNG
+    # Per PDF (da R2 o locale): converti prima pagina in PNG
     if tipo == "pdf":
-        preview_path = percorso + "_preview.png"
-        if not os.path.exists(preview_path):
+        try:
+            contenuto, _ = leggi_file(_chiave_da_url(doc.url))
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"File non trovato: {e}")
+
+        # Cache PNG su disco locale
+        cache_key = f"preview_{doc.id}.png"
+        cache_path = os.path.join(settings.UPLOAD_DIR, "cache", cache_key)
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+
+        if not os.path.exists(cache_path):
             try:
-                import fitz  # PyMuPDF
-                pdf = fitz.open(percorso)
-                pagina = pdf[0]
-                mat = fitz.Matrix(2.0, 2.0)  # 2x zoom per buona qualità
-                pix = pagina.get_pixmap(matrix=mat)
-                pix.save(preview_path)
+                import fitz
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(contenuto)
+                    tmp_path = tmp.name
+                pdf = fitz.open(tmp_path)
+                pix = pdf[0].get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+                pix.save(cache_path)
                 pdf.close()
+                os.unlink(tmp_path)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Errore conversione PDF: {e}")
-        return FileResponse(preview_path, media_type="image/png")
 
-    # DXF e altri: non supportato come immagine
+        with open(cache_path, "rb") as f:
+            png_data = f.read()
+        return Response(content=png_data, media_type="image/png")
+
+    # Immagini da filesystem locale
+    if tipo in ("jpg", "jpeg", "png", "gif", "webp"):
+        try:
+            contenuto, content_type = leggi_file(_chiave_da_url(doc.url))
+            return Response(content=contenuto, media_type=content_type)
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"File non trovato: {e}")
+
     raise HTTPException(status_code=415, detail="Tipo non supportato per anteprima")
 
 @router.delete("/{cantiere_id}/documenti/{doc_id}", status_code=204)
@@ -198,9 +180,17 @@ def elimina_documento(
     doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento non trovato")
-    # rimuovi file fisico
-    percorso = os.path.join(settings.UPLOAD_DIR, doc.url.removeprefix("/uploads/"))
-    if os.path.exists(percorso):
-        os.remove(percorso)
+    elimina_file(_chiave_da_url(doc.url))
     db.delete(doc)
     db.commit()
+
+def _chiave_da_url(url: str) -> str:
+    """Estrae chiave R2 o percorso locale dall'URL salvata nel DB."""
+    if url.startswith("http"):
+        # URL R2 pubblica: https://pub-xxx.r2.dev/documenti/1/file.pdf
+        # Ritorna solo la chiave (parte dopo il dominio)
+        from urllib.parse import urlparse
+        return urlparse(url).path.lstrip("/")
+    # URL locale: /uploads/documenti/1/file.pdf
+    percorso_rel = url.removeprefix("/uploads/")
+    return os.path.join(settings.UPLOAD_DIR, percorso_rel)

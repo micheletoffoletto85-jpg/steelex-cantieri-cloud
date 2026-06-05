@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     CORS_ORIGINS: str = "*"
+    # Cloudflare R2
+    R2_ACCOUNT_ID: Optional[str] = None
+    R2_ACCESS_KEY_ID: Optional[str] = None
+    R2_SECRET_ACCESS_KEY: Optional[str] = None
+    R2_BUCKET_NAME: str = "steelex-cantieri"
+    R2_PUBLIC_URL: Optional[str] = None  # es. https://pub-xxx.r2.dev
 
     class Config:
         env_file = ".env"

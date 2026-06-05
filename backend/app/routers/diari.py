@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import date
-import os, uuid, shutil
+import os
 from app.database import get_db
 from app.models.diario import DiarioGiornaliero
 from app.models.cantiere import Cantiere
@@ -10,6 +10,7 @@ from app.models.utente import Utente
 from app.schemas.diario import DiarioCreate, DiarioOut, DiarioUpdate
 from app.auth import get_current_user
 from app.config import settings
+from app.storage import salva_file
 
 router = APIRouter(prefix="/cantieri/{cantiere_id}/diari", tags=["Diario Giornaliero"])
 
@@ -41,13 +42,11 @@ async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(
     diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id).first()
     if not diario:
         raise HTTPException(status_code=404, detail="Diario non trovato")
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    filename = f"{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
-    filepath = os.path.join(settings.UPLOAD_DIR, filename)
-    with open(filepath, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    ext = os.path.splitext(file.filename or "foto.jpg")[1] or ".jpg"
+    contenuto = await file.read()
+    url, _ = salva_file(contenuto, f"foto/{cantiere_id}", ext)
     urls = list(diario.foto_urls or [])
-    urls.append(f"/uploads/{filename}")
+    urls.append(url)
     diario.foto_urls = urls
     db.commit()
     db.refresh(diario)

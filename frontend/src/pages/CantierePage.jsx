@@ -357,7 +357,7 @@ function VoceAITab({ cantiereId }) {
 
 /* ─── TAB MAPPE ─── */
 
-// Hook: scarica un'immagine con auth token e restituisce un blob URL
+// Hook: scarica immagine. Se URL pubblica (http) usa direttamente, altrimenti fetch con auth.
 function useAuthImage(url) {
   const [src, setSrc] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -370,6 +370,14 @@ function useAuthImage(url) {
     setError(false)
     setSrc(null)
 
+    // URL pubblica R2 — usa direttamente
+    if (url.startsWith('http')) {
+      setSrc(url)
+      setLoading(false)
+      return
+    }
+
+    // URL locale — fetch con Bearer token
     api.get(url, { responseType: 'blob' })
       .then(r => {
         objectUrl = URL.createObjectURL(r.data)

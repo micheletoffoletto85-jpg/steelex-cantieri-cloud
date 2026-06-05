@@ -13,6 +13,7 @@ pydantic-settings==2.3.0
 python-dotenv==1.0.1
 httpx==0.27.0
 pillow==10.3.0
+boto3==1.34.131
 PyMuPDF==1.24.5
 openai==1.35.3
 anthropic==0.29.0
