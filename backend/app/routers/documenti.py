@@ -128,7 +128,7 @@ def preview_documento(
     if not doc:
         raise HTTPException(status_code=404, detail="Documento non trovato")
 
-    percorso = os.path.join(settings.UPLOAD_DIR, doc.url.lstrip("/uploads/"))
+    percorso = os.path.join(settings.UPLOAD_DIR, doc.url.removeprefix("/uploads/"))
     if not os.path.exists(percorso):
         raise HTTPException(status_code=404, detail="File non trovato")
 
@@ -172,7 +172,7 @@ def elimina_documento(
     if not doc:
         raise HTTPException(status_code=404, detail="Documento non trovato")
     # rimuovi file fisico
-    percorso = os.path.join(settings.UPLOAD_DIR, doc.url.lstrip("/uploads/"))
+    percorso = os.path.join(settings.UPLOAD_DIR, doc.url.removeprefix("/uploads/"))
     if os.path.exists(percorso):
         os.remove(percorso)
     db.delete(doc)
