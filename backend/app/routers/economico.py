@@ -587,9 +587,13 @@ def lista_fasi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = D
 def crea_fase(cantiere_id: int, data: FaseCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
     _solo_admin_capo(user)
-    fase = FaseLavoro(cantiere_id=cantiere_id, **data.model_dump())
-    db.add(fase); db.commit(); db.refresh(fase)
-    return fase
+    try:
+        fase = FaseLavoro(cantiere_id=cantiere_id, **data.model_dump())
+        db.add(fase); db.commit(); db.refresh(fase)
+        return fase
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore creazione fase: {str(e)}")
 
 @router.put("/{cantiere_id}/fasi/{fase_id}", response_model=FaseOut)
 def aggiorna_fase(cantiere_id: int, fase_id: int, data: FaseUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
