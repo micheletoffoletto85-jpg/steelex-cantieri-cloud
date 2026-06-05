@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2 } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
+import ClienteView from './ClienteView'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -26,6 +27,7 @@ export default function CantierePage() {
   const [form, setForm] = useState(null)
 
   const { utente } = useAuth()
+  const isCliente = utente?.ruolo === 'cliente'
   const { data: cantiere, isLoading } = useQuery(['cantiere', id], () => api.get(`/cantieri/${id}`).then(r => r.data), {
     enabled: !!utente,
     onSuccess: d => { if (!form) setForm(d) }
@@ -38,6 +40,19 @@ export default function CantierePage() {
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
   if (!cantiere) return <div className="text-center py-8 text-red-400">Cantiere non trovato</div>
+
+  // Vista cliente — completamente separata, senza dati economici/interni
+  if (isCliente) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate('/cantieri')} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft size={20} /></button>
+          <h1 className="text-xl font-bold truncate">{cantiere.nome}</h1>
+        </div>
+        <ClienteView cantiere={cantiere} />
+      </div>
+    )
+  }
 
   const data = editing ? form : cantiere
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))

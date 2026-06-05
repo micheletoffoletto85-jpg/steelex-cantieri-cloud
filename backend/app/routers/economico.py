@@ -31,6 +31,11 @@ def _solo_admin_capo(user: Utente):
     if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
         raise HTTPException(status_code=403, detail="Non autorizzato")
 
+def _blocca_cliente(user: Utente):
+    """Il cliente non ha accesso al modulo economico."""
+    if user.ruolo == RuoloUtente.cliente:
+        raise HTTPException(status_code=403, detail="Dati economici non accessibili")
+
 # ─── SCHEMAS ──────────────────────────────────────────────────────────────────
 
 class OrdineOut(BaseModel):
@@ -154,6 +159,7 @@ class EconomiaOverview(BaseModel):
 @router.get("/{cantiere_id}/economia", response_model=EconomiaOverview)
 def overview_economia(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     cantiere = _check_accesso(cantiere_id, db, user)
+    _blocca_cliente(user)
 
     ordini = db.query(OrdineAcquisto).filter(OrdineAcquisto.cantiere_id == cantiere_id).all()
     fatture = db.query(FatturaFornitore).filter(FatturaFornitore.cantiere_id == cantiere_id).all()
@@ -186,6 +192,7 @@ def overview_economia(cantiere_id: int, db: Session = Depends(get_db), user: Ute
 @router.get("/{cantiere_id}/ordini", response_model=List[OrdineOut])
 def lista_ordini(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _blocca_cliente(user)
     return db.query(OrdineAcquisto).filter(OrdineAcquisto.cantiere_id == cantiere_id).order_by(OrdineAcquisto.creato_il.desc()).all()
 
 @router.post("/{cantiere_id}/ordini", response_model=OrdineOut, status_code=201)
@@ -230,6 +237,7 @@ def elimina_ordine(cantiere_id: int, ordine_id: int, db: Session = Depends(get_d
 @router.get("/{cantiere_id}/fatture", response_model=List[FatturaOut])
 def lista_fatture(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _blocca_cliente(user)
     return db.query(FatturaFornitore).filter(FatturaFornitore.cantiere_id == cantiere_id).order_by(FatturaFornitore.creato_il.desc()).all()
 
 @router.post("/{cantiere_id}/fatture", response_model=FatturaOut, status_code=201)
@@ -288,6 +296,7 @@ def elimina_fattura(cantiere_id: int, fattura_id: int, db: Session = Depends(get
 @router.get("/{cantiere_id}/sal", response_model=List[SALOut])
 def lista_sal(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _blocca_cliente(user)
     return db.query(SAL).filter(SAL.cantiere_id == cantiere_id).order_by(SAL.numero).all()
 
 @router.post("/{cantiere_id}/sal", response_model=SALOut, status_code=201)
@@ -383,6 +392,7 @@ def _calcola_preventivo(prev: PreventivoCantiere, voci: list, iva_perc: float, a
 @router.get("/{cantiere_id}/preventivi", response_model=List[PreventivoOut])
 def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _blocca_cliente(user)
     return db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).order_by(PreventivoCantiere.creato_il.desc()).all()
 
 @router.post("/{cantiere_id}/preventivi", response_model=PreventivoOut, status_code=201)
@@ -468,6 +478,7 @@ class BollaUpdate(BaseModel):
 @router.get("/{cantiere_id}/bolle", response_model=List[BollaOut])
 def lista_bolle(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check_accesso(cantiere_id, db, user)
+    _blocca_cliente(user)
     return db.query(BollaConsegna).filter(BollaConsegna.cantiere_id == cantiere_id).order_by(BollaConsegna.creato_il.desc()).all()
 
 @router.post("/{cantiere_id}/bolle", response_model=BollaOut, status_code=201)

@@ -16,6 +16,8 @@ router = APIRouter(prefix="/cantieri/{cantiere_id}/diari", tags=["Diario Giornal
 
 @router.get("", response_model=List[DiarioOut])
 def lista_diari(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo.value == "cliente":
+        raise HTTPException(status_code=403, detail="Accesso non consentito")
     return db.query(DiarioGiornaliero).filter(DiarioGiornaliero.cantiere_id == cantiere_id).order_by(DiarioGiornaliero.data.desc()).all()
 
 @router.post("", response_model=DiarioOut, status_code=201)

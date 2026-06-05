@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Plus, Search, HardHat, MapPin } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
+import { useAuth } from '../lib/auth'
 
 const STATI = ['tutti', 'preventivo', 'in_corso', 'sospeso', 'completato']
 const STATO_STYLE = {
@@ -19,6 +20,8 @@ const STATO_LABEL = {
 }
 
 export default function CantieriPage() {
+  const { utente } = useAuth()
+  const isCliente = utente?.ruolo === 'cliente'
   const [filtroStato, setFiltroStato] = useState('tutti')
   const [ricerca, setRicerca] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -44,9 +47,11 @@ export default function CantieriPage() {
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Cantieri</h1>
-        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
-          <Plus size={18} /> Nuovo
-        </button>
+        {!isCliente && (
+          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
+            <Plus size={18} /> Nuovo
+          </button>
+        )}
       </div>
 
       {/* Filtri */}
