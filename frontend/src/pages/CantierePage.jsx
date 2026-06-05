@@ -717,29 +717,28 @@ function MappeTab({ cantiereId }) {
                   ))}
                   {canContrib && (
                     <div className="space-y-2 pt-1">
-                      {/* Pulsante registrazione vocale */}
+                      {/* Registrazione vocale */}
                       {pinRecStato === 'idle' && (
-                        <button onClick={avviaPinRec} className="flex items-center gap-2 text-xs text-steelex-orange hover:underline">
-                          <Mic size={14} /> Registra voce → testo automatico
+                        <button onClick={avviaPinRec}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-steelex-orange text-steelex-orange text-sm font-medium hover:bg-orange-50 active:scale-95 transition-all">
+                          <Mic size={16} /> 🎙️ Registra aggiornamento vocale
                         </button>
                       )}
                       {pinRecStato === 'recording' && (
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                          <span className="text-xs text-red-500 font-mono">{fmtPinSec(pinRecSecondi)}</span>
-                          <button onClick={fermaPinRec} className="text-xs text-red-500 font-medium hover:underline flex items-center gap-1">
-                            <MicOff size={12} /> Ferma
-                          </button>
-                        </div>
+                        <button onClick={fermaPinRec}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium active:scale-95 transition-all">
+                          <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                          <MicOff size={16} /> {fmtPinSec(pinRecSecondi)} — Premi per fermare
+                        </button>
                       )}
                       {pinRecStato === 'processing' && (
-                        <div className="flex items-center gap-2 text-xs text-gray-400">
-                          <Loader2 size={12} className="animate-spin" /> Trascrizione in corso…
+                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-100 text-gray-500 text-sm">
+                          <Loader2 size={16} className="animate-spin" /> Trascrizione in corso…
                         </div>
                       )}
                       {/* Campo testo + invio */}
                       <div className="flex gap-2">
-                        <input className="input-field text-sm py-2 flex-1" placeholder="Scrivi o registra un aggiornamento..."
+                        <input className="input-field text-sm py-2 flex-1" placeholder="Oppure scrivi un aggiornamento..."
                           value={reportTesto} onChange={e => setReportTesto(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && aggiungiReport()} />
                         <button onClick={aggiungiReport} disabled={!reportTesto.trim()} className="btn-primary px-3 py-2 text-sm">Invia</button>
