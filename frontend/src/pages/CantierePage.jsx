@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -355,7 +355,7 @@ function VoceAITab({ cantiereId }) {
 }
 
 /* ─── TAB MAPPE ─── */
-const RAIL_BASE = 'https://steelex-cantieri-cloud-production.up.railway.app'
+const API_BASE = '/api/v1'
 const TIPO_PIN = {
   lavorazione: { label: 'Lavorazione', color: '#2563eb', bg: 'bg-blue-100 text-blue-700' },
   criticita: { label: 'Criticità', color: '#dc2626', bg: 'bg-red-100 text-red-700' },
@@ -370,7 +370,8 @@ function MappeTab({ cantiereId }) {
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '' })
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [uploading, setUploading] = useState(false)
-  const imgRef = useRef(null)
+  const [imgDims, setImgDims] = useState(null) // { width, height } del contenitore
+  const imgContainerRef = useRef(null)
 
   const canWrite = utente?.ruolo !== 'cliente'
 
@@ -379,7 +380,7 @@ function MappeTab({ cantiereId }) {
     () => api.get(`/cantieri/${cantiereId}/documenti`).then(r => r.data)
   )
 
-  // Quando arrivano i docs, aggiorna il doc selezionato
+  // Aggiorna il doc selezionato quando arrivano dati freschi
   useEffect(() => {
     if (docSelezionato) {
       const aggiornato = docs.find(d => d.id === docSelezionato.id)
@@ -422,7 +423,7 @@ function MappeTab({ cantiereId }) {
       y: modalPin.y,
       tipo: pinForm.tipo,
       nota: pinForm.nota,
-      autore: `${utente?.nome} ${utente?.cognome}`,
+      autore: `${utente?.nome || ''} ${utente?.cognome || ''}`.trim(),
     }]
     try {
       const r = await api.put(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin`, { pin_dati: nuovi })
@@ -445,16 +446,22 @@ function MappeTab({ cantiereId }) {
     } catch { toast.error('Errore eliminazione pin') }
   }
 
-  const onClickImmagine = useCallback((e) => {
-    if (!canWrite || pinSelezionato) { setPinSelezionato(null); return }
-    const rect = imgRef.current.getBoundingClientRect()
+  const onClickMappa = (e) => {
+    if (!canWrite) return
+    // Se ho cliccato su un pin (ha stopPropagation), non arrivo qui
+    const container = imgContainerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
     const y = (e.clientY - rect.top) / rect.height
+    setPinSelezionato(null)
     setModalPin({ x, y })
     setPinForm({ tipo: 'lavorazione', nota: '' })
-  }, [canWrite, pinSelezionato])
+  }
 
-  const isImmagine = (doc) => ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(doc?.tipo?.toLowerCase())
+  // Supporta preview per PDF e immagini tramite endpoint backend
+  const supportsPreview = (doc) => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'].includes(doc?.tipo?.toLowerCase())
+  const previewUrl = (doc) => `${API_BASE}/cantieri/${cantiereId}/documenti/${doc.id}/preview`
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
 
@@ -462,15 +469,18 @@ function MappeTab({ cantiereId }) {
     <div className="space-y-3">
       {/* Upload */}
       {canWrite && (
-        <label className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors ${uploading ? 'opacity-50' : ''}`}>
+        <label className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
           <Upload size={20} className="text-steelex-orange flex-shrink-0" />
           <div>
-            <p className="font-medium text-sm text-gray-800">Carica mappa o documento</p>
-            <p className="text-xs text-gray-400">JPG, PNG, PDF, DXF — max 50MB</p>
+            <p className="font-medium text-sm text-gray-800">{uploading ? 'Caricamento...' : 'Carica mappa o documento'}</p>
+            <p className="text-xs text-gray-400">JPG, PNG, PDF — max 50MB</p>
           </div>
-          <input type="file" className="hidden" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.dxf"
+          <input type="file" className="hidden" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf"
             onChange={e => {
-              if (e.target.files[0]) { setUploading(true); uploadMutation.mutate(e.target.files[0], { onSettled: () => setUploading(false) }) }
+              if (e.target.files[0]) {
+                setUploading(true)
+                uploadMutation.mutate(e.target.files[0], { onSettled: () => setUploading(false) })
+              }
             }} disabled={uploading} />
         </label>
       )}
@@ -486,9 +496,9 @@ function MappeTab({ cantiereId }) {
           {docs.map(doc => (
             <div key={doc.id}
               className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 transition-colors ${docSelezionato?.id === doc.id ? 'border-steelex-orange' : 'border-transparent'}`}
-              onClick={() => setDocSelezionato(docSelezionato?.id === doc.id ? null : doc)}>
+              onClick={() => { setDocSelezionato(docSelezionato?.id === doc.id ? null : doc); setPinSelezionato(null) }}>
               <div className="p-2 bg-gray-100 rounded-lg">
-                {isImmagine(doc) ? <Map size={18} className="text-steelex-orange" /> : <FileText size={18} className="text-gray-500" />}
+                {doc.tipo === 'pdf' ? <FileText size={18} className="text-red-500" /> : <Map size={18} className="text-steelex-orange" />}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{doc.nome}</p>
@@ -510,27 +520,32 @@ function MappeTab({ cantiereId }) {
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-sm text-gray-800 truncate">{docSelezionato.nome}</h3>
-            <button onClick={() => setDocSelezionato(null)} className="p-1 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+            <button onClick={() => { setDocSelezionato(null); setPinSelezionato(null) }} className="p-1 text-gray-400 hover:text-gray-600"><X size={16} /></button>
           </div>
 
-          {isImmagine(docSelezionato) ? (
+          {supportsPreview(docSelezionato) ? (
             <>
               {canWrite && (
-                <p className="text-xs text-steelex-orange bg-orange-50 rounded-lg px-3 py-2">
-                  Clicca sulla mappa per aggiungere un pin di lavorazione o criticità
+                <p className="text-xs text-steelex-orange bg-orange-50 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <MapPin size={12} /> Clicca sulla mappa per aggiungere un pin
                 </p>
               )}
+
               {/* Contenitore immagine con pin overlay */}
-              <div className="relative w-full rounded-xl overflow-hidden border border-gray-200 bg-gray-50 select-none">
+              <div
+                ref={imgContainerRef}
+                className="relative w-full rounded-xl overflow-hidden border border-gray-200 bg-gray-100 select-none"
+                style={{ cursor: canWrite ? 'crosshair' : 'default' }}
+                onClick={onClickMappa}
+              >
                 <img
-                  ref={imgRef}
-                  src={`${RAIL_BASE}${docSelezionato.url}`}
+                  src={previewUrl(docSelezionato)}
                   alt={docSelezionato.nome}
                   className="w-full h-auto block"
-                  onClick={onClickImmagine}
-                  style={{ cursor: canWrite ? 'crosshair' : 'default' }}
                   draggable={false}
+                  onError={e => { e.target.style.display = 'none' }}
                 />
+
                 {/* Pin overlay */}
                 {(docSelezionato.pin_dati || []).map(pin => (
                   <button
@@ -539,26 +554,27 @@ function MappeTab({ cantiereId }) {
                     style={{
                       position: 'absolute',
                       left: `calc(${pin.x * 100}% - 12px)`,
-                      top: `calc(${pin.y * 100}% - 24px)`,
+                      top: `calc(${pin.y * 100}% - 28px)`,
                       color: TIPO_PIN[pin.tipo]?.color || '#888',
-                      filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))',
+                      filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.5))',
+                      zIndex: 10,
                     }}
                     title={pin.nota}
                   >
-                    <MapPin size={24} fill="currentColor" />
+                    <MapPin size={28} fill="currentColor" />
                   </button>
                 ))}
               </div>
 
-              {/* Popup pin selezionato */}
+              {/* Dettaglio pin selezionato */}
               {pinSelezionato && (
-                <div className="rounded-xl border-2 p-3 space-y-2" style={{ borderColor: TIPO_PIN[pinSelezionato.tipo]?.color }}>
+                <div className="rounded-xl border-2 p-3 space-y-1" style={{ borderColor: TIPO_PIN[pinSelezionato.tipo]?.color }}>
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TIPO_PIN[pinSelezionato.tipo]?.bg}`}>
                         {TIPO_PIN[pinSelezionato.tipo]?.label}
                       </span>
-                      <p className="mt-1 text-sm text-gray-800">{pinSelezionato.nota}</p>
+                      <p className="mt-1.5 text-sm text-gray-800">{pinSelezionato.nota}</p>
                       {pinSelezionato.autore && <p className="text-xs text-gray-400 mt-0.5">— {pinSelezionato.autore}</p>}
                     </div>
                     {canWrite && (
@@ -573,7 +589,7 @@ function MappeTab({ cantiereId }) {
               {/* Legenda pin */}
               {(docSelezionato.pin_dati?.length > 0) && (
                 <div className="space-y-1">
-                  <p className="text-xs font-medium text-gray-500">Pin ({docSelezionato.pin_dati.length})</p>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pin ({docSelezionato.pin_dati.length})</p>
                   {docSelezionato.pin_dati.map(pin => (
                     <button key={pin.id} onClick={() => setPinSelezionato(pinSelezionato?.id === pin.id ? null : pin)}
                       className={`w-full text-left flex items-start gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors ${pinSelezionato?.id === pin.id ? 'bg-gray-100' : 'hover:bg-gray-50'}`}>
@@ -586,9 +602,10 @@ function MappeTab({ cantiereId }) {
               )}
             </>
           ) : (
-            /* PDF/DXF — viewer iframe */
-            <div className="w-full rounded-xl overflow-hidden border border-gray-200" style={{ height: 500 }}>
-              <iframe src={`${RAIL_BASE}${docSelezionato.url}`} className="w-full h-full" title={docSelezionato.nome} />
+            <div className="card text-center py-6 text-gray-400">
+              <FileText size={32} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Formato non supportato per anteprima</p>
+              <p className="text-xs mt-1">{docSelezionato.tipo?.toUpperCase()}</p>
             </div>
           )}
         </div>
@@ -596,19 +613,25 @@ function MappeTab({ cantiereId }) {
 
       {/* Modal aggiungi pin */}
       {modalPin && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setModalPin(null)}>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setModalPin(null)}>
           <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3 shadow-xl" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-gray-900">Aggiungi pin</h3>
             <div className="grid grid-cols-3 gap-2">
               {Object.entries(TIPO_PIN).map(([k, v]) => (
                 <button key={k} onClick={() => setPinForm(f => ({ ...f, tipo: k }))}
-                  className={`py-2 rounded-xl text-sm font-medium border-2 transition-colors ${pinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
-                  {k === 'criticita' ? <AlertTriangle size={14} className="mx-auto mb-0.5" /> : k === 'lavorazione' ? <Wrench size={14} className="mx-auto mb-0.5" /> : <MapPin size={14} className="mx-auto mb-0.5" />}
+                  className={`py-3 rounded-xl text-xs font-medium border-2 transition-colors flex flex-col items-center gap-1 ${pinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
+                  {k === 'criticita' ? <AlertTriangle size={16} /> : k === 'lavorazione' ? <Wrench size={16} /> : <MapPin size={16} />}
                   {v.label}
                 </button>
               ))}
             </div>
-            <textarea className="input-field h-20 resize-none" placeholder="Descrivi la lavorazione o criticità..." value={pinForm.nota} onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))} autoFocus />
+            <textarea
+              className="input-field h-24 resize-none"
+              placeholder="Descrivi la lavorazione o criticità..."
+              value={pinForm.nota}
+              onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))}
+              autoFocus
+            />
             <div className="flex gap-2">
               <button onClick={() => setModalPin(null)} className="btn-secondary flex-1">Annulla</button>
               <button onClick={salvaPin} disabled={!pinForm.nota.trim()} className="btn-primary flex-1">Aggiungi</button>

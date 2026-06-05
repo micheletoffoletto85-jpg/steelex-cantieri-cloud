@@ -25,7 +25,22 @@ export default function DashboardPage() {
       : 0,
   }
 
-  const cantieriAttivi = cantieri.filter(c => c.stato === 'in_corso').slice(0, 5)
+  // Mostra i cantieri non completati/annullati, poi tutti gli altri — max 5
+  const cantieriRecenti = [
+    ...cantieri.filter(c => c.stato === 'in_corso'),
+    ...cantieri.filter(c => c.stato === 'preventivo'),
+    ...cantieri.filter(c => c.stato === 'sospeso'),
+    ...cantieri.filter(c => !['in_corso', 'preventivo', 'sospeso'].includes(c.stato)),
+  ].slice(0, 5)
+
+  const STATO_BADGE = {
+    preventivo: 'bg-gray-100 text-gray-600',
+    in_corso: 'bg-blue-100 text-blue-700',
+    sospeso: 'bg-yellow-100 text-yellow-700',
+    completato: 'bg-green-100 text-green-700',
+    annullato: 'bg-red-100 text-red-700',
+  }
+  const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -42,30 +57,33 @@ export default function DashboardPage() {
         <StatCard icon={TrendingUp} label="Avanzamento Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
       </div>
 
-      {/* Cantieri attivi */}
+      {/* Cantieri recenti */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-gray-800">Cantieri in Corso</h2>
+          <h2 className="font-bold text-gray-800">Cantieri Recenti</h2>
           <Link to="/cantieri" className="text-steelex-orange text-sm font-medium">Vedi tutti →</Link>
         </div>
-        {cantieriAttivi.length === 0 ? (
+        {cantieri.length === 0 ? (
           <div className="card text-center py-8 text-gray-400">
             <HardHat size={40} className="mx-auto mb-2 opacity-30" />
-            <p>Nessun cantiere attivo</p>
-            <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere</Link>
+            <p>Nessun cantiere ancora</p>
+            <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
           </div>
         ) : (
           <div className="space-y-2">
-            {cantieriAttivi.map(c => (
-              <Link key={c.id} to={`/cantieri/${c.id}`} className="card flex items-center justify-between hover:border-steelex-orange transition-colors">
-                <div>
-                  <p className="font-semibold text-gray-900">{c.nome}</p>
-                  <p className="text-sm text-gray-500">{c.cliente} — {c.citta || 'N/D'}</p>
+            {cantieriRecenti.map(c => (
+              <Link key={c.id} to={`/cantieri/${c.id}`} className="card flex items-center gap-3 hover:border-steelex-orange border-2 border-transparent transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
+                  <p className="text-sm text-gray-500 truncate">{c.cliente}{c.citta ? ` — ${c.citta}` : ''}</p>
                 </div>
-                <div className="text-right">
-                  <div className="text-steelex-orange font-bold">{c.avanzamento}%</div>
-                  <div className="w-20 bg-gray-200 rounded-full h-2 mt-1">
-                    <div className="bg-steelex-orange h-2 rounded-full" style={{ width: `${c.avanzamento}%` }} />
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_BADGE[c.stato]}`}>{STATO_LABEL_DASH[c.stato]}</span>
+                  <div className="text-right hidden sm:block">
+                    <div className="text-steelex-orange font-bold text-sm">{c.avanzamento}%</div>
+                    <div className="w-16 bg-gray-200 rounded-full h-1.5 mt-1">
+                      <div className="bg-steelex-orange h-1.5 rounded-full" style={{ width: `${c.avanzamento}%` }} />
+                    </div>
                   </div>
                 </div>
               </Link>

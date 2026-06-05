@@ -1,6 +1,7 @@
 import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
@@ -113,6 +114,49 @@ def aggiorna_pin(
     db.commit()
     db.refresh(doc)
     return doc
+
+@router.get("/{cantiere_id}/documenti/{doc_id}/preview")
+def preview_documento(
+    cantiere_id: int,
+    doc_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Restituisce la prima pagina del PDF come PNG, oppure l'immagine originale."""
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+
+    percorso = os.path.join(settings.UPLOAD_DIR, doc.url.lstrip("/uploads/"))
+    if not os.path.exists(percorso):
+        raise HTTPException(status_code=404, detail="File non trovato")
+
+    tipo = (doc.tipo or "").lower()
+
+    # Immagini: restituisci direttamente
+    if tipo in ("jpg", "jpeg", "png", "gif", "webp"):
+        media_type = "image/jpeg" if tipo in ("jpg", "jpeg") else f"image/{tipo}"
+        return FileResponse(percorso, media_type=media_type)
+
+    # PDF: converti prima pagina in PNG
+    if tipo == "pdf":
+        preview_path = percorso + "_preview.png"
+        if not os.path.exists(preview_path):
+            try:
+                import fitz  # PyMuPDF
+                pdf = fitz.open(percorso)
+                pagina = pdf[0]
+                mat = fitz.Matrix(2.0, 2.0)  # 2x zoom per buona qualità
+                pix = pagina.get_pixmap(matrix=mat)
+                pix.save(preview_path)
+                pdf.close()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Errore conversione PDF: {e}")
+        return FileResponse(preview_path, media_type="image/png")
+
+    # DXF e altri: non supportato come immagine
+    raise HTTPException(status_code=415, detail="Tipo non supportato per anteprima")
 
 @router.delete("/{cantiere_id}/documenti/{doc_id}", status_code=204)
 def elimina_documento(
