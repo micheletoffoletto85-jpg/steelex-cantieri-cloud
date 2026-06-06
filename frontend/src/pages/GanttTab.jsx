@@ -2,7 +2,7 @@
  * Diagramma di Gantt + Cronoprogramma
  * Collega le fasi di lavoro ai SAL (Stato Avanzamento Lavori)
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -446,20 +446,76 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, toolt
   )
 }
 
+/* ─── HOOK LONG PRESS ─── */
+function useLongPress(callback, ms = 500) {
+  const timer = useRef(null)
+  const start = (e) => {
+    // Previene selezione testo su mobile
+    e.preventDefault()
+    timer.current = setTimeout(callback, ms)
+  }
+  const stop = () => { clearTimeout(timer.current) }
+  return { onTouchStart: start, onTouchEnd: stop, onTouchMove: stop, onMouseDown: start, onMouseUp: stop, onMouseLeave: stop }
+}
+
 /* ─── VISTA LISTA ─── */
 function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
   const oggi = dayjs()
+  const [dettaglio, setDettaglio] = useState(null)
 
   return (
     <div className="space-y-2">
+      {/* Modale dettaglio fase (long press) */}
+      {dettaglio && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/50" onClick={() => setDettaglio(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Header colorato */}
+            <div className="p-4" style={{ background: dettaglio.colore || '#FF6B00' }}>
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="font-bold text-white text-lg leading-snug">{dettaglio.nome}</h2>
+                <button onClick={() => setDettaglio(null)} className="text-white/80 hover:text-white flex-shrink-0 mt-0.5"><X size={20} /></button>
+              </div>
+              <span className="text-xs text-white/80 mt-1 inline-block">{dettaglio.categoria}</span>
+            </div>
+            {/* Dettagli */}
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><p className="text-xs text-gray-400">Inizio</p><p className="font-semibold">{fmtDFull(dettaglio.data_inizio) || '—'}</p></div>
+                <div><p className="text-xs text-gray-400">Fine prevista</p><p className="font-semibold">{fmtDFull(dettaglio.data_fine_prevista) || '—'}</p></div>
+                {dettaglio.data_fine_reale && <div><p className="text-xs text-gray-400">Fine reale</p><p className="font-semibold text-green-600">{fmtDFull(dettaglio.data_fine_reale)}</p></div>}
+                <div><p className="text-xs text-gray-400">Avanzamento</p><p className="font-bold text-steelex-orange text-lg">{dettaglio.percentuale}%</p></div>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-3">
+                <div className="h-3 rounded-full" style={{ width: `${dettaglio.percentuale}%`, background: dettaglio.colore || '#FF6B00' }} />
+              </div>
+              {dettaglio.sal_id && salMap[dettaglio.sal_id] && (
+                <p className="text-xs text-blue-600">🔗 SAL #{salMap[dettaglio.sal_id].numero} — {salMap[dettaglio.sal_id].titolo}</p>
+              )}
+              {dettaglio.note && <p className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3 italic">{dettaglio.note}</p>}
+              {canWrite && (
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => { onEdit(dettaglio); setDettaglio(null) }} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                    <Edit2 size={15} /> Modifica
+                  </button>
+                  <button onClick={() => { if (confirm('Eliminare fase?')) { onDelete(dettaglio.id); setDettaglio(null) } }} className="px-4 py-2 rounded-xl text-red-500 border border-red-200 hover:bg-red-50 text-sm font-medium">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {fasi.map(f => {
         const sal = f.sal_id ? salMap[f.sal_id] : null
         const statoInfo = STATO_FASE[f.stato] || STATO_FASE.pianificata
         const ritardo = f.data_fine_prevista && dayjs(f.data_fine_prevista).isBefore(oggi) && f.percentuale < 100
+        const longPressProps = useLongPress(() => setDettaglio(f))
 
         return (
-          <div key={f.id} className="card space-y-2">
+          <div key={f.id} className="card space-y-2 select-none" {...longPressProps}>
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <div className="w-4 h-4 rounded-sm flex-shrink-0 mt-0.5" style={{ background: f.colore || '#ccc' }} />
