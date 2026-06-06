@@ -28,31 +28,81 @@ const SEZIONI = [
 
 export default function EconomiaTab({ cantiereId }) {
   const { utente } = useAuth()
+  const qc = useQueryClient()
   const [sezione, setSezione] = useState('riepilogo')
   const canWrite = ['admin','capo_cantiere'].includes(utente?.ruolo)
+
+  // Quando si cambia sezione, invalida subito economia e preventivi
+  // così il Riepilogo è sempre fresco quando ci si torna
+  const cambiaSezione = (k) => {
+    setSezione(k)
+    if (k === 'riepilogo') {
+      qc.invalidateQueries(['economia', cantiereId])
+      qc.invalidateQueries(['preventivi', cantiereId])
+      qc.invalidateQueries(['spese', cantiereId])
+      qc.invalidateQueries(['sal', cantiereId])
+    }
+  }
 
   return (
     <div className="space-y-3">
       <div className="flex gap-1 overflow-x-auto pb-1">
         {SEZIONI.map(([k,l,Icon]) => (
-          <button key={k} onClick={() => setSezione(k)}
+          <button key={k} onClick={() => cambiaSezione(k)}
             className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${sezione===k ? 'bg-steelex-orange text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             <Icon size={12} />{l}
           </button>
         ))}
       </div>
-      {sezione === 'riepilogo' && <RiepilogoSection cantiereId={cantiereId} />}
-      {sezione === 'computo'   && <ComputoSection   cantiereId={cantiereId} canWrite={canWrite} />}
-      {sezione === 'spese'     && <SpeseSection     cantiereId={cantiereId} canWrite={canWrite} />}
-      {sezione === 'sal'       && <SALSection        cantiereId={cantiereId} canWrite={canWrite} />}
+
+      {/* Tutte le sezioni sempre montate — visibilità CSS per non perdere lo stato
+          e per permettere l'aggiornamento live delle query in background */}
+      <div style={{ display: sezione === 'riepilogo' ? 'block' : 'none' }}>
+        <RiepilogoSection cantiereId={cantiereId} attiva={sezione === 'riepilogo'} />
+      </div>
+      <div style={{ display: sezione === 'computo' ? 'block' : 'none' }}>
+        <ComputoSection cantiereId={cantiereId} canWrite={canWrite} />
+      </div>
+      <div style={{ display: sezione === 'spese' ? 'block' : 'none' }}>
+        <SpeseSection cantiereId={cantiereId} canWrite={canWrite} />
+      </div>
+      <div style={{ display: sezione === 'sal' ? 'block' : 'none' }}>
+        <SALSection cantiereId={cantiereId} canWrite={canWrite} />
+      </div>
+    </div>
+  )
+}
+
+/* ─── MINI TOTALE LIVE (visibile nelle sezioni Spese/SAL/Computo) ─── */
+function MiniRiepilogoLive({ cantiereId }) {
+  const { data: rv } = useQuery(
+    ['economia', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/economia`).then(r => r.data),
+    { staleTime: 0, refetchInterval: 15000 }
+  )
+  if (!rv) return null
+  return (
+    <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2 text-xs border border-gray-200">
+      <span className="text-gray-400">Live →</span>
+      <span>Budget: <strong className="text-steelex-orange">{`€ ${(rv.budget_preventivo||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
+      <span>Spese: <strong className={rv.totale_speso > rv.budget_preventivo ? 'text-red-600' : 'text-gray-700'}>{`€ ${(rv.totale_speso||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
+      <span className="ml-auto">Margine: <strong className={rv.margine_atteso >= 0 ? 'text-green-600' : 'text-red-600'}>{`€ ${(rv.margine_atteso||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
     </div>
   )
 }
 
 /* ─── RIEPILOGO ─── */
-function RiepilogoSection({ cantiereId }) {
-  const { data: rv, isLoading } = useQuery(['economia', cantiereId], () => api.get(`/cantieri/${cantiereId}/economia`).then(r => r.data), { staleTime: 0 })
-  const { data: preventivi = [] } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
+function RiepilogoSection({ cantiereId, attiva }) {
+  const { data: rv, isLoading, dataUpdatedAt } = useQuery(
+    ['economia', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/economia`).then(r => r.data),
+    { staleTime: 0, refetchInterval: 20000, refetchOnMount: 'always' }
+  )
+  const { data: preventivi = [] } = useQuery(
+    ['preventivi', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data),
+    { staleTime: 0, refetchOnMount: 'always' }
+  )
 
   const scaricaExcel = async () => {
     try {
@@ -75,8 +125,13 @@ function RiepilogoSection({ cantiereId }) {
 
   return (
     <div className="space-y-3">
-      {/* Pulsante export */}
-      <div className="flex justify-end">
+      {/* Pulsante export + timestamp aggiornamento */}
+      <div className="flex items-center justify-between">
+        {dataUpdatedAt ? (
+          <span className="text-xs text-gray-400">
+            ↻ aggiornato alle {new Date(dataUpdatedAt).toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'})}
+          </span>
+        ) : <span />}
         <button onClick={scaricaExcel}
           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors">
           <Download size={15} /> Export Excel
@@ -286,6 +341,7 @@ function ComputoSection({ cantiereId, canWrite }) {
 
   return (
     <div className="space-y-3">
+      <MiniRiepilogoLive cantiereId={cantiereId} />
       {canWrite && !showForm && (
         <div className="flex gap-2">
           <button onClick={() => setShowForm(true)} className="btn-primary flex-1 flex items-center justify-center gap-2">
@@ -567,6 +623,7 @@ function SpeseSection({ cantiereId, canWrite }) {
 
   return (
     <div className="space-y-3">
+      <MiniRiepilogoLive cantiereId={cantiereId} />
       {spese.length > 0 && (
         <div className="card flex items-center justify-between">
           <div><p className="text-xs text-gray-400">Totale spese registrate</p><p className="text-xl font-bold text-gray-900">{fmt(totale)}</p></div>
@@ -696,6 +753,7 @@ function SALSection({ cantiereId, canWrite }) {
 
   return (
     <div className="space-y-3">
+      <MiniRiepilogoLive cantiereId={cantiereId} />
       {salList.length > 0 && (
         <div className="card flex items-center justify-between">
           <div><p className="text-xs text-gray-400">Totale SAL emessi</p><p className="text-xl font-bold text-steelex-orange">{fmt(totEmesso)}</p></div>
