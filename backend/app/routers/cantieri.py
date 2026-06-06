@@ -103,8 +103,8 @@ def lista_utenti_assegnabili(db: Session = Depends(get_db), user: Utente = Depen
     if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     return db.query(Utente).filter(
-        Utente.ruolo.in_([RuoloUtente.artigiano, RuoloUtente.capo_cantiere]),
-        Utente.attivo == True
+        Utente.attivo == True,
+        Utente.id != user.id  # esclude se stesso
     ).order_by(Utente.cognome).all()
 
 class AssegnaBody(BaseModel):
