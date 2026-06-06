@@ -440,30 +440,34 @@ async def import_computo_ai(
     nome = (file.filename or "").lower()
     ext = os.path.splitext(nome)[1]
 
-    import re as _re
+    import re as _re, json as _json
 
     def _parse_numero(val):
-        """Converte valori come '35,00 €', '1.234,56', 1234.56 → float"""
+        """Converte '35,00 €', '1.234,56', 1234.56 → float oppure None"""
         if val is None:
             return None
         if isinstance(val, (int, float)):
             return float(val)
-        s = str(val).strip()
-        s = s.replace('€', '').replace(' ', '').replace('\xa0', '')
-        # Formato italiano: 1.234,56 → 1234.56
+        s = str(val).strip().replace('€','').replace(' ','').replace('\xa0','')
         if ',' in s and '.' in s:
-            s = s.replace('.', '').replace(',', '.')
+            s = s.replace('.','').replace(',','.')
         elif ',' in s:
-            s = s.replace(',', '.')
-        s = _re.sub(r'[^\d.\-]', '', s)
+            s = s.replace(',','.')
+        s = _re.sub(r'[^\d.\-]','',s)
         try:
-            return float(s)
+            return float(s) if s else None
         except Exception:
             return None
 
-    # Estrai dati strutturati dal file
-    righe_strutturate = []  # lista di dict con codice/descrizione/um/qt/prezzo/totale
-    testo_grezzo = ""
+    PAROLE_SKIP = {"totale","totale generale","subtotale","totale complessivo",
+                   "importo complessivo","sommano","totale parziale","totale ivato",
+                   "totale complessivo ivato"}
+    PAROLE_INTESTAZIONE = {"descrizione","voce","art.","lavorazione","u.m.","unità"}
+    # keyword che identificano righe di riepilogo/imposta (anche parziali)
+    KEYWORD_RIEPILOGO = ["importo totale","importo complessivo","iva ","iva\n",
+                         "totale ivato","totale complessivo ivato","sommano euro"]
+
+    voci = []
 
     try:
         if ext in (".xlsx", ".xls"):
@@ -472,233 +476,283 @@ async def import_computo_ai(
             ws = wb.active
             n_col = ws.max_column
 
-            # Rileva intestazioni cercando le keyword nelle prime 10 righe
-            col_map = {}  # "desc"/"um"/"qt"/"prezzo"/"totale" → indice colonna (0-based)
+            # Rileva colonne dalle intestazioni (prime 10 righe)
+            col_map = {}
+            header_row_idx = None
             for rnum, row in enumerate(ws.iter_rows(min_row=1, max_row=10, values_only=True)):
                 for ci, cell in enumerate(row):
                     if cell is None: continue
                     s = str(cell).lower().strip()
                     if any(k in s for k in ["descri","lavora","voce","oggetto"]) and "desc" not in col_map:
                         col_map["desc"] = ci
-                    if any(k in s for k in ["u.m.","unità","um","misura"]) and "um" not in col_map:
+                    if any(k in s for k in ["u.m.","unità","misura"]) and "um" not in col_map:
                         col_map["um"] = ci
-                    if any(k in s for k in ["quant","qta","q.tà","qtà","nr","n."]) and "qt" not in col_map:
+                    if any(k in s for k in ["quant","qta","q.tà"]) and "qt" not in col_map:
                         col_map["qt"] = ci
                     if any(k in s for k in ["prezzo","p.u.","unitario","costo unit"]) and "prezzo" not in col_map:
                         col_map["prezzo"] = ci
-                    if any(k in s for k in ["totale","importo","importo tot"]) and "totale" not in col_map:
+                    if any(k in s for k in ["totale","importo"]) and "totale" not in col_map:
                         col_map["totale"] = ci
+                    if any(k in s for k in ["ricarico","ricaric","markup"]) and "ricarico" not in col_map:
+                        col_map["ricarico"] = ci
+                    if any(k in s for k in ["categ"]) and "cat" not in col_map:
+                        col_map["cat"] = ci
                 if col_map:
+                    header_row_idx = rnum
                     break
 
-            # Se non trovate intestazioni, usa struttura nota del computo STEELEX:
-            # col 0=codice, 1=descrizione, 2=um, 3=qt, 4=prezzo, 5=totale
+            # Fallback: struttura offerta STEELEX (col0=codice,1=desc,2=um,3=qt,4=prezzo,5=totale)
             if not col_map and n_col >= 5:
-                col_map = {"codice": 0, "desc": 1, "um": 2, "qt": 3, "prezzo": 4, "totale": 5}
+                col_map = {"codice":0,"desc":1,"um":2,"qt":3,"prezzo":4,"totale":5}
 
-            # Leggi tutte le righe dati
-            righe_raw = []
+            # Raccogli descrizioni per categorizzazione batch con Claude
+            desc_per_categoria = []
+
             for row in ws.iter_rows(values_only=True):
                 if not any(c is not None for c in row):
                     continue
-                righe_raw.append(list(row))
 
-            # Costruisci testo strutturato per Claude
-            linee = ["CODICE | DESCRIZIONE | UM | QUANTITA | PREZZO_UNITARIO | TOTALE"]
-            for row in righe_raw:
                 def g(key):
                     i = col_map.get(key)
                     return row[i] if i is not None and i < len(row) else None
 
-                codice = g("codice")
-                desc = g("desc")
-                um = g("um")
-                qt = g("qt")
-                prezzo = g("prezzo")
-                totale = g("totale")
+                codice   = g("codice")
+                desc     = g("desc")
+                um       = g("um")
+                qt_raw   = g("qt")
+                pr_raw   = g("prezzo")
+                tot_raw  = g("totale")
+                ric_raw  = g("ricarico")
+                cat_raw  = g("cat")
 
-                # Salta righe senza nessun dato utile
-                if not any([desc, um, qt, prezzo, totale]):
+                desc_str = str(desc or "").replace("\n"," ").strip()
+                desc_low = desc_str.lower()
+
+                # Salta righe inutili
+                if not desc_str and pr_raw is None and tot_raw is None:
                     continue
-                # Salta intestazioni ripetute
-                if desc and str(desc).lower().strip() in ("descrizione","voce","art.","lavorazione"):
+                if desc_low in PAROLE_INTESTAZIONE:
                     continue
-                # Salta righe solo-totale generali
-                if desc and str(desc).lower().strip() in ("totale","totale generale","subtotale") and not codice:
+                if desc_low in PAROLE_SKIP and not codice:
                     continue
+                # Salta righe di riepilogo/imposta (anche se hanno un totale)
+                if any(k in desc_low for k in KEYWORD_RIEPILOGO):
+                    continue
+                # Salta righe che sono solo titoli di sezione senza prezzo né qt
+                qt_n  = _parse_numero(qt_raw)
+                pr_n  = _parse_numero(pr_raw)
+                tot_n = _parse_numero(tot_raw)
 
-                qt_n = _parse_numero(qt)
-                pr_n = _parse_numero(prezzo)
-                tot_n = _parse_numero(totale)
+                if pr_n is None and tot_n is None:
+                    continue  # niente numeri → riga di testo/titolo
 
-                linee.append(
-                    f"{codice or ''} | "
-                    f"{str(desc or '').replace(chr(10),' ').strip()[:200]} | "
-                    f"{um or ''} | "
-                    f"{qt_n if qt_n is not None else ''} | "
-                    f"{pr_n if pr_n is not None else ''} | "
-                    f"{tot_n if tot_n is not None else ''}"
-                )
+                # Calcola totale: usa il valore della colonna se c'è, altrimenti calcola
+                if tot_n is not None:
+                    totale_val = round(tot_n, 2)
+                elif qt_n is not None and pr_n is not None:
+                    totale_val = round(qt_n * pr_n, 2)
+                elif pr_n is not None:
+                    totale_val = round(pr_n, 2)
+                else:
+                    totale_val = 0.0
 
-            testo_grezzo = "\n".join(linee[:400])
+                # Prezzo unitario: usa colonna, oppure calcola da totale/qt
+                if pr_n is not None:
+                    prezzo_val = round(pr_n, 2)
+                elif qt_n and qt_n != 0 and tot_n is not None:
+                    prezzo_val = round(tot_n / qt_n, 2)
+                else:
+                    prezzo_val = totale_val
+
+                qt_val = round(qt_n, 4) if qt_n is not None else 1.0
+
+                ric_val = round(_parse_numero(ric_raw) or 0.0, 2)
+                cat_val = str(cat_raw or "").strip() or "Altro"
+                prezzo_cliente_val = round(prezzo_val * (1 + ric_val/100), 2)
+                totale_cliente_val = round(qt_val * prezzo_cliente_val, 2)
+
+                voci.append({
+                    "id": len(voci) + 1,
+                    "descrizione": desc_str[:200] or f"Voce {len(voci)+1}",
+                    "categoria": cat_val,
+                    "um": str(um or "").strip() or "cad",
+                    "quantita": qt_val,
+                    "prezzo_costo": prezzo_val,
+                    "ricarico_perc": ric_val,
+                    "prezzo_cliente": prezzo_cliente_val,
+                    "totale_costo": totale_val,
+                    "totale_cliente": totale_cliente_val,
+                })
+                desc_per_categoria.append(desc_str[:150])
+
+            # Claude assegna SOLO le categorie (niente numeri)
+            if voci and settings.ANTHROPIC_API_KEY:
+                import anthropic
+                claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+                lista_desc = "\n".join(f"{i+1}. {d}" for i,d in enumerate(desc_per_categoria))
+                prompt_cat = f"""Assegna una categoria edile a ciascuna voce di questo computo metrico.
+Categorie disponibili: Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro
+
+Voci:
+{lista_desc[:6000]}
+
+Rispondi SOLO con un JSON array di stringhe, una categoria per voce, nello stesso ordine.
+Esempio: ["Ponteggi","Materiali","Manodopera",...]
+Risposta:"""
+                try:
+                    msg = claude.messages.create(
+                        model="claude-haiku-4-5", max_tokens=2000,
+                        messages=[{"role":"user","content":prompt_cat}]
+                    )
+                    raw_cat = msg.content[0].text.strip()
+                    # estrai array JSON
+                    m = _re.search(r'\[.*\]', raw_cat, _re.DOTALL)
+                    if m:
+                        categorie = _json.loads(m.group())
+                        for i, cat in enumerate(categorie):
+                            if i < len(voci) and isinstance(cat, str):
+                                voci[i]["categoria"] = cat
+                except Exception:
+                    pass  # categorie restano "Altro", non blocca
 
         elif ext == ".csv":
             import csv, io as _io
             reader = csv.reader(_io.StringIO(contenuto.decode("utf-8", errors="replace")))
-            righe = ["\t".join(r) for r in reader]
-            testo_grezzo = "\n".join(righe[:300])
-
-        elif ext == ".pdf":
-            import fitz
-            doc = fitz.open(stream=contenuto, filetype="pdf")
-            pagine = [doc[i].get_text() for i in range(min(len(doc), 5))]
-            testo_grezzo = "\n".join(pagine)
+            righe = list(reader)
+            # Trova riga intestazione
+            for i_row, r in enumerate(righe[:10]):
+                joined = " ".join(r).lower()
+                if any(k in joined for k in ["descri","prezzo","totale","quantit"]):
+                    righe = righe[i_row+1:]
+                    break
+            for r in righe[:300]:
+                if len(r) < 3: continue
+                desc_str = r[0].strip()
+                qt_n  = _parse_numero(r[2] if len(r)>2 else None)
+                pr_n  = _parse_numero(r[3] if len(r)>3 else None)
+                tot_n = _parse_numero(r[4] if len(r)>4 else None)
+                if not desc_str or (pr_n is None and tot_n is None): continue
+                tot_v = round(tot_n or (qt_n or 1)*( pr_n or 0), 2)
+                pr_v  = round(pr_n or (tot_n/qt_n if qt_n else tot_v), 2)
+                voci.append({
+                    "id": len(voci)+1, "descrizione": desc_str[:200],
+                    "categoria": "Altro", "um": r[1].strip() if len(r)>1 else "cad",
+                    "quantita": round(qt_n or 1, 4), "prezzo_costo": pr_v,
+                    "ricarico_perc": 0.0, "prezzo_cliente": pr_v,
+                    "totale_costo": tot_v, "totale_cliente": tot_v,
+                })
 
         else:
-            testo_grezzo = contenuto.decode("utf-8", errors="replace")[:10000]
+            raise HTTPException(400, "Formato non supportato. Carica un file .xlsx, .xls o .csv")
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, f"Impossibile leggere il file: {e}")
 
-    if not testo_grezzo.strip():
-        raise HTTPException(400, "File vuoto o non leggibile")
+    if not voci:
+        raise HTTPException(400, "Nessuna voce trovata nel file. Controlla il formato.")
 
-    # Claude interpreta le voci
-    import anthropic
-    claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-    prompt = f"""Sei un esperto di computi metrici per cantieri edili italiani.
-Ti viene fornito un computo metrico già pre-elaborato con colonne separate da "|":
-CODICE | DESCRIZIONE | UM | QUANTITA | PREZZO_UNITARIO | TOTALE
-
-Il tuo compito è restituire un JSON array con tutte le voci di lavoro/fornitura.
-
-Per ogni riga con una descrizione significativa, crea un oggetto con:
-- descrizione: testo della voce (prima frase significativa, max 150 caratteri)
-- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro]
-- um: unità di misura (es: "mq", "ml", "ac", "ore", "cad", "kg", "mc")
-- quantita: numero (default 1 se vuoto)
-- prezzo_costo: il valore PREZZO_UNITARIO come numero float (0 se vuoto)
-- ricarico_perc: 0 (il ricarico viene aggiunto manualmente dopo)
-- prezzo_cliente: uguale a prezzo_costo
-- totale_costo: QUANTITA * PREZZO_UNITARIO (usa il valore TOTALE se presente, altrimenti calcola)
-- totale_cliente: uguale a totale_costo
-
-REGOLE:
-- Includi TUTTE le voci con codice (es: 1.01, 1.02) E le sotto-voci senza codice che hanno prezzo
-- Ignora: righe con solo "Totale" o "Subtotale", intestazioni di colonna, note finali
-- Se PREZZO_UNITARIO è vuoto ma TOTALE e QUANTITA ci sono, calcola PREZZO = TOTALE / QUANTITA
-- I numeri sono già convertiti in formato decimale con punto (non virgola)
-- Restituisci SOLO il JSON array, senza markdown, senza testo aggiuntivo
-
-Dati computo:
-{testo_grezzo[:9000]}
-
-Risposta (SOLO JSON array):"""
-
-    try:
-        msg = claude.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=8192,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        testo_risposta = msg.content[0].text.strip()
-
-        import json
-        testo_risposta = _ripara_json_array(testo_risposta)
-        voci = json.loads(testo_risposta)
-        if not isinstance(voci, list):
-            raise ValueError("Non è una lista")
-
-        for i, v in enumerate(voci):
-            v["id"] = i + 1
-            for campo in ("quantita","prezzo_costo","ricarico_perc","prezzo_cliente","totale_costo","totale_cliente"):
-                try:
-                    raw = str(v.get(campo, 0) or 0)
-                    # gestisci formato italiano residuo
-                    if ',' in raw and '.' in raw:
-                        raw = raw.replace('.','').replace(',','.')
-                    elif ',' in raw:
-                        raw = raw.replace(',','.')
-                    v[campo] = round(float(_re.sub(r'[^\d.\-]','',raw) or '0'), 2)
-                except Exception:
-                    v[campo] = 0.0
-
-        return {"voci": voci, "totale_voci": len(voci)}
-
-    except Exception as e:
-        raise HTTPException(500, f"Errore interpretazione Claude: {e}")
+    return {"voci": voci, "totale_voci": len(voci)}
 
 
 # ─── TEMPLATE EXCEL COMPUTO ───────────────────────────────────────────────────
 
 @router.get("/template-computo")
 def scarica_template_computo():
-    """Scarica il template Excel ottimale per l'import del computo"""
+    """Scarica il template Excel standard per l'import del computo"""
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     import io as _io
 
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Computo"
 
-    intestazioni = ["Descrizione voce", "Categoria", "U.M.", "Quantità", "Prezzo costo unitario (€)", "Ricarico %", "Prezzo cliente unitario (€)", "Totale costo (€)", "Totale cliente (€)"]
-    categorie_valide = "Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Altro"
+    # ── Foglio istruzioni (primo, così si apre subito)
+    wi = wb.active
+    wi.title = "LEGGI PRIMA"
+    wi.column_dimensions["A"].width = 80
 
-    header_fill = PatternFill("solid", fgColor="FF6B00")
-    header_font = Font(bold=True, color="FFFFFF")
-    thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    arancio = PatternFill("solid", fgColor="FF6B00")
+    giallo  = PatternFill("solid", fgColor="FFF9C4")
+    verde   = PatternFill("solid", fgColor="E8F5E9")
 
-    for col, h in enumerate(intestazioni, 1):
-        c = ws.cell(row=1, column=col, value=h)
-        c.font = header_font
-        c.fill = header_fill
-        c.alignment = Alignment(horizontal="center", wrap_text=True)
-        c.border = thin
-
-    esempi = [
-        ["Fornitura e posa profili in acciaio LSF 89/41 sp. 0,6mm", "Struttura", "mq", 120, 18.50, 30, 24.05, 2220.00, 2886.00],
-        ["Isolamento termico in lana di roccia 10cm", "Materiali", "mq", 120, 12.00, 25, 15.00, 1440.00, 1800.00],
-        ["Manodopera posa struttura", "Manodopera", "h", 40, 35.00, 20, 42.00, 1400.00, 1680.00],
-        ["Nolo ponteggio", "Nolo", "mese", 2, 800.00, 15, 920.00, 1600.00, 1840.00],
-        ["Smaltimento rifiuti cantiere", "Servizi", "corpo", 1, 500.00, 10, 550.00, 500.00, 550.00],
-    ]
-    note_fill = PatternFill("solid", fgColor="FFF3E0")
-    for r, riga in enumerate(esempi, 2):
-        for col, val in enumerate(riga, 1):
-            c = ws.cell(row=r, column=col, value=val)
-            c.fill = note_fill
-            c.border = thin
-            if col >= 4:
-                c.alignment = Alignment(horizontal="right")
-
-    ws.column_dimensions["A"].width = 45
-    for col_letter, w in zip("BCDEFGHI", [14, 10, 10, 22, 12, 22, 16, 16]):
-        ws.column_dimensions[col_letter].width = w
-
-    # Foglio istruzioni
-    wi = wb.create_sheet("Istruzioni")
     istruzioni = [
-        ("ISTRUZIONI PER L'IMPORT COMPUTO", True),
-        ("", False),
-        ("1. Compila il foglio 'Computo' con tutte le voci del tuo computo metrico", False),
-        ("2. Colonne obbligatorie: Descrizione, Quantità, Prezzo costo unitario", False),
-        ("3. Le altre colonne sono opzionali - Claude le calcolerà se mancano", False),
-        ("", False),
-        (f"Categorie valide: {categorie_valide}", False),
-        ("", False),
-        ("U.M. comuni: mq, ml, mc, cad, kg, h, corpo, fornitura, mese, g (giorno)", False),
-        ("", False),
-        ("IMPORTANTE: Puoi anche importare il tuo computo in qualsiasi formato", False),
-        ("Claude è in grado di interpretare strutture diverse da questo template.", False),
-        ("Tuttavia, più il file è pulito e strutturato, migliore sarà il risultato.", False),
+        ("TEMPLATE IMPORT COMPUTO — STEELEX Cantieri", True, arancio),
+        ("", False, None),
+        ("REGOLA FONDAMENTALE:", True, giallo),
+        ("Una riga = una voce. Niente sub-totali, niente totali generali, niente alternative.", False, giallo),
+        ("Il sistema calcola i totali da solo.", False, giallo),
+        ("", False, None),
+        ("COLONNE OBBLIGATORIE:", True, None),
+        ("  • Descrizione voce  →  testo libero", False, None),
+        ("  • Quantità           →  numero (es: 120 oppure 1)", False, None),
+        ("  • U.M.               →  mq / ml / mc / cad / h / kg / corpo / mese", False, None),
+        ("  • Prezzo unitario €  →  prezzo di COSTO (quello che paghi tu)", False, None),
+        ("", False, None),
+        ("COLONNE FACOLTATIVE:", True, None),
+        ("  • Categoria          →  Materiali / Manodopera / Nolo / Servizi / Sicurezza / Struttura / Finiture / Impianti / Ponteggi / Altro", False, None),
+        ("  • Ricarico %         →  es. 30 (lascia vuoto per usare il ricarico globale del preventivo)", False, None),
+        ("", False, None),
+        ("COSA NON METTERE:", True, giallo),
+        ("  ✗  Righe 'Totale', 'Subtotale', 'Importo totale', 'IVA'", False, giallo),
+        ("  ✗  Righe vuote tra le voci (vanno ignorate ma confondono)", False, giallo),
+        ("  ✗  Voci duplicate o alternative (inserisci solo quelle che vuoi importare)", False, giallo),
+        ("", False, None),
+        ("COME USARLO:", True, verde),
+        ("  1. Vai nel foglio 'Computo'", False, verde),
+        ("  2. Cancella le righe di esempio (righe 2-6)", False, verde),
+        ("  3. Inserisci le tue voci — una per riga", False, verde),
+        ("  4. Salva il file", False, verde),
+        ("  5. Nell'app: sezione Economia → Computo → 'Importa AI' → seleziona questo file", False, verde),
     ]
-    for row, (testo, bold) in enumerate(istruzioni, 1):
-        c = wi.cell(row=row, column=1, value=testo)
-        if bold:
-            c.font = Font(bold=True, size=13, color="FF6B00")
-    wi.column_dimensions["A"].width = 70
+    for rnum, (testo, bold, fill) in enumerate(istruzioni, 1):
+        c = wi.cell(row=rnum, column=1, value=testo)
+        c.font = Font(bold=bold, size=11 if bold else 10,
+                      color="FFFFFF" if fill == arancio else "000000")
+        if fill:
+            c.fill = fill
+
+    # ── Foglio computo
+    ws = wb.create_sheet("Computo")
+
+    # Intestazioni — solo le 6 colonne essenziali
+    headers = [
+        ("Descrizione voce", 50),
+        ("Categoria", 16),
+        ("U.M.", 8),
+        ("Quantità", 10),
+        ("Prezzo unitario €", 18),
+        ("Ricarico %", 12),
+    ]
+    hfill = PatternFill("solid", fgColor="FF6B00")
+    hfont = Font(bold=True, color="FFFFFF", size=11)
+    thin  = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+    ws.row_dimensions[1].height = 22
+    for ci, (h, w) in enumerate(headers, 1):
+        c = ws.cell(row=1, column=ci, value=h)
+        c.font = hfont; c.fill = hfill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = thin
+        ws.column_dimensions[chr(64+ci)].width = w
+
+    # Righe di esempio (cancellabili)
+    efill = PatternFill("solid", fgColor="FFF3E0")
+    esempi = [
+        ["Allestimento cantiere e segnaletica di sicurezza", "Sicurezza", "corpo", 1, 2000.00, 0],
+        ["Ponteggio di facciata lato strada", "Ponteggi", "mq", 292.9, 27.00, 25],
+        ["Rimozione manto di copertura in coppi di laterizio", "Struttura", "mq", 325.2, 11.00, 20],
+        ["Nuova copertura in legno (orditura primaria e secondaria + tavolato)", "Struttura", "mq", 170.8, 140.00, 30],
+        ["Membrana impermeabilizzante bituminosa sp. 4mm", "Materiali", "mq", 357.72, 14.80, 25],
+    ]
+    for ri, riga in enumerate(esempi, 2):
+        for ci, val in enumerate(riga, 1):
+            c = ws.cell(row=ri, column=ci, value=val)
+            c.fill = efill; c.border = thin
+            if ci >= 4:
+                c.alignment = Alignment(horizontal="right")
 
     buf = _io.BytesIO()
     wb.save(buf)
