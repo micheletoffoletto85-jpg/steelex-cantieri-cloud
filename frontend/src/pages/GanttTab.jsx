@@ -4,7 +4,7 @@
  */
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar } from 'lucide-react'
+import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -35,6 +35,8 @@ export default function GanttTab({ cantiereId }) {
   const [vista, setVista] = useState('gantt') // gantt | lista
   const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#FF6B00', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'' })
   const setF = (k,v) => setForm(f => ({...f, [k]:v}))
+  const [importando, setImportando] = useState(false)
+  const [fasiImportate, setFasiImportate] = useState(null)
 
   const { data: fasi = [], isLoading, isError, error } = useQuery(
     ['fasi', cantiereId],
@@ -64,6 +66,41 @@ export default function GanttTab({ cantiereId }) {
 
   const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#FF6B00',data_inizio:'',data_fine_prevista:'',sal_id:'',percentuale:0,stato:'pianificata',note:'' }) }
 
+  const importaGanttAI = async (file) => {
+    setImportando(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await api.post(`/cantieri/${cantiereId}/fasi/import-gantt`, fd, { headers: {'Content-Type':'multipart/form-data'} })
+      setFasiImportate(r.data.fasi)
+      toast.success(`${r.data.totale_fasi} fasi trovate — rivedi e conferma`)
+    } catch(e) {
+      toast.error(e.response?.data?.detail || 'Errore import')
+    } finally { setImportando(false) }
+  }
+
+  const confermaImportGantt = async () => {
+    let ok = 0
+    for (const f of fasiImportate) {
+      try {
+        await api.post(`/cantieri/${cantiereId}/fasi`, {
+          nome: f.nome,
+          categoria: f.categoria || 'lavorazione',
+          colore: f.colore || '#FF6B00',
+          ordine: f.ordine || 0,
+          data_inizio: f.data_inizio || null,
+          data_fine_prevista: f.data_fine_prevista || null,
+          percentuale: f.percentuale || 0,
+          stato: f.stato || 'pianificata',
+          note: f.note || null,
+        })
+        ok++
+      } catch { /* continua con le altre */ }
+    }
+    qc.invalidateQueries(['fasi', cantiereId])
+    setFasiImportate(null)
+    toast.success(`${ok} fasi importate nel Gantt!`)
+  }
+
   const apriModifica = (f) => {
     setEditId(f.id)
     setForm({ nome:f.nome, categoria:f.categoria||'lavorazione', colore:f.colore||'#FF6B00', data_inizio:f.data_inizio||'', data_fine_prevista:f.data_fine_prevista||'', sal_id:f.sal_id||'', percentuale:f.percentuale||0, stato:f.stato||'pianificata', note:f.note||'' })
@@ -92,11 +129,67 @@ export default function GanttTab({ cantiereId }) {
           </button>
         </div>
         {canWrite && (
-          <button onClick={() => { setShowForm(true); setEditId(null) }} className="btn-primary flex items-center gap-1.5 py-2 px-3 text-sm">
-            <Plus size={16} /> Fase
-          </button>
+          <div className="flex gap-2">
+            <label className={`flex items-center gap-1.5 py-2 px-3 rounded-xl text-sm font-medium cursor-pointer transition-colors ${importando ? 'bg-purple-100 text-purple-400' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
+              title="Importa Gantt da Excel, CSV, PDF o foto — Claude interpreta le fasi automaticamente">
+              {importando ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {importando ? '...' : 'Importa AI'}
+              <input type="file" accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+                disabled={importando}
+                onChange={e => e.target.files[0] && importaGanttAI(e.target.files[0])} />
+            </label>
+            <button onClick={() => { setShowForm(true); setEditId(null) }} className="btn-primary flex items-center gap-1.5 py-2 px-3 text-sm">
+              <Plus size={16} /> Fase
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Modale anteprima fasi importate */}
+      {fasiImportate && (
+        <div className="card border-2 border-purple-300 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-purple-600" />
+              <h3 className="font-bold text-purple-900">Claude ha trovato {fasiImportate.length} fasi</h3>
+            </div>
+            <button onClick={() => setFasiImportate(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
+          <p className="text-xs text-purple-600 bg-purple-50 rounded-lg p-2">
+            Rivedi le fasi estratte. Verranno aggiunte al Gantt esistente — puoi modificarle dopo la conferma.
+          </p>
+          <div className="max-h-72 overflow-y-auto space-y-1.5">
+            {fasiImportate.map((f, i) => (
+              <div key={i} className="flex items-center gap-2 py-1.5 border-b border-gray-100">
+                <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: f.colore || '#ccc' }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-900 truncate">{f.nome}</p>
+                  <p className="text-xs text-gray-400">{f.categoria} · {f.data_inizio || '?'} → {f.data_fine_prevista || '?'}</p>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  <span className="text-xs font-semibold text-steelex-orange">{f.percentuale}%</span>
+                  {f.stato && f.stato !== 'pianificata' && (
+                    <p className="text-xs text-gray-400">{f.stato}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="pt-1 border-t border-purple-100 flex justify-between items-center">
+            <p className="text-xs text-gray-500">
+              Range: {fasiImportate.filter(f=>f.data_inizio).map(f=>f.data_inizio).sort()[0] || '?'}
+              {' → '}
+              {fasiImportate.filter(f=>f.data_fine_prevista).map(f=>f.data_fine_prevista).sort().at(-1) || '?'}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setFasiImportate(null)} className="btn-secondary text-sm py-1.5 px-3">Scarta</button>
+              <button onClick={confermaImportGantt} className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1">
+                <CheckCircle2 size={14} /> Importa fasi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Form fase */}
       {showForm && (

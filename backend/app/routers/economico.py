@@ -601,6 +601,144 @@ Rispondi SOLO con il JSON, nulla altro."""
         raise HTTPException(500, f"Errore analisi Claude: {e}")
 
 
+# ─── IMPORT GANTT DA FILE (AI) ────────────────────────────────────────────────
+
+@router.post("/{cantiere_id}/fasi/import-gantt")
+async def import_gantt_ai(
+    cantiere_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """
+    Riceve Excel/CSV/PDF/immagine con cronoprogramma o Gantt.
+    Claude interpreta le fasi e restituisce la lista pronta per l'import.
+    """
+    import base64
+    from app.config import settings
+    _check(cantiere_id, db, user)
+    _solo_staff(user)
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(503, "Anthropic API key non configurata")
+
+    contenuto = await file.read()
+    nome = (file.filename or "").lower()
+    ext = os.path.splitext(nome)[1].lower()
+
+    import anthropic
+    claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    PROMPT_BASE = """Sei un esperto di pianificazione cantieri edili italiani.
+Analizza il cronoprogramma o diagramma di Gantt fornito ed estrai tutte le fasi di lavoro.
+
+Per ogni fase restituisci un JSON con questi campi:
+- nome: nome della fase (stringa)
+- categoria: una tra [lavorazione, fornitura, collaudo, amministrativo, impianti, struttura, finiture]
+- data_inizio: "YYYY-MM-DD" oppure null
+- data_fine_prevista: "YYYY-MM-DD" oppure null
+- percentuale: avanzamento 0-100 (default 0 se non indicato)
+- stato: uno tra [pianificata, in_corso, completata, in_ritardo, sospesa] (default "pianificata")
+- note: eventuali note aggiuntive (o null)
+- ordine: numero progressivo che rispetta l'ordine originale (1, 2, 3...)
+
+REGOLE:
+- Rispetta l'ordine originale delle fasi
+- Interpreta date in qualsiasi formato (gg/mm/aaaa, mm/aaaa, settimana N ecc.) e convertile in YYYY-MM-DD
+- Se ci sono solo settimane (S1, S2...) o mesi relativi, calcola date assolute a partire da oggi
+- Ignora righe di intestazione, totali, legende
+- Rispondi SOLO con il JSON array, senza markdown, senza testo aggiuntivo"""
+
+    try:
+        # Immagine (foto Gantt, screenshot) → Vision
+        if ext in (".jpg", ".jpeg", ".png", ".webp"):
+            media_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+            img_b64 = base64.standard_b64encode(contenuto).decode()
+            msg = claude.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_map[ext], "data": img_b64}},
+                    {"type": "text", "text": PROMPT_BASE},
+                ]}]
+            )
+
+        else:
+            # File testuale: Excel, CSV, PDF
+            testo_grezzo = ""
+            if ext in (".xlsx", ".xls"):
+                import openpyxl, io as _io
+                wb = openpyxl.load_workbook(_io.BytesIO(contenuto), data_only=True)
+                ws = wb.active
+                righe = []
+                for row in ws.iter_rows(values_only=True):
+                    cella = [str(c).strip() if c is not None else "" for c in row]
+                    if any(cella):
+                        righe.append("\t".join(cella))
+                testo_grezzo = "\n".join(righe[:300])
+            elif ext == ".csv":
+                import csv, io as _io
+                reader = csv.reader(_io.StringIO(contenuto.decode("utf-8", errors="replace")))
+                testo_grezzo = "\n".join(["\t".join(r) for r in reader][:300])
+            elif ext == ".pdf":
+                import fitz
+                # Prova prima text, poi screenshot della prima pagina
+                doc = fitz.open(stream=contenuto, filetype="pdf")
+                testo_grezzo = "\n".join(doc[i].get_text() for i in range(min(len(doc), 5)))
+                # Se il PDF sembra grafico (poco testo), usa Vision sulla prima pagina
+                if len(testo_grezzo.strip()) < 100:
+                    pix = doc[0].get_pixmap(dpi=150)
+                    img_bytes = pix.tobytes("png")
+                    img_b64 = base64.standard_b64encode(img_bytes).decode()
+                    msg = claude.messages.create(
+                        model="claude-haiku-4-5",
+                        max_tokens=4096,
+                        messages=[{"role": "user", "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+                            {"type": "text", "text": PROMPT_BASE},
+                        ]}]
+                    )
+                    testo_grezzo = None  # già usato vision
+            else:
+                testo_grezzo = contenuto.decode("utf-8", errors="replace")[:8000]
+
+            if testo_grezzo is not None:
+                msg = claude.messages.create(
+                    model="claude-haiku-4-5",
+                    max_tokens=4096,
+                    messages=[{"role": "user", "content": f"{PROMPT_BASE}\n\nContenuto file:\n{testo_grezzo[:7000]}\n\nRisposta (solo JSON array):"}]
+                )
+
+        testo = msg.content[0].text.strip()
+        if testo.startswith("```"):
+            testo = testo.split("```")[1]
+            if testo.startswith("json"):
+                testo = testo[4:]
+
+        import json
+        fasi = json.loads(testo)
+        if not isinstance(fasi, list):
+            raise ValueError("Non è una lista")
+
+        COLORI = ['#FF6B00','#3b82f6','#22c55e','#ef4444','#8b5cf6','#f59e0b','#06b6d4','#ec4899']
+        for i, f in enumerate(fasi):
+            f["ordine"] = i + 1
+            f.setdefault("colore", COLORI[i % len(COLORI)])
+            f.setdefault("percentuale", 0)
+            f.setdefault("stato", "pianificata")
+            f.setdefault("nota", None)
+            # Normalizza percentuale
+            try:
+                f["percentuale"] = min(100, max(0, int(float(str(f["percentuale"]).replace("%","")))))
+            except Exception:
+                f["percentuale"] = 0
+
+        return {"fasi": fasi, "totale_fasi": len(fasi)}
+
+    except Exception as e:
+        raise HTTPException(500, f"Errore interpretazione Claude: {e}")
+
+
 # ─── EXPORT EXCEL ─────────────────────────────────────────────────────────────
 
 @router.get("/{cantiere_id}/export/excel")
