@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle } from 'lucide-react'
+import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle, Clock, UserCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -24,6 +24,7 @@ const SEZIONI = [
   ['computo',   'Computo',   ClipboardList],
   ['spese',     'Spese',     Receipt],
   ['sal',       'SAL',       TrendingUp],
+  ['ore',       'Ore Extra', Clock],
 ]
 
 export default function EconomiaTab({ cantiereId }) {
@@ -68,6 +69,9 @@ export default function EconomiaTab({ cantiereId }) {
       </div>
       <div style={{ display: sezione === 'sal' ? 'block' : 'none' }}>
         <SALSection cantiereId={cantiereId} canWrite={canWrite} />
+      </div>
+      <div style={{ display: sezione === 'ore' ? 'block' : 'none' }}>
+        <OreExtraSection cantiereId={cantiereId} canWrite={canWrite} />
       </div>
     </div>
   )
@@ -806,6 +810,141 @@ function SALSection({ cantiereId, canWrite }) {
               </select>
             ) : <span className={`text-xs px-2 py-0.5 rounded-full ${STATO_SAL[s.stato]?.bg}`}>{STATO_SAL[s.stato]?.label}</span>}
             {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(s.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ─── ORE EXTRA ─── */
+function OreExtraSection({ cantiereId, canWrite }) {
+  const qc = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ operaio_nome:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'' })
+  const set = (k,v) => setForm(f => ({...f,[k]:v}))
+
+  const { data: oreList = [], isLoading } = useQuery(
+    ['ore-extra', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/ore-extra`).then(r => r.data),
+    { staleTime: 0 }
+  )
+
+  const totaleOre = oreList.reduce((s,o) => s + o.ore, 0)
+  const totaleCosto = oreList.filter(o => o.approvato).reduce((s,o) => s + o.totale, 0)
+
+  const createMutation = useMutation(
+    d => api.post(`/cantieri/${cantiereId}/ore-extra`, d),
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); setShowForm(false); setForm({operaio_nome:'',ore:'',attivita:'',tariffa_oraria:'',data:'',note:''}); toast.success('Ore registrate!') },
+      onError: e => toast.error(e.response?.data?.detail||'Errore') }
+  )
+  const updateMutation = useMutation(
+    ({id,data}) => api.put(`/cantieri/${cantiereId}/ore-extra/${id}`, data),
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); toast.success('Aggiornato') } }
+  )
+  const deleteMutation = useMutation(
+    id => api.delete(`/cantieri/${cantiereId}/ore-extra/${id}`),
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); toast.success('Eliminato') } }
+  )
+
+  const convertiInSpesa = async (ore) => {
+    try {
+      await api.post(`/cantieri/${cantiereId}/spese`, {
+        descrizione: `Ore extra — ${ore.operaio_nome}${ore.attivita ? `: ${ore.attivita}` : ''}`,
+        categoria: 'manodopera',
+        fornitore: ore.operaio_nome,
+        importo: ore.totale,
+        data: ore.data,
+        note: `${ore.ore}h × €${ore.tariffa_oraria}/h`,
+      })
+      await api.put(`/cantieri/${cantiereId}/ore-extra/${ore.id}`, { approvato: true })
+      qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId])
+      toast.success('Registrato nelle spese!')
+    } catch(e) { toast.error(e.response?.data?.detail||'Errore') }
+  }
+
+  if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
+
+  return (
+    <div className="space-y-3">
+      <MiniRiepilogoLive cantiereId={cantiereId} />
+
+      {oreList.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="card text-center">
+            <p className="text-xs text-gray-400">Ore totali</p>
+            <p className="text-xl font-bold text-steelex-orange">{totaleOre.toFixed(1)}h</p>
+          </div>
+          <div className="card text-center">
+            <p className="text-xs text-gray-400">Costo approvato</p>
+            <p className="text-xl font-bold text-gray-900">{fmt(totaleCosto)}</p>
+          </div>
+        </div>
+      )}
+
+      {canWrite && (
+        <button onClick={() => setShowForm(!showForm)} className="btn-primary w-full flex items-center justify-center gap-2">
+          <Plus size={16} /> Registra ore extra
+        </button>
+      )}
+
+      {showForm && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between"><h3 className="font-bold">Nuove Ore Extra</h3><button onClick={() => setShowForm(false)}><X size={16}/></button></div>
+          <input className="input-field" placeholder="Nome operaio *" value={form.operaio_nome} onChange={e => set('operaio_nome',e.target.value)} autoFocus />
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="text-xs text-gray-500 block mb-1">Ore *</label>
+              <input type="number" step="0.5" min="0" className="input-field" placeholder="es. 3.5" value={form.ore} onChange={e => set('ore',e.target.value)} /></div>
+            <div><label className="text-xs text-gray-500 block mb-1">Tariffa €/h</label>
+              <input type="number" className="input-field" placeholder="es. 28" value={form.tariffa_oraria} onChange={e => set('tariffa_oraria',e.target.value)} /></div>
+          </div>
+          <input className="input-field" placeholder="Attività svolta" value={form.attivita} onChange={e => set('attivita',e.target.value)} />
+          <input type="date" className="input-field" value={form.data} onChange={e => set('data',e.target.value)} />
+          {form.ore && form.tariffa_oraria && (
+            <p className="text-sm text-center text-steelex-orange font-semibold">
+              Totale: {fmt(parseFloat(form.ore||0) * parseFloat(form.tariffa_oraria||0))}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={() => createMutation.mutate({...form, ore:parseFloat(form.ore)||0, tariffa_oraria:parseFloat(form.tariffa_oraria)||0, data:form.data||null})}
+              disabled={!form.operaio_nome||!form.ore} className="btn-primary flex-1">Registra</button>
+          </div>
+        </div>
+      )}
+
+      {oreList.length === 0 && !showForm ? (
+        <div className="card text-center py-8 text-gray-400">
+          <Clock size={32} className="mx-auto mb-2 opacity-30" />
+          <p>Nessuna ora extra registrata</p>
+          <p className="text-xs mt-1">Le ore vengono aggiunte automaticamente dalle note vocali nel Diario</p>
+        </div>
+      ) : oreList.map(o => (
+        <div key={o.id} className={`card space-y-1.5 ${o.approvato ? 'opacity-60' : ''}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <UserCheck size={14} className="text-steelex-orange flex-shrink-0" />
+                <p className="font-semibold text-gray-900">{o.operaio_nome}</p>
+                {o.approvato && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">✓ In spese</span>}
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {o.ore}h {o.tariffa_oraria > 0 ? `× €${o.tariffa_oraria}/h` : ''} {o.data ? `— ${fmtD(o.data)}` : ''}
+              </p>
+              {o.attivita && <p className="text-xs text-gray-600 italic">{o.attivita}</p>}
+            </div>
+            <div className="text-right flex-shrink-0">
+              {o.totale > 0 && <p className="font-bold text-gray-900">{fmt(o.totale)}</p>}
+              <div className="flex gap-1 mt-1 justify-end">
+                {!o.approvato && canWrite && (
+                  <button onClick={() => convertiInSpesa(o)}
+                    className="text-xs px-2 py-1 bg-steelex-orange text-white rounded-lg hover:bg-orange-600 font-medium whitespace-nowrap">
+                    → Spesa
+                  </button>
+                )}
+                {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(o.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>}
+              </div>
+            </div>
           </div>
         </div>
       ))}

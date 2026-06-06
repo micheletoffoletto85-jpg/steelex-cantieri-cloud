@@ -7,9 +7,29 @@ from app.config import settings
 from app.database import engine, Base
 from app.models import utente, cantiere, diario, documento, checklist, economico, notifica  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
+from sqlalchemy import text
 
 # Crea tabelle al primo avvio
 Base.metadata.create_all(bind=engine)
+
+# Migra colonne nuove su tabelle esistenti (idempotente)
+def _migra():
+    migrazioni = [
+        # Diario: nuovi campi AI
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS fonte VARCHAR(20) DEFAULT 'manuale'",
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS testo_originale TEXT",
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS lingua_originale VARCHAR(10)",
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS voci_estratte JSONB DEFAULT '[]'",
+    ]
+    with engine.connect() as conn:
+        for sql in migrazioni:
+            try:
+                conn.execute(text(sql))
+            except Exception:
+                pass  # colonna già presente o altro errore non bloccante
+        conn.commit()
+
+_migra()
 
 app = FastAPI(
     title="STEELEX Cantieri API",
@@ -35,6 +55,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(utenti.router, prefix="/api/v1")
 app.include_router(cantieri.router, prefix="/api/v1")
 app.include_router(diari.router, prefix="/api/v1")
+app.include_router(diari.ore_router, prefix="/api/v1")
 app.include_router(checklist_router.router, prefix="/api/v1")
 app.include_router(trascrizioni.router, prefix="/api/v1")
 app.include_router(documenti.router, prefix="/api/v1")

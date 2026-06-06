@@ -80,7 +80,7 @@ export default function CantierePage() {
 
       {/* Tab bar — scroll orizzontale su mobile */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {[['info','Info',null],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro],['voce','Report',Mic]].map(([key,label,Icon]) => (
+        {[['info','Info',null],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro]].map(([key,label,Icon]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             {Icon && <Icon size={12} />}{label}
@@ -94,7 +94,6 @@ export default function CantierePage() {
       {tab === 'diario'   && <DiarioTab cantiereId={id} />}
       {tab === 'mappe'    && <MappeTab cantiereId={id} />}
       {tab === 'economia' && <EconomiaTab cantiereId={id} />}
-      {tab === 'voce'     && <VoceAITab cantiereId={id} />}
     </div>
   )
 }
@@ -977,6 +976,12 @@ function DiarioTab({ cantiereId }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0 })
   const [uploadingFor, setUploadingFor] = useState(null)
+  // Stato registrazione vocale
+  const [recStato, setRecStato] = useState('idle') // idle | recording | processing
+  const [recSecondi, setRecSecondi] = useState(0)
+  const mediaRef = useRef(null)
+  const chunksRef = useRef([])
+  const timerRef = useRef(null)
 
   const { data: diari = [] } = useQuery(['diari', cantiereId], () => api.get(`/cantieri/${cantiereId}/diari`).then(r => r.data))
 
@@ -988,23 +993,113 @@ function DiarioTab({ cantiereId }) {
   const uploadFoto = async (diarioId, file) => {
     setUploadingFor(diarioId)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
+      const fd = new FormData(); fd.append('file', file)
       await api.post(`/cantieri/${cantiereId}/diari/${diarioId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      qc.invalidateQueries(['diari', cantiereId])
-      toast.success('Foto caricata!')
+      qc.invalidateQueries(['diari', cantiereId]); toast.success('Foto caricata!')
     } catch { toast.error('Errore upload foto') }
     finally { setUploadingFor(null) }
+  }
+
+  // ── Registrazione vocale ──────────────────────────────────────────────────
+  const avviaRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = getSupportedMimeType()
+      const recorder = new MediaRecorder(stream, { mimeType })
+      chunksRef.current = []
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      recorder.onstop = () => elaboraVoce(stream)
+      recorder.start()
+      mediaRef.current = recorder
+      setRecStato('recording'); setRecSecondi(0)
+      timerRef.current = setInterval(() => setRecSecondi(s => s + 1), 1000)
+    } catch { toast.error('Microfono non accessibile. Controlla i permessi.') }
+  }
+
+  const fermaRec = () => { clearInterval(timerRef.current); mediaRef.current?.stop() }
+
+  const elaboraVoce = async (stream) => {
+    stream.getTracks().forEach(t => t.stop())
+    setRecStato('processing')
+    try {
+      const mimeType = getSupportedMimeType()
+      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
+      const blob = new Blob(chunksRef.current, { type: mimeType })
+      const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
+      await api.post(`/cantieri/${cantiereId}/diari/voce`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      qc.invalidateQueries(['diari', cantiereId])
+      toast.success('🎙️ Nota vocale salvata nel diario!')
+    } catch(err) {
+      toast.error(err.response?.data?.detail || 'Errore trascrizione', { duration: 6000 })
+    } finally { setRecStato('idle') }
+  }
+
+  const fmtSec = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
+
+  // ── Approva voce estratta → registra come spesa o ore ────────────────────
+  const approvaVoce = async (diarioId, voce, idx) => {
+    try {
+      if (voce.tipo === 'ore_extra') {
+        await api.post(`/cantieri/${cantiereId}/ore-extra`, {
+          operaio_nome: voce.operaio,
+          ore: voce.ore,
+          attivita: voce.attivita,
+          tariffa_oraria: voce.tariffa_oraria,
+          diario_id: diarioId,
+        })
+        toast.success(`Ore ${voce.operaio} registrate!`)
+      } else {
+        await api.post(`/cantieri/${cantiereId}/spese`, {
+          descrizione: voce.descrizione,
+          categoria: 'materiali',
+          importo: voce.totale || 0,
+        })
+        toast.success(`${voce.descrizione} aggiunto alle spese!`)
+      }
+      // Marca come approvato nel diario
+      const diario = diari.find(d => d.id === diarioId)
+      if (diario?.voci_estratte) {
+        const nuoveVoci = diario.voci_estratte.map((v, i) => i === idx ? { ...v, approvato: true } : v)
+        await api.put(`/cantieri/${cantiereId}/diari/${diarioId}`, { attivita: diario.attivita })
+        qc.invalidateQueries(['diari', cantiereId])
+        qc.invalidateQueries(['spese', cantiereId])
+        qc.invalidateQueries(['economia', cantiereId])
+      }
+    } catch(e) { toast.error(e.response?.data?.detail || 'Errore') }
   }
 
   const METEO = ['☀️ Sole', '⛅ Nuvoloso', '🌧️ Pioggia', '❄️ Neve', '💨 Vento']
 
   return (
     <div className="space-y-3">
-      <button onClick={() => setShowForm(!showForm)} className="btn-primary w-full flex items-center justify-center gap-2">
-        <Plus size={18} /> Nuovo Diario
-      </button>
+      {/* Header azioni */}
+      <div className="flex gap-2">
+        <button onClick={() => { setShowForm(!showForm); setRecStato('idle') }}
+          className="btn-primary flex-1 flex items-center justify-center gap-2">
+          <Plus size={16} /> Nuovo Diario
+        </button>
+        {/* Pulsante voce */}
+        {recStato === 'idle' && (
+          <button onClick={avviaRec}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
+            title="Registra nota vocale — va direttamente nel diario">
+            <Mic size={16} /> Voce
+          </button>
+        )}
+        {recStato === 'recording' && (
+          <button onClick={fermaRec}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium animate-pulse">
+            <MicOff size={16} /> {fmtSec(recSecondi)}
+          </button>
+        )}
+        {recStato === 'processing' && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl text-sm font-medium">
+            <Loader2 size={16} className="animate-spin" /> Claude...
+          </div>
+        )}
+      </div>
 
+      {/* Form manuale */}
       {showForm && (
         <div className="card space-y-3">
           <h3 className="font-bold text-gray-800">Nuovo Diario Giornaliero</h3>
@@ -1031,34 +1126,68 @@ function DiarioTab({ cantiereId }) {
       )}
 
       {diari.length === 0
-        ? <div className="card text-center py-8 text-gray-400"><BookOpen size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun diario</p></div>
+        ? <div className="card text-center py-8 text-gray-400"><BookOpen size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun diario</p><p className="text-xs mt-1">Premi "Voce" per registrare direttamente</p></div>
         : diari.map(d => (
           <div key={d.id} className="card space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-gray-800">{dayjs(d.data).format('dddd D MMMM YYYY')}</span>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  {d.fonte === 'voce' && <Mic size={12} className="text-red-400 flex-shrink-0" />}
+                  <span className="font-bold text-gray-800 text-sm">{dayjs(d.data).format('dddd D MMMM YYYY')}</span>
+                </div>
+                {d.autore_nome && <p className="text-xs text-gray-400">{d.autore_nome}</p>}
+              </div>
+              <div className="flex items-center gap-2 text-sm text-gray-500 flex-shrink-0">
                 {d.meteo && <span>{d.meteo}</span>}
                 {d.operai_presenti > 0 && <span>👷 {d.operai_presenti}</span>}
               </div>
             </div>
-            {d.attivita && <p className="text-sm text-gray-700">{d.attivita}</p>}
 
-            {/* Foto */}
-            {d.foto_urls?.length > 0 && (
-              <div className="flex gap-2 flex-wrap mt-2">
-                {d.foto_urls.map((url, i) => (
-                  <img key={i} src={url}
-                    className="w-20 h-20 object-cover rounded-lg border" alt={`foto ${i + 1}`} />
+            {d.attivita && <p className="text-sm text-gray-700 leading-relaxed">{d.attivita}</p>}
+
+            {/* Voci contabilizzabili estratte dalla voce */}
+            {d.voci_estratte?.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-semibold text-amber-700 flex items-center gap-1">
+                  <Wrench size={12} /> Voci da contabilizzare
+                </p>
+                {d.voci_estratte.map((v, idx) => (
+                  <div key={idx} className={`flex items-center justify-between gap-2 py-1.5 border-b border-amber-100 last:border-0 ${v.approvato ? 'opacity-40' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      {v.tipo === 'ore_extra' ? (
+                        <p className="text-xs font-medium text-gray-800">👷 {v.operaio} — {v.ore}h {v.attivita ? `(${v.attivita})` : ''}</p>
+                      ) : (
+                        <p className="text-xs font-medium text-gray-800">📦 {v.descrizione} × {v.quantita} {v.um}</p>
+                      )}
+                      {v.totale > 0 && <p className="text-xs text-gray-500">≈ €{v.totale.toFixed(2)}</p>}
+                    </div>
+                    {!v.approvato ? (
+                      <button onClick={() => approvaVoce(d.id, v, idx)}
+                        className="flex-shrink-0 text-xs px-2 py-1 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium whitespace-nowrap">
+                        {v.tipo === 'ore_extra' ? '→ Ore' : '→ Spesa'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-green-600 font-medium flex-shrink-0">✓ Registrato</span>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
 
-            {/* Upload foto */}
-            <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor === d.id ? 'opacity-50' : ''}`}>
+            {/* Foto */}
+            {d.foto_urls?.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                {d.foto_urls.map((url, i) => (
+                  <img key={i} src={url} className="w-20 h-20 object-cover rounded-lg border" alt={`foto ${i+1}`} />
+                ))}
+              </div>
+            )}
+
+            <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor===d.id?'opacity-50':''}`}>
               <Camera size={16} />
-              {uploadingFor === d.id ? 'Caricamento...' : 'Aggiungi foto'}
+              {uploadingFor===d.id ? 'Caricamento...' : 'Aggiungi foto'}
               <input type="file" accept="image/*" capture="environment" className="hidden"
-                onChange={e => e.target.files[0] && uploadFoto(d.id, e.target.files[0])} disabled={uploadingFor === d.id} />
+                onChange={e => e.target.files[0] && uploadFoto(d.id, e.target.files[0])} disabled={uploadingFor===d.id} />
             </label>
           </div>
         ))}
