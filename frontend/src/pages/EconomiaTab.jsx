@@ -223,14 +223,15 @@ function ComputoSection({ cantiereId, canWrite }) {
   const setB = (k,v) => setBase(f => ({...f,[k]:v}))
   const [uploadingFor, setUploadingFor] = useState(null)
   const [importando, setImportando] = useState(false)
-  const [vociImportate, setVociImportate] = useState(null)
+  const [vociImportate, setVociImportate] = useState(null)   // tutte le righe dell'Excel
+  const [righeSelezionate, setRigheSelezionate] = useState(null) // set di id selezionati
   const importInputRef = useRef(null)
   const [ricarico_globale, setRicaricoGlobale] = useState('')
   const [modalita, setModalita] = useState('costo') // 'costo' = costo+ricarico | 'cliente' = prezzi cliente diretti
 
   const { data: preventivi = [], isLoading } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
 
-  const chiudi = () => { setShowForm(false); setEditId(null); setVoci([]); setBase({ numero:'',data_preventivo:'',iva_perc:22,acconto_perc:30,note:'' }); setRicaricoGlobale(''); setModalita('costo') }
+  const chiudi = () => { setShowForm(false); setEditId(null); setVoci([]); setBase({ numero:'',data_preventivo:'',iva_perc:22,acconto_perc:30,note:'' }); setRicaricoGlobale(''); setModalita('costo'); setVociImportate(null); setRigheSelezionate(null) }
 
   const applicaRicaricoGlobale = () => {
     const ric = parseFloat(ricarico_globale) || 0
@@ -324,38 +325,41 @@ function ComputoSection({ cantiereId, canWrite }) {
     try {
       const fd = new FormData(); fd.append('file', file)
       const r = await api.post(`/cantieri/${cantiereId}/preventivi/import-computo`, fd, { headers: {'Content-Type':'multipart/form-data'} })
-      setVociImportate(r.data.voci)
-      toast.success(`${r.data.totale_voci} voci trovate — rivedi e conferma`)
+      const vv = r.data.voci
+      setVociImportate(vv)
+      // seleziona tutte le righe di default
+      setRigheSelezionate(new Set(vv.map(v => v.id)))
+      toast.success(`${r.data.totale_voci} righe trovate — deseleziona quelle che non vuoi`)
     } catch(e) {
       toast.error(e.response?.data?.detail || 'Errore import')
     } finally { setImportando(false) }
   }
 
+  const _normalizzaVoce = (v, i) => {
+    const qt    = parseFloat(v.quantita || v.qt || 1)
+    const costo = parseFloat(v.prezzo_costo || v.costo_unitario || 0)
+    const ric   = parseFloat(v.ricarico_perc || 0)
+    const prezzoC = parseFloat(v.prezzo_cliente || v.prezzo_unitario || costo * (1 + ric / 100) || 0)
+    return {
+      id: Date.now() + i,
+      descrizione: v.descrizione || '',
+      categoria:   v.categoria   || 'Materiali',
+      qt, um: v.um || 'cad',
+      costo_unitario:  parseFloat(costo.toFixed(2)),
+      ricarico_perc:   parseFloat(ric.toFixed(2)),
+      prezzo_unitario: parseFloat(prezzoC.toFixed(2)),
+      totale_costo:    parseFloat((costo * qt).toFixed(2)),
+      totale_cliente:  parseFloat((prezzoC * qt).toFixed(2)),
+    }
+  }
+
   const confermaImport = () => {
-    // Normalizza i campi delle voci importate da Claude
-    // (Claude usa quantita/prezzo_costo/prezzo_cliente, il form usa qt/costo_unitario/prezzo_unitario)
-    const normalizzate = (vociImportate || []).map((v, i) => {
-      const qt       = parseFloat(v.quantita || v.qt || 1)
-      const costo    = parseFloat(v.prezzo_costo || v.costo_unitario || 0)
-      const ric      = parseFloat(v.ricarico_perc || 0)
-      const prezzoC  = parseFloat(v.prezzo_cliente || v.prezzo_unitario || costo * (1 + ric / 100) || 0)
-      return {
-        id: Date.now() + i,
-        descrizione:     v.descrizione || '',
-        categoria:       v.categoria   || 'Materiali',
-        qt,
-        um:              v.um          || 'cad',
-        costo_unitario:  parseFloat(costo.toFixed(2)),
-        ricarico_perc:   parseFloat(ric.toFixed(2)),
-        prezzo_unitario: parseFloat(prezzoC.toFixed(2)),
-        totale_costo:    parseFloat((costo  * qt).toFixed(2)),
-        totale_cliente:  parseFloat((prezzoC * qt).toFixed(2)),
-      }
-    })
-    setVoci(normalizzate)
-    setVociImportate(null)
+    const selezionate = (vociImportate || []).filter(v => righeSelezionate?.has(v.id))
+    const normalizzate = selezionate.map((v, i) => _normalizzaVoce(v, i))
+    setVoci(prev => [...prev, ...normalizzate])
+    setVociImportate(null); setRigheSelezionate(null)
     setShowForm(true)
-    toast.success('Voci importate nel computo!')
+    toast.success(`${normalizzate.length} voci aggiunte al computo!`)
   }
 
   const generaPdfPreventivo = async (prevId, numero) => {
@@ -391,59 +395,78 @@ function ComputoSection({ cantiereId, canWrite }) {
           <button onClick={() => setShowForm(true)} className="btn-primary flex-1 flex items-center justify-center gap-2">
             <Plus size={16} /> Nuovo Computo
           </button>
-          <label className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer flex-shrink-0 ${importando ? 'bg-purple-100 text-purple-400' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
-            title="Importa computo da Excel, CSV o PDF — Claude interpreta le voci automaticamente">
-            {importando ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-            {importando ? 'Analisi...' : 'Importa AI'}
-            <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.txt" className="hidden"
-              disabled={importando}
-              onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
-          </label>
           <a href="/api/v1/cantieri/template-computo"
             download className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 flex-shrink-0"
-            title="Scarica il template Excel ottimale per l'import">
-            <Download size={13} /> Template
+            title="Scarica il template Excel per l'import">
+            <Download size={13} /> Template Excel
           </a>
         </div>
       )}
 
-      {/* Modale anteprima voci importate */}
+      {/* Import con selezione righe */}
       {vociImportate && (
         <div className="card border-2 border-purple-300 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles size={16} className="text-purple-600" />
-              <h3 className="font-bold text-purple-900">Claude ha trovato {vociImportate.length} voci</h3>
+              <h3 className="font-bold text-purple-900">{vociImportate.length} righe trovate nel file</h3>
             </div>
-            <button onClick={() => setVociImportate(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+            <button onClick={() => { setVociImportate(null); setRigheSelezionate(null) }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
           </div>
-          <p className="text-xs text-purple-600 bg-purple-50 rounded-lg p-2">
-            Rivedi le voci estratte. Puoi modificarle nel computo dopo la conferma.
-          </p>
-          <div className="max-h-64 overflow-y-auto space-y-1">
-            {vociImportate.map((v, i) => (
-              <div key={i} className="flex items-start justify-between gap-2 py-1.5 border-b border-gray-100 text-xs">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 truncate">{v.descrizione || '—'}</p>
-                  <p className="text-gray-400">{v.categoria} · {v.quantita} {v.um}</p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="font-semibold text-gray-900">{fmt(v.totale_cliente)}</p>
-                  <p className="text-gray-400">costo: {fmt(v.totale_costo)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="pt-1 border-t border-purple-100 flex justify-between items-center">
-            <div className="text-xs text-gray-600">
-              Totale cliente: <strong className="text-steelex-orange">{fmt(vociImportate.reduce((s,v)=>s+(v.totale_cliente||0),0))}</strong>
-            </div>
+          <div className="flex items-center justify-between text-xs">
+            <p className="text-purple-700 bg-purple-50 rounded-lg px-3 py-1.5">
+              ✓ Selezionate: <strong>{righeSelezionate?.size || 0}</strong> righe &nbsp;·&nbsp;
+              Totale selezionato: <strong className="text-steelex-orange">{fmt([...(righeSelezionate||[])].reduce((s,id)=>{const v=vociImportate.find(x=>x.id===id);return s+(v?.totale_cliente||v?.totale_costo||0)},0))}</strong>
+            </p>
             <div className="flex gap-2">
-              <button onClick={() => setVociImportate(null)} className="btn-secondary text-sm py-1.5 px-3">Scarta</button>
-              <button onClick={confermaImport} className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1">
-                <CheckCircle2 size={14} /> Usa queste voci
-              </button>
+              <button onClick={() => setRigheSelezionate(new Set(vociImportate.map(v=>v.id)))} className="text-purple-600 hover:underline">Tutte</button>
+              <button onClick={() => setRigheSelezionate(new Set())} className="text-gray-400 hover:underline">Nessuna</button>
             </div>
+          </div>
+          <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="w-8 p-2 text-center"></th>
+                  <th className="p-2 text-left font-semibold text-gray-600">Descrizione</th>
+                  <th className="p-2 text-center font-semibold text-gray-600 w-16">U.M.</th>
+                  <th className="p-2 text-right font-semibold text-gray-600 w-16">Qt</th>
+                  <th className="p-2 text-right font-semibold text-gray-600 w-20">Prezzo</th>
+                  <th className="p-2 text-right font-semibold text-gray-600 w-24">Totale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vociImportate.map((v) => {
+                  const sel = righeSelezionate?.has(v.id)
+                  const tot = v.totale_cliente || v.totale_costo || 0
+                  const pr  = v.prezzo_cliente || v.prezzo_costo || 0
+                  return (
+                    <tr key={v.id}
+                      onClick={() => setRigheSelezionate(prev => { const s=new Set(prev); sel?s.delete(v.id):s.add(v.id); return s })}
+                      className={`border-t border-gray-100 cursor-pointer transition-colors ${sel ? 'bg-white hover:bg-orange-50' : 'bg-gray-50 opacity-40 hover:opacity-60'}`}>
+                      <td className="p-2 text-center">
+                        <input type="checkbox" readOnly checked={sel} className="accent-orange-500 w-4 h-4" />
+                      </td>
+                      <td className="p-2">
+                        <p className="font-medium text-gray-900 leading-tight">{v.descrizione || '—'}</p>
+                        <p className="text-gray-400 mt-0.5">{v.categoria}</p>
+                      </td>
+                      <td className="p-2 text-center text-gray-500">{v.um || '—'}</td>
+                      <td className="p-2 text-right text-gray-700">{v.quantita ?? v.qt ?? '—'}</td>
+                      <td className="p-2 text-right text-gray-700">{pr > 0 ? fmt(pr) : '—'}</td>
+                      <td className="p-2 text-right font-semibold text-gray-900">{tot > 0 ? fmt(tot) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => { setVociImportate(null); setRigheSelezionate(null) }} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={confermaImport} disabled={!righeSelezionate?.size}
+              className="btn-primary flex-1 flex items-center justify-center gap-1 disabled:opacity-50">
+              <CheckCircle2 size={14} /> Importa {righeSelezionate?.size || 0} voci
+            </button>
           </div>
         </div>
       )}
@@ -498,46 +521,118 @@ function ComputoSection({ cantiereId, canWrite }) {
             )}
           </div>
 
-          {/* Voci */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
+          {/* Griglia voci — stile spreadsheet */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Voci ({voci.length})</p>
-              <button onClick={aggiungiVoce} className="text-xs text-steelex-orange hover:underline flex items-center gap-1"><Plus size={12} /> Aggiungi voce</button>
+              <div className="flex gap-3">
+                <label className={`text-xs cursor-pointer flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 font-medium transition-colors ${importando?'opacity-50 pointer-events-none':''} border-purple-300 text-purple-700 hover:bg-purple-50`}>
+                  {importando ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12}/>}
+                  {importando ? 'Lettura...' : 'Importa da file'}
+                  <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                    disabled={importando} onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
+                </label>
+                <button onClick={aggiungiVoce} className="text-xs text-steelex-orange hover:underline flex items-center gap-1 font-medium"><Plus size={12}/> Aggiungi riga</button>
+              </div>
             </div>
-            {voci.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nessuna voce — clicca "+ Aggiungi voce"</p>}
-            {voci.map((v) => (
-              <div key={v.id} className="bg-gray-50 rounded-xl p-3 space-y-2">
-                <div className="flex gap-2">
-                  <input className="input-field flex-1 text-sm" placeholder="Descrizione *" value={v.descrizione} onChange={e => aggiornaVoce(v.id,'descrizione',e.target.value)} />
-                  <select className="input-field w-28 text-xs" value={v.categoria} onChange={e => aggiornaVoce(v.id,'categoria',e.target.value)}>
-                    {CATEGORIE_VOCE.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                  <button onClick={() => setVoci(vv => vv.filter(x=>x.id!==v.id))} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
-                </div>
 
-                {modalita === 'cliente' ? (
-                  /* Modalità prezzi diretti: Qt + Prezzo cliente */
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div><label className="text-gray-400 block mb-0.5">Qt</label><input type="number" className="input-field py-1 text-xs" value={v.qt} onChange={e=>aggiornaVoce(v.id,'qt',e.target.value)} /></div>
-                    <div><label className="text-gray-400 block mb-0.5">U.M.</label><input className="input-field py-1 text-xs" value={v.um||''} placeholder="cad" onChange={e=>aggiornaVoce(v.id,'um',e.target.value)} /></div>
-                    <div><label className="text-gray-400 block mb-0.5">Prezzo unitario €</label><input type="number" className="input-field py-1 text-xs" value={v.prezzo_unitario||0} onChange={e=>aggiornaVoce(v.id,'prezzo_unitario',e.target.value)} /></div>
-                  </div>
-                ) : (
-                  /* Modalità costo + ricarico */
-                  <div className="grid grid-cols-4 gap-2 text-xs">
-                    <div><label className="text-gray-400 block mb-0.5">Qt</label><input type="number" className="input-field py-1 text-xs" value={v.qt} onChange={e=>aggiornaVoce(v.id,'qt',e.target.value)} /></div>
-                    <div><label className="text-gray-400 block mb-0.5">Costo unit. €</label><input type="number" className="input-field py-1 text-xs" value={v.costo_unitario} onChange={e=>aggiornaVoce(v.id,'costo_unitario',e.target.value)} /></div>
-                    <div><label className="text-gray-400 block mb-0.5">Ricarico %</label><input type="number" className="input-field py-1 text-xs" value={v.ricarico_perc} onChange={e=>aggiornaVoce(v.id,'ricarico_perc',e.target.value)} /></div>
-                    <div><label className="text-gray-400 block mb-0.5">Prezzo cliente</label><p className="text-sm font-bold text-steelex-orange pt-1">{(v.prezzo_unitario||0).toFixed(2)}</p></div>
-                  </div>
-                )}
-
-                <div className="flex justify-between text-xs text-gray-400">
-                  {modalita === 'costo' && <span>Costo tot: {fmt(v.totale_costo)}</span>}
-                  <span className="font-medium text-gray-700 ml-auto">Totale: {fmt(v.totale_cliente)}</span>
+            {voci.length === 0 ? (
+              <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center space-y-2">
+                <p className="text-gray-400 text-sm">Nessuna voce</p>
+                <div className="flex justify-center gap-3">
+                  <button onClick={aggiungiVoce} className="btn-primary text-sm py-1.5 px-4 flex items-center gap-1"><Plus size={14}/> Aggiungi riga</button>
+                  <label className="btn-secondary text-sm py-1.5 px-4 flex items-center gap-1 cursor-pointer">
+                    <Sparkles size={14}/> Importa da Excel
+                    <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                      onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
+                  </label>
                 </div>
               </div>
-            ))}
+            ) : (
+              <div className="border border-gray-200 rounded-xl overflow-x-auto">
+                <table className="w-full text-xs min-w-[700px]">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="p-2 text-left font-semibold text-gray-500 w-[30%]">Descrizione</th>
+                      <th className="p-2 text-left font-semibold text-gray-500 w-[12%]">Categoria</th>
+                      <th className="p-2 text-center font-semibold text-gray-500 w-[6%]">U.M.</th>
+                      <th className="p-2 text-right font-semibold text-gray-500 w-[7%]">Qt</th>
+                      {modalita === 'costo' ? <>
+                        <th className="p-2 text-right font-semibold text-gray-500 w-[10%]">Costo €</th>
+                        <th className="p-2 text-right font-semibold text-gray-500 w-[8%]">Ric. %</th>
+                        <th className="p-2 text-right font-semibold text-gray-500 w-[10%]">Pr. cliente</th>
+                      </> : <>
+                        <th className="p-2 text-right font-semibold text-gray-500 w-[13%]">Prezzo cliente €</th>
+                      </>}
+                      <th className="p-2 text-right font-semibold text-steelex-orange w-[12%]">Totale €</th>
+                      <th className="w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {voci.map((v, idx) => (
+                      <tr key={v.id} className={`border-t border-gray-100 ${idx%2===0?'bg-white':'bg-gray-50/50'} hover:bg-orange-50/30 transition-colors`}>
+                        <td className="p-1">
+                          <input className="w-full bg-transparent border-0 outline-none text-xs text-gray-800 px-1 py-1 rounded hover:bg-white focus:bg-white focus:shadow-sm focus:ring-1 focus:ring-orange-300 transition-all"
+                            placeholder="Descrizione voce..." value={v.descrizione}
+                            onChange={e => aggiornaVoce(v.id,'descrizione',e.target.value)} />
+                        </td>
+                        <td className="p-1">
+                          <select className="w-full bg-transparent border-0 outline-none text-xs text-gray-600 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                            value={v.categoria} onChange={e => aggiornaVoce(v.id,'categoria',e.target.value)}>
+                            {CATEGORIE_VOCE.map(c=><option key={c}>{c}</option>)}
+                          </select>
+                        </td>
+                        <td className="p-1">
+                          <input className="w-full bg-transparent border-0 outline-none text-xs text-center text-gray-600 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                            placeholder="mq" value={v.um||''}
+                            onChange={e => aggiornaVoce(v.id,'um',e.target.value)} />
+                        </td>
+                        <td className="p-1">
+                          <input type="number" className="w-full bg-transparent border-0 outline-none text-xs text-right text-gray-700 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                            value={v.qt} onChange={e => aggiornaVoce(v.id,'qt',e.target.value)} />
+                        </td>
+                        {modalita === 'costo' ? <>
+                          <td className="p-1">
+                            <input type="number" className="w-full bg-transparent border-0 outline-none text-xs text-right text-gray-700 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                              value={v.costo_unitario} onChange={e => aggiornaVoce(v.id,'costo_unitario',e.target.value)} />
+                          </td>
+                          <td className="p-1">
+                            <input type="number" className="w-full bg-transparent border-0 outline-none text-xs text-right text-gray-700 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                              value={v.ricarico_perc} onChange={e => aggiornaVoce(v.id,'ricarico_perc',e.target.value)} />
+                          </td>
+                          <td className="p-1 text-right pr-2 font-medium text-steelex-orange">
+                            {(v.prezzo_unitario||0).toFixed(2)}
+                          </td>
+                        </> : <>
+                          <td className="p-1">
+                            <input type="number" className="w-full bg-transparent border-0 outline-none text-xs text-right text-gray-700 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                              value={v.prezzo_unitario||0} onChange={e => aggiornaVoce(v.id,'prezzo_unitario',e.target.value)} />
+                          </td>
+                        </>}
+                        <td className="p-1 text-right pr-2 font-bold text-gray-800">
+                          {fmt(v.totale_cliente)}
+                        </td>
+                        <td className="p-1 text-center">
+                          <button onClick={() => setVoci(vv => vv.filter(x=>x.id!==v.id))}
+                            className="text-gray-300 hover:text-red-500 transition-colors p-0.5">
+                            <Trash2 size={13}/>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {/* Riga aggiungi rapido */}
+                    <tr className="border-t border-dashed border-gray-200 bg-gray-50/50">
+                      <td colSpan={99} className="p-1.5">
+                        <button onClick={aggiungiVoce}
+                          className="w-full text-xs text-gray-400 hover:text-steelex-orange flex items-center gap-1 justify-center py-1 rounded hover:bg-orange-50 transition-colors">
+                          <Plus size={12}/> Aggiungi riga
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Riepilogo */}
