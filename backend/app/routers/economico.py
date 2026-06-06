@@ -440,19 +440,107 @@ async def import_computo_ai(
     nome = (file.filename or "").lower()
     ext = os.path.splitext(nome)[1]
 
-    # Estrai testo grezzo dal file
+    import re as _re
+
+    def _parse_numero(val):
+        """Converte valori come '35,00 €', '1.234,56', 1234.56 → float"""
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val).strip()
+        s = s.replace('€', '').replace(' ', '').replace('\xa0', '')
+        # Formato italiano: 1.234,56 → 1234.56
+        if ',' in s and '.' in s:
+            s = s.replace('.', '').replace(',', '.')
+        elif ',' in s:
+            s = s.replace(',', '.')
+        s = _re.sub(r'[^\d.\-]', '', s)
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    # Estrai dati strutturati dal file
+    righe_strutturate = []  # lista di dict con codice/descrizione/um/qt/prezzo/totale
     testo_grezzo = ""
+
     try:
         if ext in (".xlsx", ".xls"):
             import openpyxl, io as _io
             wb = openpyxl.load_workbook(_io.BytesIO(contenuto), data_only=True)
             ws = wb.active
-            righe = []
+            n_col = ws.max_column
+
+            # Rileva intestazioni cercando le keyword nelle prime 10 righe
+            col_map = {}  # "desc"/"um"/"qt"/"prezzo"/"totale" → indice colonna (0-based)
+            for rnum, row in enumerate(ws.iter_rows(min_row=1, max_row=10, values_only=True)):
+                for ci, cell in enumerate(row):
+                    if cell is None: continue
+                    s = str(cell).lower().strip()
+                    if any(k in s for k in ["descri","lavora","voce","oggetto"]) and "desc" not in col_map:
+                        col_map["desc"] = ci
+                    if any(k in s for k in ["u.m.","unità","um","misura"]) and "um" not in col_map:
+                        col_map["um"] = ci
+                    if any(k in s for k in ["quant","qta","q.tà","qtà","nr","n."]) and "qt" not in col_map:
+                        col_map["qt"] = ci
+                    if any(k in s for k in ["prezzo","p.u.","unitario","costo unit"]) and "prezzo" not in col_map:
+                        col_map["prezzo"] = ci
+                    if any(k in s for k in ["totale","importo","importo tot"]) and "totale" not in col_map:
+                        col_map["totale"] = ci
+                if col_map:
+                    break
+
+            # Se non trovate intestazioni, usa struttura nota del computo STEELEX:
+            # col 0=codice, 1=descrizione, 2=um, 3=qt, 4=prezzo, 5=totale
+            if not col_map and n_col >= 5:
+                col_map = {"codice": 0, "desc": 1, "um": 2, "qt": 3, "prezzo": 4, "totale": 5}
+
+            # Leggi tutte le righe dati
+            righe_raw = []
             for row in ws.iter_rows(values_only=True):
-                cella = [str(c).strip() if c is not None else "" for c in row]
-                if any(cella):
-                    righe.append("\t".join(cella))
-            testo_grezzo = "\n".join(righe[:300])  # max 300 righe
+                if not any(c is not None for c in row):
+                    continue
+                righe_raw.append(list(row))
+
+            # Costruisci testo strutturato per Claude
+            linee = ["CODICE | DESCRIZIONE | UM | QUANTITA | PREZZO_UNITARIO | TOTALE"]
+            for row in righe_raw:
+                def g(key):
+                    i = col_map.get(key)
+                    return row[i] if i is not None and i < len(row) else None
+
+                codice = g("codice")
+                desc = g("desc")
+                um = g("um")
+                qt = g("qt")
+                prezzo = g("prezzo")
+                totale = g("totale")
+
+                # Salta righe senza nessun dato utile
+                if not any([desc, um, qt, prezzo, totale]):
+                    continue
+                # Salta intestazioni ripetute
+                if desc and str(desc).lower().strip() in ("descrizione","voce","art.","lavorazione"):
+                    continue
+                # Salta righe solo-totale generali
+                if desc and str(desc).lower().strip() in ("totale","totale generale","subtotale") and not codice:
+                    continue
+
+                qt_n = _parse_numero(qt)
+                pr_n = _parse_numero(prezzo)
+                tot_n = _parse_numero(totale)
+
+                linee.append(
+                    f"{codice or ''} | "
+                    f"{str(desc or '').replace(chr(10),' ').strip()[:200]} | "
+                    f"{um or ''} | "
+                    f"{qt_n if qt_n is not None else ''} | "
+                    f"{pr_n if pr_n is not None else ''} | "
+                    f"{tot_n if tot_n is not None else ''}"
+                )
+
+            testo_grezzo = "\n".join(linee[:400])
 
         elif ext == ".csv":
             import csv, io as _io
@@ -461,13 +549,12 @@ async def import_computo_ai(
             testo_grezzo = "\n".join(righe[:300])
 
         elif ext == ".pdf":
-            import fitz  # PyMuPDF
+            import fitz
             doc = fitz.open(stream=contenuto, filetype="pdf")
             pagine = [doc[i].get_text() for i in range(min(len(doc), 5))]
             testo_grezzo = "\n".join(pagine)
 
         else:
-            # Prova come testo semplice
             testo_grezzo = contenuto.decode("utf-8", errors="replace")[:10000]
 
     except Exception as e:
@@ -480,36 +567,34 @@ async def import_computo_ai(
     import anthropic
     claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    prompt = f"""Sei un esperto di computi metrici per cantieri edili italiani (LSF - Light Steel Frame).
-Ti viene fornito il contenuto grezzo di un file (Excel, CSV o PDF) contenente un computo metrico estimativo o un elenco prezzi.
+    prompt = f"""Sei un esperto di computi metrici per cantieri edili italiani.
+Ti viene fornito un computo metrico già pre-elaborato con colonne separate da "|":
+CODICE | DESCRIZIONE | UM | QUANTITA | PREZZO_UNITARIO | TOTALE
 
-Il tuo compito è estrarre TUTTE le voci di lavoro/fornitura e restituirle come JSON array.
+Il tuo compito è restituire un JSON array con tutte le voci di lavoro/fornitura.
 
-ANALISI STRUTTURA: Prima di estrarre, individua quali colonne corrispondono a: descrizione, quantità, unità di misura, prezzo unitario, totale. Le intestazioni possono variare molto (es: "Qta", "Q.tà", "Q", "Importo", "Totale €", "P.U.", "Importo unitario", ecc.).
+Per ogni riga con una descrizione significativa, crea un oggetto con:
+- descrizione: testo della voce (prima frase significativa, max 150 caratteri)
+- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro]
+- um: unità di misura (es: "mq", "ml", "ac", "ore", "cad", "kg", "mc")
+- quantita: numero (default 1 se vuoto)
+- prezzo_costo: il valore PREZZO_UNITARIO come numero float (0 se vuoto)
+- ricarico_perc: 0 (il ricarico viene aggiunto manualmente dopo)
+- prezzo_cliente: uguale a prezzo_costo
+- totale_costo: QUANTITA * PREZZO_UNITARIO (usa il valore TOTALE se presente, altrimenti calcola)
+- totale_cliente: uguale a totale_costo
 
-Per ogni voce estrai (o stima ragionevolmente se manca):
-- descrizione: descrizione chiara e completa della voce (mantieni il testo originale)
-- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Altro]
-- um: unità di misura originale (es: "mq", "ml", "cad", "kg", "h", "mc", "fornitura", "corpo")
-- quantita: numero decimale (default 1 se non specificato)
-- prezzo_costo: prezzo di costo unitario in euro — se il file ha solo il prezzo di vendita/cliente, usa quello come costo (non inventare sconti)
-- ricarico_perc: percentuale di ricarico (default 0 se non specificato, il sistema lo gestisce dopo)
-- prezzo_cliente: prezzo cliente unitario — se uguale al costo, ok
-- totale_costo: quantita * prezzo_costo (arrotondato 2 decimali)
-- totale_cliente: quantita * prezzo_cliente (arrotondato 2 decimali)
+REGOLE:
+- Includi TUTTE le voci con codice (es: 1.01, 1.02) E le sotto-voci senza codice che hanno prezzo
+- Ignora: righe con solo "Totale" o "Subtotale", intestazioni di colonna, note finali
+- Se PREZZO_UNITARIO è vuoto ma TOTALE e QUANTITA ci sono, calcola PREZZO = TOTALE / QUANTITA
+- I numeri sono già convertiti in formato decimale con punto (non virgola)
+- Restituisci SOLO il JSON array, senza markdown, senza testo aggiuntivo
 
-REGOLE IMPORTANTI:
-- Includi TUTTE le voci, anche quelle con prezzo 0 o quantità 0
-- Ignora solo: intestazioni di colonna, righe totale/subtotale aggregate, righe completamente vuote
-- Le voci di capitolo/sezione (es: "A - STRUTTURA") includile come voce con prezzo 0 e categoria Altro
-- Se il file ha importi con virgola decimale (es: 1.234,56) convertili correttamente → 1234.56
-- Se una cella contiene testo come "A CORPO" o "INCLUSO" per il prezzo, usa 0
-- Restituisci SOLO il JSON array, senza markdown, senza testo prima o dopo
+Dati computo:
+{testo_grezzo[:9000]}
 
-Contenuto file:
-{testo_grezzo[:8000]}
-
-Risposta (SOLO JSON array, inizia con [ ):"""
+Risposta (SOLO JSON array):"""
 
     try:
         msg = claude.messages.create(
@@ -520,18 +605,22 @@ Risposta (SOLO JSON array, inizia con [ ):"""
         testo_risposta = msg.content[0].text.strip()
 
         import json
-        # Repair JSON troncato: taglia all'ultimo oggetto completo e chiude l'array
         testo_risposta = _ripara_json_array(testo_risposta)
         voci = json.loads(testo_risposta)
         if not isinstance(voci, list):
             raise ValueError("Non è una lista")
 
-        # Aggiunge id temporanei e normalizza numeri
         for i, v in enumerate(voci):
             v["id"] = i + 1
             for campo in ("quantita","prezzo_costo","ricarico_perc","prezzo_cliente","totale_costo","totale_cliente"):
                 try:
-                    v[campo] = round(float(str(v.get(campo, 0)).replace(",",".")), 2)
+                    raw = str(v.get(campo, 0) or 0)
+                    # gestisci formato italiano residuo
+                    if ',' in raw and '.' in raw:
+                        raw = raw.replace('.','').replace(',','.')
+                    elif ',' in raw:
+                        raw = raw.replace(',','.')
+                    v[campo] = round(float(_re.sub(r'[^\d.\-]','',raw) or '0'), 2)
                 except Exception:
                     v[campo] = 0.0
 
