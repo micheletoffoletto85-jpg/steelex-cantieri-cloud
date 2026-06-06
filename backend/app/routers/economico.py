@@ -480,32 +480,36 @@ async def import_computo_ai(
     import anthropic
     claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    prompt = f"""Sei un esperto di computi metrici per cantieri edili italiani.
-Ti viene fornito il contenuto grezzo di un file (Excel, CSV o PDF) contenente un computo metrico estimativo.
+    prompt = f"""Sei un esperto di computi metrici per cantieri edili italiani (LSF - Light Steel Frame).
+Ti viene fornito il contenuto grezzo di un file (Excel, CSV o PDF) contenente un computo metrico estimativo o un elenco prezzi.
 
-Il tuo compito è estrarre tutte le voci di lavoro/fornitura e restituirle come JSON array.
+Il tuo compito è estrarre TUTTE le voci di lavoro/fornitura e restituirle come JSON array.
 
-Per ogni voce estrai (o stima se manca):
-- descrizione: descrizione chiara della voce
-- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Altro]
-- um: unità di misura (es: "mq", "ml", "cad", "kg", "h", "mc", "fornitura")
-- quantita: numero (default 1 se non specificato)
-- prezzo_costo: prezzo di costo unitario in euro (se c'è solo il prezzo cliente, calcola il costo come 75% di quello)
-- ricarico_perc: percentuale di ricarico (default 30 se non specificato)
-- prezzo_cliente: prezzo cliente unitario (se non c'è, calcola da costo + ricarico)
-- totale_costo: quantita * prezzo_costo
-- totale_cliente: quantita * prezzo_cliente
+ANALISI STRUTTURA: Prima di estrarre, individua quali colonne corrispondono a: descrizione, quantità, unità di misura, prezzo unitario, totale. Le intestazioni possono variare molto (es: "Qta", "Q.tà", "Q", "Importo", "Totale €", "P.U.", "Importo unitario", ecc.).
 
-REGOLE:
-- Ignora righe di intestazione, subtotali, totali, note generali
-- Se una voce ha solo descrizione e prezzo finale, metti prezzo_cliente = quel prezzo
-- Usa categorie sensate in base alla descrizione (es: "acciaio" → Materiali, "muratori" → Manodopera)
-- Restituisci SOLO il JSON array, senza testo aggiuntivo, senza markdown, senza spiegazioni
+Per ogni voce estrai (o stima ragionevolmente se manca):
+- descrizione: descrizione chiara e completa della voce (mantieni il testo originale)
+- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Altro]
+- um: unità di misura originale (es: "mq", "ml", "cad", "kg", "h", "mc", "fornitura", "corpo")
+- quantita: numero decimale (default 1 se non specificato)
+- prezzo_costo: prezzo di costo unitario in euro — se il file ha solo il prezzo di vendita/cliente, usa quello come costo (non inventare sconti)
+- ricarico_perc: percentuale di ricarico (default 0 se non specificato, il sistema lo gestisce dopo)
+- prezzo_cliente: prezzo cliente unitario — se uguale al costo, ok
+- totale_costo: quantita * prezzo_costo (arrotondato 2 decimali)
+- totale_cliente: quantita * prezzo_cliente (arrotondato 2 decimali)
+
+REGOLE IMPORTANTI:
+- Includi TUTTE le voci, anche quelle con prezzo 0 o quantità 0
+- Ignora solo: intestazioni di colonna, righe totale/subtotale aggregate, righe completamente vuote
+- Le voci di capitolo/sezione (es: "A - STRUTTURA") includile come voce con prezzo 0 e categoria Altro
+- Se il file ha importi con virgola decimale (es: 1.234,56) convertili correttamente → 1234.56
+- Se una cella contiene testo come "A CORPO" o "INCLUSO" per il prezzo, usa 0
+- Restituisci SOLO il JSON array, senza markdown, senza testo prima o dopo
 
 Contenuto file:
 {testo_grezzo[:8000]}
 
-Risposta (solo JSON array):"""
+Risposta (SOLO JSON array, inizia con [ ):"""
 
     try:
         msg = claude.messages.create(
@@ -535,6 +539,87 @@ Risposta (solo JSON array):"""
 
     except Exception as e:
         raise HTTPException(500, f"Errore interpretazione Claude: {e}")
+
+
+# ─── TEMPLATE EXCEL COMPUTO ───────────────────────────────────────────────────
+
+@router.get("/template-computo")
+def scarica_template_computo():
+    """Scarica il template Excel ottimale per l'import del computo"""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    import io as _io
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Computo"
+
+    intestazioni = ["Descrizione voce", "Categoria", "U.M.", "Quantità", "Prezzo costo unitario (€)", "Ricarico %", "Prezzo cliente unitario (€)", "Totale costo (€)", "Totale cliente (€)"]
+    categorie_valide = "Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Altro"
+
+    header_fill = PatternFill("solid", fgColor="FF6B00")
+    header_font = Font(bold=True, color="FFFFFF")
+    thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    for col, h in enumerate(intestazioni, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font = header_font
+        c.fill = header_fill
+        c.alignment = Alignment(horizontal="center", wrap_text=True)
+        c.border = thin
+
+    esempi = [
+        ["Fornitura e posa profili in acciaio LSF 89/41 sp. 0,6mm", "Struttura", "mq", 120, 18.50, 30, 24.05, 2220.00, 2886.00],
+        ["Isolamento termico in lana di roccia 10cm", "Materiali", "mq", 120, 12.00, 25, 15.00, 1440.00, 1800.00],
+        ["Manodopera posa struttura", "Manodopera", "h", 40, 35.00, 20, 42.00, 1400.00, 1680.00],
+        ["Nolo ponteggio", "Nolo", "mese", 2, 800.00, 15, 920.00, 1600.00, 1840.00],
+        ["Smaltimento rifiuti cantiere", "Servizi", "corpo", 1, 500.00, 10, 550.00, 500.00, 550.00],
+    ]
+    note_fill = PatternFill("solid", fgColor="FFF3E0")
+    for r, riga in enumerate(esempi, 2):
+        for col, val in enumerate(riga, 1):
+            c = ws.cell(row=r, column=col, value=val)
+            c.fill = note_fill
+            c.border = thin
+            if col >= 4:
+                c.alignment = Alignment(horizontal="right")
+
+    ws.column_dimensions["A"].width = 45
+    for col_letter, w in zip("BCDEFGHI", [14, 10, 10, 22, 12, 22, 16, 16]):
+        ws.column_dimensions[col_letter].width = w
+
+    # Foglio istruzioni
+    wi = wb.create_sheet("Istruzioni")
+    istruzioni = [
+        ("ISTRUZIONI PER L'IMPORT COMPUTO", True),
+        ("", False),
+        ("1. Compila il foglio 'Computo' con tutte le voci del tuo computo metrico", False),
+        ("2. Colonne obbligatorie: Descrizione, Quantità, Prezzo costo unitario", False),
+        ("3. Le altre colonne sono opzionali - Claude le calcolerà se mancano", False),
+        ("", False),
+        (f"Categorie valide: {categorie_valide}", False),
+        ("", False),
+        ("U.M. comuni: mq, ml, mc, cad, kg, h, corpo, fornitura, mese, g (giorno)", False),
+        ("", False),
+        ("IMPORTANTE: Puoi anche importare il tuo computo in qualsiasi formato", False),
+        ("Claude è in grado di interpretare strutture diverse da questo template.", False),
+        ("Tuttavia, più il file è pulito e strutturato, migliore sarà il risultato.", False),
+    ]
+    for row, (testo, bold) in enumerate(istruzioni, 1):
+        c = wi.cell(row=row, column=1, value=testo)
+        if bold:
+            c.font = Font(bold=True, size=13, color="FF6B00")
+    wi.column_dimensions["A"].width = 70
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=template_computo_steelex.xlsx"}
+    )
 
 
 # ─── IMPORT FATTURA/BOLLA DA FOTO (AI VISION) ─────────────────────────────────

@@ -301,7 +301,8 @@ function ComputoSection({ cantiereId, canWrite }) {
 
   const subtotale = voci.reduce((s,v) => s+(v.totale_cliente||0), 0)
   const costoTot  = voci.reduce((s,v) => s+(v.totale_costo||0), 0)
-  const totale    = subtotale * (1 + (parseFloat(base.iva_perc)||22)/100)
+  const ivaPerc   = base.iva_perc === '' ? 22 : (parseFloat(base.iva_perc) ?? 22)
+  const totale    = subtotale * (1 + ivaPerc/100)
   const acconto   = totale * (parseFloat(base.acconto_perc)||30)/100
   const margine   = subtotale - costoTot
 
@@ -398,6 +399,11 @@ function ComputoSection({ cantiereId, canWrite }) {
               disabled={importando}
               onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
           </label>
+          <a href="/api/v1/cantieri/template-computo"
+            download className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 flex-shrink-0"
+            title="Scarica il template Excel ottimale per l'import">
+            <Download size={13} /> Template
+          </a>
         </div>
       )}
 
@@ -542,7 +548,7 @@ function ComputoSection({ cantiereId, canWrite }) {
                 <div className="flex justify-between"><span>Margine</span><span className={margine>=0?'text-green-600 font-medium':'text-red-600'}>{fmt(margine)} ({costoTot>0?Math.round((margine/costoTot)*100):0}%)</span></div>
               </>}
               <div className="flex justify-between border-t pt-1"><span>Subtotale cliente</span><span className="font-semibold">{fmt(subtotale)}</span></div>
-              <div className="flex justify-between text-gray-500"><span>IVA {base.iva_perc}%</span><span>{fmt(subtotale*base.iva_perc/100)}</span></div>
+              <div className="flex justify-between text-gray-500"><span>IVA {ivaPerc}%</span><span>{fmt(subtotale*ivaPerc/100)}</span></div>
               <div className="flex justify-between text-steelex-orange font-bold text-base"><span>TOTALE</span><span>{fmt(totale)}</span></div>
               <div className="flex justify-between text-blue-600"><span>Acconto {base.acconto_perc}%</span><span>{fmt(acconto)}</span></div>
             </div>
@@ -555,7 +561,7 @@ function ComputoSection({ cantiereId, canWrite }) {
                 const payload = {
                   ...base,
                   data_preventivo: base.data_preventivo || null,  // stringa vuota → null
-                  iva_perc: parseFloat(base.iva_perc) || 22,
+                  iva_perc: base.iva_perc === '' ? 22 : (parseFloat(base.iva_perc) ?? 22),
                   acconto_perc: parseFloat(base.acconto_perc) || 30,
                   voci: voci.map(v => ({
                     descrizione:    v.descrizione,
