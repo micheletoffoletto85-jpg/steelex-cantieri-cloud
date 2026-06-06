@@ -376,6 +376,231 @@ def elimina_fase(cantiere_id: int, fase_id: int, db: Session = Depends(get_db), 
     db.delete(fase); db.commit()
 
 
+# ─── IMPORT COMPUTO DA FILE (AI) ──────────────────────────────────────────────
+
+@router.post("/{cantiere_id}/preventivi/import-computo")
+async def import_computo_ai(
+    cantiere_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """
+    Riceve Excel/CSV/PDF con computo metrico.
+    Claude interpreta la struttura e restituisce le voci pronte per il preventivo.
+    """
+    from app.config import settings
+    _check(cantiere_id, db, user)
+    _solo_staff(user)
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(503, "Anthropic API key non configurata")
+
+    contenuto = await file.read()
+    nome = (file.filename or "").lower()
+    ext = os.path.splitext(nome)[1]
+
+    # Estrai testo grezzo dal file
+    testo_grezzo = ""
+    try:
+        if ext in (".xlsx", ".xls"):
+            import openpyxl, io as _io
+            wb = openpyxl.load_workbook(_io.BytesIO(contenuto), data_only=True)
+            ws = wb.active
+            righe = []
+            for row in ws.iter_rows(values_only=True):
+                cella = [str(c).strip() if c is not None else "" for c in row]
+                if any(cella):
+                    righe.append("\t".join(cella))
+            testo_grezzo = "\n".join(righe[:500])  # max 500 righe
+
+        elif ext == ".csv":
+            import csv, io as _io
+            reader = csv.reader(_io.StringIO(contenuto.decode("utf-8", errors="replace")))
+            righe = ["\t".join(r) for r in reader]
+            testo_grezzo = "\n".join(righe[:500])
+
+        elif ext == ".pdf":
+            import fitz  # PyMuPDF
+            doc = fitz.open(stream=contenuto, filetype="pdf")
+            pagine = [doc[i].get_text() for i in range(min(len(doc), 10))]
+            testo_grezzo = "\n".join(pagine)
+
+        else:
+            # Prova come testo semplice
+            testo_grezzo = contenuto.decode("utf-8", errors="replace")[:10000]
+
+    except Exception as e:
+        raise HTTPException(400, f"Impossibile leggere il file: {e}")
+
+    if not testo_grezzo.strip():
+        raise HTTPException(400, "File vuoto o non leggibile")
+
+    # Claude interpreta le voci
+    import anthropic
+    claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    prompt = f"""Sei un esperto di computi metrici per cantieri edili italiani.
+Ti viene fornito il contenuto grezzo di un file (Excel, CSV o PDF) contenente un computo metrico estimativo.
+
+Il tuo compito è estrarre tutte le voci di lavoro/fornitura e restituirle come JSON array.
+
+Per ogni voce estrai (o stima se manca):
+- descrizione: descrizione chiara della voce
+- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Altro]
+- um: unità di misura (es: "mq", "ml", "cad", "kg", "h", "mc", "fornitura")
+- quantita: numero (default 1 se non specificato)
+- prezzo_costo: prezzo di costo unitario in euro (se c'è solo il prezzo cliente, calcola il costo come 75% di quello)
+- ricarico_perc: percentuale di ricarico (default 30 se non specificato)
+- prezzo_cliente: prezzo cliente unitario (se non c'è, calcola da costo + ricarico)
+- totale_costo: quantita * prezzo_costo
+- totale_cliente: quantita * prezzo_cliente
+
+REGOLE:
+- Ignora righe di intestazione, subtotali, totali, note generali
+- Se una voce ha solo descrizione e prezzo finale, metti prezzo_cliente = quel prezzo
+- Usa categorie sensate in base alla descrizione (es: "acciaio" → Materiali, "muratori" → Manodopera)
+- Restituisci SOLO il JSON array, senza testo aggiuntivo, senza markdown, senza spiegazioni
+
+Contenuto file:
+{testo_grezzo[:8000]}
+
+Risposta (solo JSON array):"""
+
+    try:
+        msg = claude.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        testo_risposta = msg.content[0].text.strip()
+
+        # Pulizia markdown se presente
+        if testo_risposta.startswith("```"):
+            testo_risposta = testo_risposta.split("```")[1]
+            if testo_risposta.startswith("json"):
+                testo_risposta = testo_risposta[4:]
+
+        import json
+        voci = json.loads(testo_risposta)
+        if not isinstance(voci, list):
+            raise ValueError("Non è una lista")
+
+        # Aggiunge id temporanei e normalizza numeri
+        for i, v in enumerate(voci):
+            v["id"] = i + 1
+            for campo in ("quantita","prezzo_costo","ricarico_perc","prezzo_cliente","totale_costo","totale_cliente"):
+                try:
+                    v[campo] = round(float(str(v.get(campo, 0)).replace(",",".")), 2)
+                except Exception:
+                    v[campo] = 0.0
+
+        return {"voci": voci, "totale_voci": len(voci)}
+
+    except Exception as e:
+        raise HTTPException(500, f"Errore interpretazione Claude: {e}")
+
+
+# ─── IMPORT FATTURA/BOLLA DA FOTO (AI VISION) ─────────────────────────────────
+
+@router.post("/{cantiere_id}/spese/import-foto")
+async def import_spesa_da_foto(
+    cantiere_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """
+    Riceve foto o screenshot di fattura/bolla.
+    Claude Vision estrae i dati e pre-compila il form spesa.
+    """
+    import base64
+    from app.config import settings
+    _check(cantiere_id, db, user)
+    _solo_staff(user)
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(503, "Anthropic API key non configurata")
+
+    contenuto = await file.read()
+    nome = (file.filename or "").lower()
+    ext = os.path.splitext(nome)[1].lower()
+
+    # Converti PDF prima pagina in immagine se necessario
+    if ext == ".pdf":
+        try:
+            import fitz
+            doc = fitz.open(stream=contenuto, filetype="pdf")
+            pix = doc[0].get_pixmap(dpi=150)
+            contenuto = pix.tobytes("png")
+            ext = ".png"
+        except Exception as e:
+            raise HTTPException(400, f"Impossibile leggere PDF: {e}")
+
+    media_type_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+    media_type = media_type_map.get(ext, "image/jpeg")
+    img_b64 = base64.standard_b64encode(contenuto).decode()
+
+    import anthropic
+    claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    prompt = """Sei un assistente per la gestione amministrativa di cantieri edili italiani.
+Analizza questa immagine di una fattura, bolla di consegna, ricevuta o documento contabile.
+
+Estrai le seguenti informazioni e rispondile SOLO come JSON (senza markdown, senza testo aggiuntivo):
+
+{
+  "tipo_documento": "fattura" | "bolla" | "ricevuta" | "altro",
+  "numero_documento": "numero fattura/bolla se presente",
+  "data": "YYYY-MM-DD (se presente, altrimenti null)",
+  "fornitore": "nome del fornitore/venditore",
+  "descrizione": "descrizione sintetica di cosa è stato acquistato/fornito (max 100 caratteri)",
+  "categoria": una tra ["materiali","manodopera","nolo","servizi","trasporto","altro"],
+  "importo_netto": numero in euro (senza IVA, se distinguibile),
+  "iva_perc": percentuale IVA (es: 22),
+  "importo_totale": numero in euro (totale con IVA),
+  "note": "eventuali informazioni utili aggiuntive (numero ordine, riferimenti, ecc.)"
+}
+
+Se un campo non è leggibile o non presente, usa null.
+Per importo_totale usa il totale finale del documento.
+Rispondi SOLO con il JSON, nulla altro."""
+
+    try:
+        msg = claude.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
+                    {"type": "text", "text": prompt},
+                ]
+            }]
+        )
+        testo = msg.content[0].text.strip()
+        if testo.startswith("```"):
+            testo = testo.split("```")[1]
+            if testo.startswith("json"):
+                testo = testo[4:]
+
+        import json
+        dati = json.loads(testo)
+
+        # Normalizza importi
+        for campo in ("importo_netto", "iva_perc", "importo_totale"):
+            if dati.get(campo) is not None:
+                try:
+                    dati[campo] = round(float(str(dati[campo]).replace(",",".")), 2)
+                except Exception:
+                    dati[campo] = None
+
+        return dati
+
+    except Exception as e:
+        raise HTTPException(500, f"Errore analisi Claude: {e}")
+
+
 # ─── EXPORT EXCEL ─────────────────────────────────────────────────────────────
 
 @router.get("/{cantiere_id}/export/excel")

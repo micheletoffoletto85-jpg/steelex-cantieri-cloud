@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download } from 'lucide-react'
+import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -163,6 +163,9 @@ function ComputoSection({ cantiereId, canWrite }) {
   const [base, setBase] = useState({ numero: '', data_preventivo: '', iva_perc: 22, acconto_perc: 30, note: '' })
   const setB = (k,v) => setBase(f => ({...f,[k]:v}))
   const [uploadingFor, setUploadingFor] = useState(null)
+  const [importando, setImportando] = useState(false)
+  const [vociImportate, setVociImportate] = useState(null) // null = nessun import in corso
+  const importInputRef = useRef(null)
 
   const { data: preventivi = [], isLoading } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
 
@@ -210,6 +213,25 @@ function ComputoSection({ cantiereId, canWrite }) {
     id => api.delete(`/cantieri/${cantiereId}/preventivi/${id}`),
     { onSuccess: () => { qc.invalidateQueries(['preventivi',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); toast.success('Eliminato') } }
   )
+  const importaComputoAI = async (file) => {
+    setImportando(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await api.post(`/cantieri/${cantiereId}/preventivi/import-computo`, fd, { headers: {'Content-Type':'multipart/form-data'} })
+      setVociImportate(r.data.voci)
+      toast.success(`${r.data.totale_voci} voci trovate — rivedi e conferma`)
+    } catch(e) {
+      toast.error(e.response?.data?.detail || 'Errore import')
+    } finally { setImportando(false) }
+  }
+
+  const confermaImport = () => {
+    setVoci(vociImportate)
+    setVociImportate(null)
+    setShowForm(true)
+    toast.success('Voci importate nel computo!')
+  }
+
   const generaPdfPreventivo = async (prevId, numero) => {
     try {
       const resp = await api.get(`/cantieri/${cantiereId}/preventivi/${prevId}/genera-pdf`, { responseType: 'blob' })
@@ -238,9 +260,60 @@ function ComputoSection({ cantiereId, canWrite }) {
   return (
     <div className="space-y-3">
       {canWrite && !showForm && (
-        <button onClick={() => setShowForm(true)} className="btn-primary w-full flex items-center justify-center gap-2">
-          <Plus size={16} /> Nuovo Computo
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowForm(true)} className="btn-primary flex-1 flex items-center justify-center gap-2">
+            <Plus size={16} /> Nuovo Computo
+          </button>
+          <label className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer flex-shrink-0 ${importando ? 'bg-purple-100 text-purple-400' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
+            title="Importa computo da Excel, CSV o PDF — Claude interpreta le voci automaticamente">
+            {importando ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+            {importando ? 'Analisi...' : 'Importa AI'}
+            <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.txt" className="hidden"
+              disabled={importando}
+              onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
+          </label>
+        </div>
+      )}
+
+      {/* Modale anteprima voci importate */}
+      {vociImportate && (
+        <div className="card border-2 border-purple-300 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-purple-600" />
+              <h3 className="font-bold text-purple-900">Claude ha trovato {vociImportate.length} voci</h3>
+            </div>
+            <button onClick={() => setVociImportate(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
+          <p className="text-xs text-purple-600 bg-purple-50 rounded-lg p-2">
+            Rivedi le voci estratte. Puoi modificarle nel computo dopo la conferma.
+          </p>
+          <div className="max-h-64 overflow-y-auto space-y-1">
+            {vociImportate.map((v, i) => (
+              <div key={i} className="flex items-start justify-between gap-2 py-1.5 border-b border-gray-100 text-xs">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 truncate">{v.descrizione || '—'}</p>
+                  <p className="text-gray-400">{v.categoria} · {v.quantita} {v.um}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="font-semibold text-gray-900">{fmt(v.totale_cliente)}</p>
+                  <p className="text-gray-400">costo: {fmt(v.totale_costo)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="pt-1 border-t border-purple-100 flex justify-between items-center">
+            <div className="text-xs text-gray-600">
+              Totale cliente: <strong className="text-steelex-orange">{fmt(vociImportate.reduce((s,v)=>s+(v.totale_cliente||0),0))}</strong>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setVociImportate(null)} className="btn-secondary text-sm py-1.5 px-3">Scarta</button>
+              <button onClick={confermaImport} className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1">
+                <CheckCircle2 size={14} /> Usa queste voci
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showForm && (
@@ -362,8 +435,34 @@ function SpeseSection({ cantiereId, canWrite }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [uploadingFor, setUploadingFor] = useState(null)
+  const [analizzando, setAnalizzando] = useState(false)
   const [form, setForm] = useState({ descrizione:'', fornitore:'', categoria:'materiali', importo:'', data:'', note:'' })
   const set = (k,v) => setForm(f => ({...f,[k]:v}))
+
+  const analizzaFottura = async (file) => {
+    setAnalizzando(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await api.post(`/cantieri/${cantiereId}/spese/import-foto`, fd, { headers: {'Content-Type':'multipart/form-data'} })
+      const d = r.data
+      setForm({
+        descrizione: d.descrizione || '',
+        fornitore: d.fornitore || '',
+        categoria: d.categoria || 'materiali',
+        importo: d.importo_totale ? String(d.importo_totale) : '',
+        data: d.data || '',
+        note: [
+          d.numero_documento ? `${d.tipo_documento || 'Doc'} n° ${d.numero_documento}` : null,
+          d.importo_netto ? `Imponibile: €${d.importo_netto} (IVA ${d.iva_perc || 22}%)` : null,
+          d.note || null,
+        ].filter(Boolean).join(' — ') || '',
+      })
+      setShowForm(true)
+      toast.success('Claude ha compilato il form — controlla e conferma!')
+    } catch(e) {
+      toast.error(e.response?.data?.detail || 'Errore analisi foto')
+    } finally { setAnalizzando(false) }
+  }
 
   const { data: spese = [], isLoading } = useQuery(['spese', cantiereId], () => api.get(`/cantieri/${cantiereId}/spese`).then(r => r.data), { staleTime: 0 })
 
@@ -400,14 +499,29 @@ function SpeseSection({ cantiereId, canWrite }) {
       )}
 
       {canWrite && (
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary w-full flex items-center justify-center gap-2">
-          <Plus size={16} /> Registra Spesa
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowForm(!showForm)} className="btn-primary flex-1 flex items-center justify-center gap-2">
+            <Plus size={16} /> Registra Spesa
+          </button>
+          <label className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer flex-shrink-0 ${analizzando ? 'bg-purple-100 text-purple-400' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
+            title="Scatta foto o carica screenshot di fattura/bolla — Claude compila il form automaticamente">
+            {analizzando ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+            {analizzando ? 'Analisi...' : 'Foto AI'}
+            <input type="file" accept="image/*,.pdf" capture="environment" className="hidden"
+              disabled={analizzando}
+              onChange={e => e.target.files[0] && analizzaFottura(e.target.files[0])} />
+          </label>
+        </div>
       )}
 
       {showForm && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between"><h3 className="font-bold">Nuova Spesa</h3><button onClick={() => setShowForm(false)}><X size={16} /></button></div>
+          {form.descrizione && (
+            <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg p-2 text-xs text-purple-700">
+              <Sparkles size={12} /><span>Dati pre-compilati da Claude — verifica prima di salvare</span>
+            </div>
+          )}
           <input className="input-field" placeholder="Descrizione *" value={form.descrizione} onChange={e => set('descrizione',e.target.value)} autoFocus />
           <div className="grid grid-cols-2 gap-2">
             <input className="input-field" placeholder="Fornitore" value={form.fornitore} onChange={e => set('fornitore',e.target.value)} />
