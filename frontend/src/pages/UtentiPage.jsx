@@ -5,9 +5,9 @@ import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-const RUOLO_LABEL = { admin: 'Admin', capo_cantiere: 'Capo Cantiere', fornitore: 'Fornitore', cliente: 'Cliente' }
-const RUOLO_ICON = { admin: Shield, capo_cantiere: HardHat, fornitore: User, cliente: User }
-const RUOLO_COLOR = { admin: 'text-red-600 bg-red-50', capo_cantiere: 'text-blue-600 bg-blue-50', fornitore: 'text-purple-600 bg-purple-50', cliente: 'text-gray-600 bg-gray-50' }
+const RUOLO_LABEL = { admin: 'Admin', capo_cantiere: 'Capo Cantiere', artigiano: 'Artigiano', fornitore: 'Fornitore', cliente: 'Cliente' }
+const RUOLO_ICON = { admin: Shield, capo_cantiere: HardHat, artigiano: HardHat, fornitore: User, cliente: User }
+const RUOLO_COLOR = { admin: 'text-red-600 bg-red-50', capo_cantiere: 'text-blue-600 bg-blue-50', artigiano: 'text-orange-600 bg-orange-50', fornitore: 'text-purple-600 bg-purple-50', cliente: 'text-gray-600 bg-gray-50' }
 
 const FORM_VUOTO = { nome: '', cognome: '', email: '', password: '', ruolo: 'capo_cantiere' }
 
@@ -101,6 +101,7 @@ export default function UtentiPage() {
           <input className="input-field" type="password" placeholder="Password *" value={form.password} onChange={e => set('password', e.target.value)} />
           <select className="input-field" value={form.ruolo} onChange={e => set('ruolo', e.target.value)}>
             <option value="capo_cantiere">Capo Cantiere</option>
+            <option value="artigiano">Artigiano</option>
             <option value="fornitore">Fornitore</option>
             <option value="cliente">Cliente</option>
             <option value="admin">Admin</option>
@@ -129,6 +130,7 @@ export default function UtentiPage() {
           <input className="input-field" type="password" placeholder="Nuova password (lascia vuoto per non cambiare)" value={editForm.password} onChange={e => setE('password', e.target.value)} />
           <select className="input-field" value={editForm.ruolo} onChange={e => setE('ruolo', e.target.value)}>
             <option value="capo_cantiere">Capo Cantiere</option>
+            <option value="artigiano">Artigiano</option>
             <option value="fornitore">Fornitore</option>
             <option value="cliente">Cliente</option>
             <option value="admin">Admin</option>

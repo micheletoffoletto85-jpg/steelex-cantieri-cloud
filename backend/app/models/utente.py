@@ -7,6 +7,7 @@ from app.database import Base
 class RuoloUtente(str, enum.Enum):
     admin = "admin"
     capo_cantiere = "capo_cantiere"
+    artigiano = "artigiano"
     fornitore = "fornitore"
     cliente = "cliente"
 

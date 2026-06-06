@@ -1,8 +1,16 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Enum, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Enum, ForeignKey, Text, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
 from app.database import Base
+
+# Tabella associativa artigiani ↔ cantieri
+cantiere_artigiani = Table(
+    "cantiere_artigiani",
+    Base.metadata,
+    Column("cantiere_id", Integer, ForeignKey("cantieri.id", ondelete="CASCADE"), primary_key=True),
+    Column("utente_id", Integer, ForeignKey("utenti.id", ondelete="CASCADE"), primary_key=True),
+)
 
 class StatoCantiere(str, enum.Enum):
     preventivo = "preventivo"
@@ -31,7 +39,8 @@ class Cantiere(Base):
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
     aggiornato_il = Column(DateTime(timezone=True), onupdate=func.now())
 
-    responsabile = relationship("Utente", back_populates="cantieri")
+    responsabile = relationship("Utente", back_populates="cantieri", foreign_keys=[responsabile_id])
+    artigiani = relationship("Utente", secondary="cantiere_artigiani", backref="cantieri_assegnati")
     diari = relationship("DiarioGiornaliero", back_populates="cantiere", cascade="all, delete-orphan")
     documenti = relationship("Documento", back_populates="cantiere", cascade="all, delete-orphan")
     checklist = relationship("ChecklistItem", back_populates="cantiere", cascade="all, delete-orphan")

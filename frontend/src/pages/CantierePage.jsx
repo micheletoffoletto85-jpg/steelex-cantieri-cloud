@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2 } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
@@ -80,7 +80,7 @@ export default function CantierePage() {
 
       {/* Tab bar — scroll orizzontale su mobile */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {[['info','Info',null],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro]].map(([key,label,Icon]) => (
+        {[['info','Info',null],['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro]].map(([key,label,Icon]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             {Icon && <Icon size={12} />}{label}
@@ -89,6 +89,7 @@ export default function CantierePage() {
       </div>
 
       {tab === 'info'     && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} />}
+      {tab === 'team'     && <TeamTab cantiereId={id} utente={utente} />}
       {tab === 'gantt'    && <GanttTab cantiereId={id} />}
       {tab === 'checklist'&& <ChecklistTab cantiereId={id} />}
       {tab === 'diario'   && <DiarioTab cantiereId={id} />}
@@ -1191,6 +1192,87 @@ function DiarioTab({ cantiereId }) {
             </label>
           </div>
         ))}
+    </div>
+  )
+}
+
+/* ─── TAB TEAM ─── */
+function TeamTab({ cantiereId, utente }) {
+  const qc = useQueryClient()
+  const isAdmin = utente?.ruolo === 'admin' || utente?.ruolo === 'capo_cantiere'
+
+  const { data: assegnati = [], isLoading } = useQuery(
+    ['artigiani', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/artigiani`).then(r => r.data),
+  )
+
+  const { data: disponibili = [] } = useQuery(
+    ['artigiani-disponibili'],
+    () => api.get(`/cantieri/utenti/artigiani`).then(r => r.data),
+    { enabled: isAdmin }
+  )
+
+  const [selezionato, setSelezionato] = useState('')
+
+  const aggiungi = useMutation(
+    (uid) => api.post(`/cantieri/${cantiereId}/artigiani`, { utente_id: uid }),
+    { onSuccess: () => { qc.invalidateQueries(['artigiani', cantiereId]); setSelezionato(''); toast.success('Utente assegnato') } }
+  )
+
+  const rimuovi = useMutation(
+    (uid) => api.delete(`/cantieri/${cantiereId}/artigiani/${uid}`),
+    { onSuccess: () => { qc.invalidateQueries(['artigiani', cantiereId]); toast.success('Rimosso') } }
+  )
+
+  const assegnatiIds = assegnati.map(a => a.id)
+  const nonAssegnati = disponibili.filter(d => !assegnatiIds.includes(d.id))
+
+  const RUOLO_LABEL = { admin: 'Admin', capo_cantiere: 'Capo cantiere', artigiano: 'Artigiano', fornitore: 'Fornitore', cliente: 'Cliente' }
+
+  if (isLoading) return <div className="p-4 text-gray-500">Caricamento...</div>
+
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold text-gray-800 flex items-center gap-2"><Users size={16} /> Team assegnato</h2>
+
+      {isAdmin && (
+        <div className="flex gap-2">
+          <select value={selezionato} onChange={e => setSelezionato(e.target.value)}
+            className="flex-1 border rounded-lg px-3 py-2 text-sm">
+            <option value="">— Seleziona utente da aggiungere —</option>
+            {nonAssegnati.map(u => (
+              <option key={u.id} value={u.id}>{u.cognome} {u.nome} ({RUOLO_LABEL[u.ruolo] || u.ruolo})</option>
+            ))}
+          </select>
+          <button onClick={() => selezionato && aggiungi.mutate(Number(selezionato))}
+            disabled={!selezionato || aggiungi.isLoading}
+            className="flex items-center gap-1 px-4 py-2 bg-steelex-orange text-white rounded-lg text-sm font-medium disabled:opacity-50">
+            <UserPlus size={14} /> Aggiungi
+          </button>
+        </div>
+      )}
+
+      {assegnati.length === 0 ? (
+        <p className="text-gray-400 text-sm italic">Nessun utente assegnato</p>
+      ) : (
+        <div className="space-y-2">
+          {assegnati.map(a => (
+            <div key={a.id} className="flex items-center justify-between bg-white border rounded-lg px-4 py-3">
+              <div>
+                <span className="font-medium text-gray-800">{a.cognome} {a.nome}</span>
+                <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{RUOLO_LABEL[a.ruolo] || a.ruolo}</span>
+                <div className="text-xs text-gray-400">{a.email}</div>
+              </div>
+              {isAdmin && (
+                <button onClick={() => rimuovi.mutate(a.id)}
+                  className="text-red-400 hover:text-red-600 p-1" title="Rimuovi">
+                  <UserMinus size={16} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

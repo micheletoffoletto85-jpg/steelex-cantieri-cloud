@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel
 from app.database import get_db
-from app.models.cantiere import Cantiere, StatoCantiere
+from app.models.cantiere import Cantiere, StatoCantiere, cantiere_artigiani
 from app.models.utente import Utente, RuoloUtente
 from app.schemas.cantiere import CantiereCreate, CantiereOut, CantiereUpdate
 from app.auth import get_current_user
@@ -14,6 +15,12 @@ def _check_accesso(cantiere: Cantiere, user: Utente):
         return
     if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
         return
+    # artigiano: accesso solo se assegnato al cantiere
+    if user.ruolo == RuoloUtente.artigiano:
+        ids = [u.id for u in cantiere.artigiani]
+        if user.id in ids:
+            return
+        raise HTTPException(status_code=403, detail="Accesso negato")
     # fornitore e cliente: sola lettura su tutti i cantieri
     if user.ruolo in (RuoloUtente.fornitore, RuoloUtente.cliente):
         return
@@ -28,6 +35,9 @@ def lista_cantieri(
     q = db.query(Cantiere)
     if user.ruolo == RuoloUtente.capo_cantiere:
         q = q.filter(Cantiere.responsabile_id == user.id)
+    elif user.ruolo == RuoloUtente.artigiano:
+        # artigiano vede solo cantieri a cui è assegnato
+        q = q.filter(Cantiere.artigiani.any(Utente.id == user.id))
     # fornitore e cliente vedono tutti i cantieri in sola lettura
     if stato:
         q = q.filter(Cantiere.stato == stato)
@@ -74,4 +84,62 @@ def elimina_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Uten
     if not cantiere:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
     db.delete(cantiere)
+    db.commit()
+
+# --- Gestione artigiani assegnati ---
+
+class UtenteBase(BaseModel):
+    id: int
+    nome: str
+    cognome: str
+    email: str
+    ruolo: str
+    class Config:
+        from_attributes = True
+
+@router.get("/utenti/artigiani", response_model=List[UtenteBase])
+def lista_utenti_assegnabili(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Tutti gli utenti artigiani + capo cantiere assegnabili"""
+    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    return db.query(Utente).filter(
+        Utente.ruolo.in_([RuoloUtente.artigiano, RuoloUtente.capo_cantiere]),
+        Utente.attivo == True
+    ).order_by(Utente.cognome).all()
+
+class AssegnaBody(BaseModel):
+    utente_id: int
+
+@router.get("/{cantiere_id}/artigiani", response_model=List[UtenteBase])
+def lista_artigiani(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    return cantiere.artigiani
+
+@router.post("/{cantiere_id}/artigiani", status_code=201)
+def assegna_artigiano(cantiere_id: int, body: AssegnaBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    artigiano = db.query(Utente).filter(Utente.id == body.utente_id).first()
+    if not artigiano:
+        raise HTTPException(status_code=404, detail="Utente non trovato")
+    if artigiano not in cantiere.artigiani:
+        cantiere.artigiani.append(artigiano)
+        db.commit()
+    return {"ok": True}
+
+@router.delete("/{cantiere_id}/artigiani/{utente_id}", status_code=204)
+def rimuovi_artigiano(cantiere_id: int, utente_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    cantiere.artigiani = [a for a in cantiere.artigiani if a.id != utente_id]
     db.commit()
