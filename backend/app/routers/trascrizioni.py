@@ -45,25 +45,52 @@ async def trascrivi_audio(
         lingua_rilevata = getattr(risposta, "language", "it") or "it"
         lingua_nome = LINGUE_SUPPORTATE.get(lingua_rilevata, lingua_rilevata)
 
-        # Traduci in italiano con Claude (solo se non è già italiano)
+        # Traduci + riorganizza con Claude
         testo_italiano = testo_originale
-        if lingua_rilevata != "it" and settings.ANTHROPIC_API_KEY:
+        if settings.ANTHROPIC_API_KEY:
             import anthropic
             claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-            msg = claude.messages.create(
+
+            # Step 1: traduzione (solo se non è già italiano)
+            if lingua_rilevata != "it":
+                msg = claude.messages.create(
+                    model="claude-haiku-4-5",
+                    max_tokens=1024,
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            f"Sei un assistente per cantieri edili.\n"
+                            f"Traduci il seguente testo da {lingua_nome} a italiano.\n"
+                            f"Mantieni il senso tecnico. Rispondi solo con la traduzione, senza aggiunte.\n\n"
+                            f"Testo: {testo_originale}"
+                        )
+                    }]
+                )
+                testo_italiano = msg.content[0].text.strip()
+
+            # Step 2: riorganizza e struttura in modo logico
+            msg2 = claude.messages.create(
                 model="claude-haiku-4-5",
                 max_tokens=1024,
                 messages=[{
                     "role": "user",
                     "content": (
-                        f"Sei un assistente per cantieri edili.\n"
-                        f"Traduci il seguente testo da {lingua_nome} a italiano.\n"
-                        f"Mantieni il senso tecnico. Rispondi solo con la traduzione, senza aggiunte.\n\n"
-                        f"Testo: {testo_originale}"
+                        "Sei un assistente esperto di cantieri edili.\n"
+                        "Ricevi una nota vocale trascritta da un operaio o artigiano di cantiere.\n"
+                        "Il testo può essere disordinato, ripetitivo o parlato in modo informale.\n\n"
+                        "Il tuo compito:\n"
+                        "1. Riorganizza il contenuto in modo chiaro e logico\n"
+                        "2. Elimina ripetizioni e parole di riempimento\n"
+                        "3. Usa un linguaggio tecnico ma diretto, come si usa in cantiere\n"
+                        "4. Se ci sono più argomenti distinti, separali con un punto o a capo\n"
+                        "5. NON aggiungere titoli, intestazioni, bullet point o markdown\n"
+                        "6. NON aggiungere informazioni che non ci sono\n"
+                        "7. Rispondi SOLO con il testo riorganizzato, niente altro\n\n"
+                        f"Testo da riorganizzare:\n{testo_italiano}"
                     )
                 }]
             )
-            testo_italiano = msg.content[0].text.strip()
+            testo_italiano = msg2.content[0].text.strip()
 
         return {
             "testo_originale": testo_originale,
