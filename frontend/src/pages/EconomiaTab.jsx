@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2 } from 'lucide-react'
+import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -53,6 +53,19 @@ export default function EconomiaTab({ cantiereId }) {
 function RiepilogoSection({ cantiereId }) {
   const { data: rv, isLoading } = useQuery(['economia', cantiereId], () => api.get(`/cantieri/${cantiereId}/economia`).then(r => r.data), { staleTime: 0 })
   const { data: preventivi = [] } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
+
+  const scaricaExcel = async () => {
+    try {
+      const resp = await api.get(`/cantieri/${cantiereId}/export/excel`, { responseType: 'blob' })
+      const url = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = resp.headers['content-disposition']?.match(/filename="(.+)"/)?.[1] || 'economico.xlsx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { toast.error('Errore export Excel') }
+  }
+
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
   if (!rv) return null
 
@@ -62,6 +75,14 @@ function RiepilogoSection({ cantiereId }) {
 
   return (
     <div className="space-y-3">
+      {/* Pulsante export */}
+      <div className="flex justify-end">
+        <button onClick={scaricaExcel}
+          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors">
+          <Download size={15} /> Export Excel
+        </button>
+      </div>
+
       {!prevOk && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-xs text-yellow-700">
           ⚠️ Nessun computo accettato — vai su <strong>Computo</strong> per creare il preventivo cliente.
@@ -189,6 +210,19 @@ function ComputoSection({ cantiereId, canWrite }) {
     id => api.delete(`/cantieri/${cantiereId}/preventivi/${id}`),
     { onSuccess: () => { qc.invalidateQueries(['preventivi',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); toast.success('Eliminato') } }
   )
+  const generaPdfPreventivo = async (prevId, numero) => {
+    try {
+      const resp = await api.get(`/cantieri/${cantiereId}/preventivi/${prevId}/genera-pdf`, { responseType: 'blob' })
+      const url = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `preventivo_${numero}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('PDF generato!')
+    } catch { toast.error('Errore generazione PDF') }
+  }
+
   const uploadPdf = async (prevId, file) => {
     setUploadingFor(prevId)
     try {
@@ -298,6 +332,7 @@ function ComputoSection({ cantiereId, canWrite }) {
               </select>
             ) : <span className={`text-xs px-2 py-0.5 rounded-full ${STATO_PREV[p.stato]?.bg}`}>{STATO_PREV[p.stato]?.label}</span>}
             <div className="flex items-center gap-1">
+              <button onClick={() => generaPdfPreventivo(p.id, p.numero||p.id)} title="Genera PDF preventivo" className="p-1 text-steelex-orange hover:text-orange-700"><Download size={14} /></button>
               {p.pdf_url && <a href={p.pdf_url} target="_blank" rel="noreferrer" className="p-1 text-blue-500"><ExternalLink size={14} /></a>}
               {canWrite && <>
                 <label className="p-1 text-gray-400 hover:text-steelex-orange cursor-pointer" title="Allega PDF firmato">
