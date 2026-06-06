@@ -376,6 +376,46 @@ def elimina_fase(cantiere_id: int, fase_id: int, db: Session = Depends(get_db), 
     db.delete(fase); db.commit()
 
 
+# ─── HELPER JSON REPAIR ───────────────────────────────────────────────────────
+
+def _ripara_json_array(testo: str) -> str:
+    """
+    Se Claude ha troncato il JSON per limite token, chiude l'array
+    all'ultimo oggetto completo valido.
+    """
+    testo = testo.strip()
+    # Rimuove markdown se presente
+    if testo.startswith("```"):
+        parti = testo.split("```")
+        testo = parti[1] if len(parti) > 1 else testo
+        if testo.startswith("json"):
+            testo = testo[4:]
+        testo = testo.strip()
+
+    if not testo.startswith("["):
+        return testo  # non è un array, lascia invariato
+
+    # Prova parse diretto prima
+    import json as _json
+    try:
+        _json.loads(testo)
+        return testo
+    except Exception:
+        pass
+
+    # Taglia all'ultima `}` seguita da eventuale `,` e chiudi con `]`
+    ultimo_oggetto = testo.rfind("}")
+    if ultimo_oggetto == -1:
+        return "[]"
+    troncato = testo[:ultimo_oggetto + 1].rstrip().rstrip(",")
+    riparato = troncato + "\n]"
+    try:
+        _json.loads(riparato)
+        return riparato
+    except Exception:
+        return "[]"
+
+
 # ─── IMPORT COMPUTO DA FILE (AI) ──────────────────────────────────────────────
 
 @router.post("/{cantiere_id}/preventivi/import-computo")
@@ -412,18 +452,18 @@ async def import_computo_ai(
                 cella = [str(c).strip() if c is not None else "" for c in row]
                 if any(cella):
                     righe.append("\t".join(cella))
-            testo_grezzo = "\n".join(righe[:500])  # max 500 righe
+            testo_grezzo = "\n".join(righe[:300])  # max 300 righe
 
         elif ext == ".csv":
             import csv, io as _io
             reader = csv.reader(_io.StringIO(contenuto.decode("utf-8", errors="replace")))
             righe = ["\t".join(r) for r in reader]
-            testo_grezzo = "\n".join(righe[:500])
+            testo_grezzo = "\n".join(righe[:300])
 
         elif ext == ".pdf":
             import fitz  # PyMuPDF
             doc = fitz.open(stream=contenuto, filetype="pdf")
-            pagine = [doc[i].get_text() for i in range(min(len(doc), 10))]
+            pagine = [doc[i].get_text() for i in range(min(len(doc), 5))]
             testo_grezzo = "\n".join(pagine)
 
         else:
@@ -470,18 +510,14 @@ Risposta (solo JSON array):"""
     try:
         msg = claude.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=4096,
+            max_tokens=8192,
             messages=[{"role": "user", "content": prompt}]
         )
         testo_risposta = msg.content[0].text.strip()
 
-        # Pulizia markdown se presente
-        if testo_risposta.startswith("```"):
-            testo_risposta = testo_risposta.split("```")[1]
-            if testo_risposta.startswith("json"):
-                testo_risposta = testo_risposta[4:]
-
         import json
+        # Repair JSON troncato: taglia all'ultimo oggetto completo e chiude l'array
+        testo_risposta = _ripara_json_array(testo_risposta)
         voci = json.loads(testo_risposta)
         if not isinstance(voci, list):
             raise ValueError("Non è una lista")
@@ -656,7 +692,7 @@ REGOLE:
             img_b64 = base64.standard_b64encode(contenuto).decode()
             msg = claude.messages.create(
                 model="claude-haiku-4-5",
-                max_tokens=4096,
+                max_tokens=8192,
                 messages=[{"role": "user", "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": media_map[ext], "data": img_b64}},
                     {"type": "text", "text": PROMPT_BASE},
@@ -692,7 +728,7 @@ REGOLE:
                     img_b64 = base64.standard_b64encode(img_bytes).decode()
                     msg = claude.messages.create(
                         model="claude-haiku-4-5",
-                        max_tokens=4096,
+                        max_tokens=8192,
                         messages=[{"role": "user", "content": [
                             {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
                             {"type": "text", "text": PROMPT_BASE},
@@ -705,8 +741,8 @@ REGOLE:
             if testo_grezzo is not None:
                 msg = claude.messages.create(
                     model="claude-haiku-4-5",
-                    max_tokens=4096,
-                    messages=[{"role": "user", "content": f"{PROMPT_BASE}\n\nContenuto file:\n{testo_grezzo[:7000]}\n\nRisposta (solo JSON array):"}]
+                    max_tokens=8192,
+                    messages=[{"role": "user", "content": f"{PROMPT_BASE}\n\nContenuto file:\n{testo_grezzo[:5000]}\n\nRisposta (solo JSON array):"}]
                 )
 
         testo = msg.content[0].text.strip()
@@ -716,6 +752,7 @@ REGOLE:
                 testo = testo[4:]
 
         import json
+        testo = _ripara_json_array(testo)
         fasi = json.loads(testo)
         if not isinstance(fasi, list):
             raise ValueError("Non è una lista")
