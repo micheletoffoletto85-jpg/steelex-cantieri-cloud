@@ -164,12 +164,26 @@ function ComputoSection({ cantiereId, canWrite }) {
   const setB = (k,v) => setBase(f => ({...f,[k]:v}))
   const [uploadingFor, setUploadingFor] = useState(null)
   const [importando, setImportando] = useState(false)
-  const [vociImportate, setVociImportate] = useState(null) // null = nessun import in corso
+  const [vociImportate, setVociImportate] = useState(null)
   const importInputRef = useRef(null)
+  const [ricarico_globale, setRicaricoGlobale] = useState('')
+  const [modalita, setModalita] = useState('costo') // 'costo' = costo+ricarico | 'cliente' = prezzi cliente diretti
 
   const { data: preventivi = [], isLoading } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
 
-  const chiudi = () => { setShowForm(false); setEditId(null); setVoci([]); setBase({ numero:'',data_preventivo:'',iva_perc:22,acconto_perc:30,note:'' }) }
+  const chiudi = () => { setShowForm(false); setEditId(null); setVoci([]); setBase({ numero:'',data_preventivo:'',iva_perc:22,acconto_perc:30,note:'' }); setRicaricoGlobale(''); setModalita('costo') }
+
+  const applicaRicaricoGlobale = () => {
+    const ric = parseFloat(ricarico_globale) || 0
+    if (ric <= 0) { toast.error('Inserisci una percentuale valida'); return }
+    setVoci(vv => vv.map(v => {
+      const costo = v.costo_unitario || 0
+      const qt = v.qt || 1
+      const prezzoCliente = parseFloat((costo * (1 + ric / 100)).toFixed(2))
+      return { ...v, ricarico_perc: ric, prezzo_unitario: prezzoCliente, totale_costo: parseFloat((costo * qt).toFixed(2)), totale_cliente: parseFloat((prezzoCliente * qt).toFixed(2)) }
+    }))
+    toast.success(`Ricarico ${ric}% applicato a tutte le voci`)
+  }
 
   const apriModifica = (p) => {
     setEditId(p.id)
@@ -183,13 +197,26 @@ function ComputoSection({ cantiereId, canWrite }) {
   const aggiornaVoce = (id, k, val) => setVoci(vv => vv.map(v => {
     if (v.id !== id) return v
     const up = { ...v, [k]: val }
-    if (['costo_unitario','ricarico_perc','qt'].includes(k)) {
-      const costo = k==='costo_unitario' ? parseFloat(val)||0 : up.costo_unitario
-      const ric   = k==='ricarico_perc'  ? parseFloat(val)||0 : up.ricarico_perc
-      const qt    = k==='qt'             ? parseFloat(val)||1 : up.qt
-      up.prezzo_unitario = parseFloat((costo*(1+ric/100)).toFixed(2))
-      up.totale_costo    = parseFloat((costo*qt).toFixed(2))
-      up.totale_cliente  = parseFloat((up.prezzo_unitario*qt).toFixed(2))
+    if (modalita === 'cliente') {
+      // Modalità prezzi diretti: prezzo_cliente editabile, costo = prezzo_cliente (nessun ricarico)
+      if (['prezzo_unitario','qt'].includes(k)) {
+        const prezzoC = k==='prezzo_unitario' ? parseFloat(val)||0 : up.prezzo_unitario
+        const qt = k==='qt' ? parseFloat(val)||1 : up.qt
+        up.costo_unitario = prezzoC // non c'è distinzione costo/cliente
+        up.ricarico_perc = 0
+        up.totale_costo = parseFloat((prezzoC * qt).toFixed(2))
+        up.totale_cliente = parseFloat((prezzoC * qt).toFixed(2))
+      }
+    } else {
+      // Modalità costo + ricarico
+      if (['costo_unitario','ricarico_perc','qt'].includes(k)) {
+        const costo = k==='costo_unitario' ? parseFloat(val)||0 : up.costo_unitario
+        const ric   = k==='ricarico_perc'  ? parseFloat(val)||0 : up.ricarico_perc
+        const qt    = k==='qt'             ? parseFloat(val)||1 : up.qt
+        up.prezzo_unitario = parseFloat((costo*(1+ric/100)).toFixed(2))
+        up.totale_costo    = parseFloat((costo*qt).toFixed(2))
+        up.totale_cliente  = parseFloat((up.prezzo_unitario*qt).toFixed(2))
+      }
     }
     return up
   }))
@@ -331,10 +358,45 @@ function ComputoSection({ cantiereId, canWrite }) {
               <input type="number" className="input-field" value={base.acconto_perc} onChange={e => setB('acconto_perc',e.target.value)} /></div>
           </div>
 
+          {/* Modalità inserimento */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Modalità inserimento voci</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setModalita('costo')}
+                className={`py-2.5 px-3 rounded-xl text-xs font-medium border-2 transition-colors text-left ${modalita==='costo' ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                <p className="font-bold">💰 Costo + ricarico</p>
+                <p className="text-gray-400 font-normal mt-0.5">Inserisci i costi e applica il tuo margine</p>
+              </button>
+              <button onClick={() => setModalita('cliente')}
+                className={`py-2.5 px-3 rounded-xl text-xs font-medium border-2 transition-colors text-left ${modalita==='cliente' ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                <p className="font-bold">📋 Prezzi cliente diretti</p>
+                <p className="text-gray-400 font-normal mt-0.5">Inserisci i prezzi già concordati col cliente</p>
+              </button>
+            </div>
+
+            {/* Pannello ricarico globale — solo in modalità costo */}
+            {modalita === 'costo' && voci.length > 0 && (
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="text-xs font-semibold text-steelex-orange block mb-1">Ricarico globale %</label>
+                  <input type="number" min="0" max="999" step="1" placeholder="es. 35"
+                    className="input-field py-1.5 text-sm"
+                    value={ricarico_globale}
+                    onChange={e => setRicaricoGlobale(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && applicaRicaricoGlobale()} />
+                </div>
+                <button onClick={applicaRicaricoGlobale}
+                  className="btn-primary py-1.5 px-4 text-sm flex-shrink-0 whitespace-nowrap">
+                  Applica a tutte
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Voci */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Voci</p>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Voci ({voci.length})</p>
               <button onClick={aggiungiVoce} className="text-xs text-steelex-orange hover:underline flex items-center gap-1"><Plus size={12} /> Aggiungi voce</button>
             </div>
             {voci.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nessuna voce — clicca "+ Aggiungi voce"</p>}
@@ -347,15 +409,27 @@ function ComputoSection({ cantiereId, canWrite }) {
                   </select>
                   <button onClick={() => setVoci(vv => vv.filter(x=>x.id!==v.id))} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
                 </div>
-                <div className="grid grid-cols-4 gap-2 text-xs">
-                  <div><label className="text-gray-400 block mb-0.5">Qt</label><input type="number" className="input-field py-1 text-xs" value={v.qt} onChange={e=>aggiornaVoce(v.id,'qt',e.target.value)} /></div>
-                  <div><label className="text-gray-400 block mb-0.5">Costo €</label><input type="number" className="input-field py-1 text-xs" value={v.costo_unitario} onChange={e=>aggiornaVoce(v.id,'costo_unitario',e.target.value)} /></div>
-                  <div><label className="text-gray-400 block mb-0.5">Ricarico %</label><input type="number" className="input-field py-1 text-xs" value={v.ricarico_perc} onChange={e=>aggiornaVoce(v.id,'ricarico_perc',e.target.value)} /></div>
-                  <div><label className="text-gray-400 block mb-0.5">Prezzo cliente</label><p className="text-sm font-bold text-steelex-orange pt-1">{(v.prezzo_unitario||0).toFixed(2)}</p></div>
-                </div>
-                <div className="flex justify-end gap-4 text-xs text-gray-400">
-                  <span>Costo: {fmt(v.totale_costo)}</span>
-                  <span className="font-medium text-gray-700">Cliente: {fmt(v.totale_cliente)}</span>
+
+                {modalita === 'cliente' ? (
+                  /* Modalità prezzi diretti: Qt + Prezzo cliente */
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div><label className="text-gray-400 block mb-0.5">Qt</label><input type="number" className="input-field py-1 text-xs" value={v.qt} onChange={e=>aggiornaVoce(v.id,'qt',e.target.value)} /></div>
+                    <div><label className="text-gray-400 block mb-0.5">U.M.</label><input className="input-field py-1 text-xs" value={v.um||''} placeholder="cad" onChange={e=>aggiornaVoce(v.id,'um',e.target.value)} /></div>
+                    <div><label className="text-gray-400 block mb-0.5">Prezzo unitario €</label><input type="number" className="input-field py-1 text-xs" value={v.prezzo_unitario||0} onChange={e=>aggiornaVoce(v.id,'prezzo_unitario',e.target.value)} /></div>
+                  </div>
+                ) : (
+                  /* Modalità costo + ricarico */
+                  <div className="grid grid-cols-4 gap-2 text-xs">
+                    <div><label className="text-gray-400 block mb-0.5">Qt</label><input type="number" className="input-field py-1 text-xs" value={v.qt} onChange={e=>aggiornaVoce(v.id,'qt',e.target.value)} /></div>
+                    <div><label className="text-gray-400 block mb-0.5">Costo unit. €</label><input type="number" className="input-field py-1 text-xs" value={v.costo_unitario} onChange={e=>aggiornaVoce(v.id,'costo_unitario',e.target.value)} /></div>
+                    <div><label className="text-gray-400 block mb-0.5">Ricarico %</label><input type="number" className="input-field py-1 text-xs" value={v.ricarico_perc} onChange={e=>aggiornaVoce(v.id,'ricarico_perc',e.target.value)} /></div>
+                    <div><label className="text-gray-400 block mb-0.5">Prezzo cliente</label><p className="text-sm font-bold text-steelex-orange pt-1">{(v.prezzo_unitario||0).toFixed(2)}</p></div>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-xs text-gray-400">
+                  {modalita === 'costo' && <span>Costo tot: {fmt(v.totale_costo)}</span>}
+                  <span className="font-medium text-gray-700 ml-auto">Totale: {fmt(v.totale_cliente)}</span>
                 </div>
               </div>
             ))}
@@ -364,8 +438,10 @@ function ComputoSection({ cantiereId, canWrite }) {
           {/* Riepilogo */}
           {voci.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-3 space-y-1 text-sm border-t">
-              <div className="flex justify-between text-gray-500"><span>Costo totale (riservato)</span><span>{fmt(costoTot)}</span></div>
-              <div className="flex justify-between"><span>Margine</span><span className={margine>=0?'text-green-600 font-medium':'text-red-600'}>{fmt(margine)} ({costoTot>0?Math.round((margine/costoTot)*100):0}%)</span></div>
+              {modalita === 'costo' && <>
+                <div className="flex justify-between text-gray-500"><span>Costo totale (riservato)</span><span>{fmt(costoTot)}</span></div>
+                <div className="flex justify-between"><span>Margine</span><span className={margine>=0?'text-green-600 font-medium':'text-red-600'}>{fmt(margine)} ({costoTot>0?Math.round((margine/costoTot)*100):0}%)</span></div>
+              </>}
               <div className="flex justify-between border-t pt-1"><span>Subtotale cliente</span><span className="font-semibold">{fmt(subtotale)}</span></div>
               <div className="flex justify-between text-gray-500"><span>IVA {base.iva_perc}%</span><span>{fmt(subtotale*base.iva_perc/100)}</span></div>
               <div className="flex justify-between text-steelex-orange font-bold text-base"><span>TOTALE</span><span>{fmt(totale)}</span></div>
