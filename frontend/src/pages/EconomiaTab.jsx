@@ -246,7 +246,26 @@ function ComputoSection({ cantiereId, canWrite }) {
 
   const apriModifica = (p) => {
     setEditId(p.id)
-    setVoci(p.voci || [])
+    // Normalizza i campi — possono venire dal backend o da import Claude
+    const vociNorm = (p.voci || []).map((v, i) => {
+      const qt      = parseFloat(v.qt || v.quantita || 1)
+      const costo   = parseFloat(v.costo_unitario || v.prezzo_costo || 0)
+      const ric     = parseFloat(v.ricarico_perc || 0)
+      const prezzoC = parseFloat(v.prezzo_unitario || v.prezzo_cliente || costo * (1 + ric / 100) || 0)
+      return {
+        id: v.id || Date.now() + i,
+        descrizione:     v.descrizione    || '',
+        categoria:       v.categoria      || 'Materiali',
+        qt,
+        um:              v.um             || 'cad',
+        costo_unitario:  parseFloat(costo.toFixed(2)),
+        ricarico_perc:   parseFloat(ric.toFixed(2)),
+        prezzo_unitario: parseFloat(prezzoC.toFixed(2)),
+        totale_costo:    parseFloat((costo   * qt).toFixed(2)),
+        totale_cliente:  parseFloat((prezzoC * qt).toFixed(2)),
+      }
+    })
+    setVoci(vociNorm)
     setBase({ numero: p.numero||'', data_preventivo: p.data||'', iva_perc: p.iva_perc, acconto_perc: p.acconto_perc, note: p.note||'' })
     setShowForm(true)
   }
@@ -312,7 +331,27 @@ function ComputoSection({ cantiereId, canWrite }) {
   }
 
   const confermaImport = () => {
-    setVoci(vociImportate)
+    // Normalizza i campi delle voci importate da Claude
+    // (Claude usa quantita/prezzo_costo/prezzo_cliente, il form usa qt/costo_unitario/prezzo_unitario)
+    const normalizzate = (vociImportate || []).map((v, i) => {
+      const qt       = parseFloat(v.quantita || v.qt || 1)
+      const costo    = parseFloat(v.prezzo_costo || v.costo_unitario || 0)
+      const ric      = parseFloat(v.ricarico_perc || 0)
+      const prezzoC  = parseFloat(v.prezzo_cliente || v.prezzo_unitario || costo * (1 + ric / 100) || 0)
+      return {
+        id: Date.now() + i,
+        descrizione:     v.descrizione || '',
+        categoria:       v.categoria   || 'Materiali',
+        qt,
+        um:              v.um          || 'cad',
+        costo_unitario:  parseFloat(costo.toFixed(2)),
+        ricarico_perc:   parseFloat(ric.toFixed(2)),
+        prezzo_unitario: parseFloat(prezzoC.toFixed(2)),
+        totale_costo:    parseFloat((costo  * qt).toFixed(2)),
+        totale_cliente:  parseFloat((prezzoC * qt).toFixed(2)),
+      }
+    })
+    setVoci(normalizzate)
     setVociImportate(null)
     setShowForm(true)
     toast.success('Voci importate nel computo!')
@@ -512,7 +551,26 @@ function ComputoSection({ cantiereId, canWrite }) {
           <textarea className="input-field h-12 resize-none text-sm" placeholder="Note..." value={base.note} onChange={e => setB('note',e.target.value)} />
           <div className="flex gap-2">
             <button onClick={chiudi} className="btn-secondary flex-1">Annulla</button>
-            <button onClick={() => saveMutation.mutate({ ...base, voci, iva_perc:parseFloat(base.iva_perc)||22, acconto_perc:parseFloat(base.acconto_perc)||30 })}
+            <button onClick={() => {
+                const payload = {
+                  ...base,
+                  data_preventivo: base.data_preventivo || null,  // stringa vuota → null
+                  iva_perc: parseFloat(base.iva_perc) || 22,
+                  acconto_perc: parseFloat(base.acconto_perc) || 30,
+                  voci: voci.map(v => ({
+                    descrizione:    v.descrizione,
+                    categoria:      v.categoria,
+                    um:             v.um || 'cad',
+                    quantita:       parseFloat(v.qt) || 1,
+                    prezzo_costo:   parseFloat(v.costo_unitario) || 0,
+                    ricarico_perc:  parseFloat(v.ricarico_perc) || 0,
+                    prezzo_cliente: parseFloat(v.prezzo_unitario) || 0,
+                    totale_costo:   parseFloat(v.totale_costo) || 0,
+                    totale_cliente: parseFloat(v.totale_cliente) || 0,
+                  })),
+                }
+                saveMutation.mutate(payload)
+              }}
               disabled={voci.length===0||saveMutation.isLoading} className="btn-primary flex-1">
               {saveMutation.isLoading ? 'Salvataggio...' : editId ? 'Aggiorna' : 'Crea Computo'}
             </button>
