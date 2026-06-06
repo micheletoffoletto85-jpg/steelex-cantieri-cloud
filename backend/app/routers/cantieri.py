@@ -15,14 +15,8 @@ def _check_accesso(cantiere: Cantiere, user: Utente):
         return
     if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
         return
-    # artigiano: accesso solo se assegnato al cantiere
-    if user.ruolo == RuoloUtente.artigiano:
-        ids = [u.id for u in cantiere.artigiani]
-        if user.id in ids:
-            return
-        raise HTTPException(status_code=403, detail="Accesso negato")
-    # fornitore e cliente: sola lettura su tutti i cantieri
-    if user.ruolo in (RuoloUtente.fornitore, RuoloUtente.cliente):
+    # tutti gli altri (artigiano, fornitore, cliente): solo se assegnati
+    if user.id in [u.id for u in cantiere.artigiani]:
         return
     raise HTTPException(status_code=403, detail="Accesso negato")
 
@@ -33,12 +27,13 @@ def lista_cantieri(
     user: Utente = Depends(get_current_user),
 ):
     q = db.query(Cantiere)
-    if user.ruolo == RuoloUtente.capo_cantiere:
+    if user.ruolo == RuoloUtente.admin:
+        pass  # vede tutto
+    elif user.ruolo == RuoloUtente.capo_cantiere:
         q = q.filter(Cantiere.responsabile_id == user.id)
-    elif user.ruolo == RuoloUtente.artigiano:
-        # artigiano vede solo cantieri a cui è assegnato
+    else:
+        # artigiano, fornitore, cliente: solo cantieri a cui sono assegnati
         q = q.filter(Cantiere.artigiani.any(Utente.id == user.id))
-    # fornitore e cliente vedono tutti i cantieri in sola lettura
     if stato:
         q = q.filter(Cantiere.stato == stato)
     return q.order_by(Cantiere.creato_il.desc()).all()
