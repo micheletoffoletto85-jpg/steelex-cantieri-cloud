@@ -40,7 +40,7 @@ class Cantiere(Base):
     aggiornato_il = Column(DateTime(timezone=True), onupdate=func.now())
 
     responsabile = relationship("Utente", back_populates="cantieri", foreign_keys=[responsabile_id])
-    artigiani = relationship("Utente", secondary="cantiere_artigiani", backref="cantieri_assegnati")
+    artigiani = relationship("Utente", secondary=cantiere_artigiani, backref="cantieri_assegnati")
     diari = relationship("DiarioGiornaliero", back_populates="cantiere", cascade="all, delete-orphan")
     documenti = relationship("Documento", back_populates="cantiere", cascade="all, delete-orphan")
     checklist = relationship("ChecklistItem", back_populates="cantiere", cascade="all, delete-orphan")

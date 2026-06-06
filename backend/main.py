@@ -20,6 +20,12 @@ def _migra():
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS testo_originale TEXT",
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS lingua_originale VARCHAR(10)",
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS voci_estratte JSONB DEFAULT '[]'",
+        # Tabella assegnazione artigiani ai cantieri
+        """CREATE TABLE IF NOT EXISTS cantiere_artigiani (
+            cantiere_id INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
+            utente_id   INTEGER NOT NULL REFERENCES utenti(id)   ON DELETE CASCADE,
+            PRIMARY KEY (cantiere_id, utente_id)
+        )""",
     ]
     with engine.connect() as conn:
         for sql in migrazioni:
