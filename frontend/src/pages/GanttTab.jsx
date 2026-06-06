@@ -32,7 +32,8 @@ export default function GanttTab({ cantiereId }) {
   const canWrite = ['admin','capo_cantiere'].includes(utente?.ruolo)
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
-  const [vista, setVista] = useState('gantt') // gantt | lista
+  const [vista, setVista] = useState(() => window.innerWidth < 640 ? 'lista' : 'gantt')
+  const [tooltipFase, setTooltipFase] = useState(null) // fase selezionata nel Gantt
   const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#FF6B00', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'' })
   const setF = (k,v) => setForm(f => ({...f, [k]:v}))
   const [importando, setImportando] = useState(false)
@@ -258,7 +259,19 @@ export default function GanttTab({ cantiereId }) {
           <p className="text-xs mt-1">Aggiungi le fasi di lavoro per costruire il cronoprogramma</p>
         </div>
       ) : vista === 'gantt' ? (
-        <GanttChart fasi={fasi} salList={salList} canWrite={canWrite} onEdit={apriModifica} onDelete={id => confirm('Eliminare fase?') && deleteMutation.mutate(id)} onUpdate={(id, data) => updateMutation.mutate({id, data})} />
+        <>
+          {window.innerWidth < 640 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 text-xs text-blue-700 flex items-center justify-between">
+              <span>💡 Vista Lista più comoda su smartphone</span>
+              <button onClick={() => setVista('lista')} className="font-semibold underline">Passa alla lista</button>
+            </div>
+          )}
+          <GanttChart fasi={fasi} salList={salList} canWrite={canWrite}
+            onEdit={apriModifica}
+            onDelete={id => confirm('Eliminare fase?') && deleteMutation.mutate(id)}
+            onUpdate={(id, data) => updateMutation.mutate({id, data})}
+            tooltipFase={tooltipFase} setTooltipFase={setTooltipFase} />
+        </>
       ) : (
         <ListaFasi fasi={fasi} salList={salList} canWrite={canWrite} onEdit={apriModifica} onDelete={id => confirm('Eliminare fase?') && deleteMutation.mutate(id)} onUpdate={(id, data) => updateMutation.mutate({id, data})} />
       )}
@@ -267,7 +280,7 @@ export default function GanttTab({ cantiereId }) {
 }
 
 /* ─── DIAGRAMMA DI GANTT ─── */
-function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
+function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, tooltipFase, setTooltipFase }) {
   const oggi = dayjs()
 
   // Calcola range date totale
@@ -298,19 +311,38 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
   // Raggruppa fasi per SAL
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
 
+  const LABEL_W = 180 // px colonna sinistra
+
   return (
     <div className="card overflow-hidden p-0">
+      {/* Tooltip nome completo al tap (mobile) */}
+      {tooltipFase && (
+        <div className="mx-3 mt-3 mb-0 bg-steelex-dark text-white rounded-xl p-3 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-3 h-3 rounded-sm flex-shrink-0 mt-0.5" style={{ background: tooltipFase.colore || '#ccc' }} />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm leading-tight">{tooltipFase.nome}</p>
+              <p className="text-xs text-gray-300 mt-0.5">{tooltipFase.categoria} · {fmtDFull(tooltipFase.data_inizio)} → {fmtDFull(tooltipFase.data_fine_prevista)}</p>
+              {tooltipFase.note && <p className="text-xs text-gray-400 mt-0.5 italic">{tooltipFase.note}</p>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {canWrite && <button onClick={() => { onEdit(tooltipFase); setTooltipFase(null) }} className="text-xs bg-steelex-orange px-2 py-1 rounded-lg font-medium">Modifica</button>}
+            <button onClick={() => setTooltipFase(null)} className="text-gray-400 hover:text-white"><X size={16} /></button>
+          </div>
+        </div>
+      )}
       <div className="overflow-x-auto">
-        <div style={{ minWidth: 600 }}>
+        <div style={{ minWidth: 500 }}>
           {/* Header: asse X (mesi) */}
-          <div className="relative bg-gray-50 border-b border-gray-200 h-8 flex items-end pb-1 px-[160px]">
+          <div className="relative bg-gray-50 border-b border-gray-200 h-8 flex items-end pb-1" style={{ paddingLeft: LABEL_W }}>
             {mesiLabels.map((m, i) => (
-              <div key={i} className="absolute text-xs text-gray-400 font-medium" style={{ left: `calc(160px + ${m.pct}%)` }}>
+              <div key={i} className="absolute text-xs text-gray-400 font-medium" style={{ left: `calc(${LABEL_W}px + ${m.pct}%)` }}>
                 {m.label}
               </div>
             ))}
             {/* Linea oggi */}
-            <div className="absolute top-0 bottom-0 w-px bg-steelex-orange" style={{ left: `calc(160px + ${todayPct}%)` }}>
+            <div className="absolute top-0 bottom-0 w-px bg-steelex-orange" style={{ left: `calc(${LABEL_W}px + ${todayPct}%)` }}>
               <div className="absolute -top-0 left-1 text-xs text-steelex-orange font-bold whitespace-nowrap">oggi</div>
             </div>
           </div>
@@ -322,15 +354,23 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
             const width = startPct !== null && endPct !== null ? Math.max(endPct - startPct, 1) : null
             const statoInfo = STATO_FASE[f.stato] || STATO_FASE.pianificata
             const sal = f.sal_id ? salMap[f.sal_id] : null
+            const isSelected = tooltipFase?.id === f.id
 
             return (
-              <div key={f.id} className="relative flex items-center border-b border-gray-100 hover:bg-gray-50 group" style={{ height: 44 }}>
-                {/* Label sinistra */}
-                <div className="w-40 flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden">
+              <div key={f.id}
+                className={`relative flex items-center border-b border-gray-100 group cursor-pointer transition-colors ${isSelected ? 'bg-orange-50' : 'hover:bg-gray-50'}`}
+                style={{ height: 48 }}
+                onClick={() => setTooltipFase(isSelected ? null : f)}>
+                {/* Label sinistra — tap per tooltip */}
+                <div style={{ width: LABEL_W }} className="flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden">
                   <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: f.colore || '#ccc' }} />
-                  <span className="text-xs font-medium text-gray-800 truncate">{f.nome}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-800 leading-tight" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {f.nome}
+                    </p>
+                  </div>
                   {canWrite && (
-                    <button onClick={() => onEdit(f)} className="hidden group-hover:block ml-auto text-gray-400 hover:text-steelex-orange flex-shrink-0">
+                    <button onClick={e => { e.stopPropagation(); onEdit(f) }} className="hidden group-hover:block ml-auto text-gray-400 hover:text-steelex-orange flex-shrink-0">
                       <Edit2 size={11} />
                     </button>
                   )}
@@ -347,15 +387,13 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
 
                   {/* Barra fase */}
                   {width !== null && startPct !== null && (
-                    <div className="absolute top-2 h-7 rounded-md flex items-center overflow-hidden cursor-pointer group/bar"
-                      style={{ left: `${startPct}%`, width: `${width}%`, background: f.colore || '#ccc', opacity: f.stato === 'sospesa' ? 0.5 : 1 }}
-                      onClick={() => canWrite && onEdit(f)}
-                      title={`${f.nome}\n${fmtDFull(f.data_inizio)} → ${fmtDFull(f.data_fine_prevista)}\n${f.percentuale}%`}>
+                    <div className="absolute top-2 h-8 rounded-md flex items-center overflow-hidden"
+                      style={{ left: `${startPct}%`, width: `${width}%`, background: f.colore || '#ccc', opacity: f.stato === 'sospesa' ? 0.5 : 1 }}>
                       {/* Barra avanzamento */}
                       <div className="h-full bg-black/20" style={{ width: `${f.percentuale}%` }} />
-                      {/* Testo */}
-                      <span className="absolute inset-0 flex items-center px-2 text-white text-xs font-medium truncate drop-shadow">
-                        {width > 8 ? `${f.percentuale}%` : ''}
+                      {/* Testo % */}
+                      <span className="absolute inset-0 flex items-center px-2 text-white text-xs font-bold drop-shadow">
+                        {width > 6 ? `${f.percentuale}%` : ''}
                       </span>
                     </div>
                   )}
