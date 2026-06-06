@@ -80,7 +80,9 @@ export default function CantierePage() {
 
       {/* Tab bar — scroll orizzontale su mobile */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {[['info','Info',null],['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],['economia','Economia',Euro]].map(([key,label,Icon]) => (
+        {[['info','Info',null],['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],
+          ...(['admin','capo_cantiere'].includes(utente?.ruolo) ? [['economia','Economia',Euro]] : [])
+        ].map(([key,label,Icon]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             {Icon && <Icon size={12} />}{label}
