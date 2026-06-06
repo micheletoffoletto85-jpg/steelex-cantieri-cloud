@@ -5,6 +5,7 @@ from app.routers.notifiche import invia_notifica
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from typing import List, Optional, Any
 from app.database import get_db
 from app.models.documento import Documento
@@ -66,7 +67,9 @@ def _get_pin(doc: Documento, pin_id: int) -> Optional[dict]:
     return next((p for p in (doc.pin_dati or []) if p.get("id") == pin_id), None)
 
 def _salva_pin_dati(doc: Documento, pins: list, db: Session):
-    doc.pin_dati = pins
+    # flag_modified obbliga SQLAlchemy a rilevare la modifica nel JSON
+    doc.pin_dati = list(pins)
+    flag_modified(doc, "pin_dati")
     db.commit()
     db.refresh(doc)
 
