@@ -4,7 +4,7 @@
  */
 import { useState, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, Users } from 'lucide-react'
+import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -63,7 +63,8 @@ export default function GanttTab({ cantiereId }) {
         qc.invalidateQueries(['fasi', cantiereId])
         qc.invalidateQueries(['aggiornamenti-cliente', cantiereId])
         chiudiForm()
-        if (variables.data?.visibile_cliente) toast.success('✓ Fase condivisa con il cliente')
+        if (variables.data?.visibile_cliente === true) toast.success('👁 Fase condivisa con il cliente')
+        else if (variables.data?.visibile_cliente === false && Object.keys(variables.data).length === 1) toast.success('Fase nascosta al cliente')
         else toast.success('Aggiornato')
       },
       onError: e => toast.error(e.response?.data?.detail || 'Errore') }
@@ -319,7 +320,8 @@ export default function GanttTab({ cantiereId }) {
         <ListaFasi fasi={fasi} salList={salList} canWrite={canWrite} onEdit={apriModifica}
           onDelete={id => richiediElimina(id)}
           onDeleteMultiple={(ids) => richiediElimina(ids, `Eliminare ${ids.length} fasi selezionate?`)}
-          onUpdate={(id, data) => updateMutation.mutate({id, data})} />
+          onUpdate={(id, data) => updateMutation.mutate({id, data})}
+          onToggleCliente={(id, val) => updateMutation.mutate({ id, data: { visibile_cliente: val } })} />
       )}
     </div>
   )
@@ -494,7 +496,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, toolt
 
 
 /* ─── VISTA LISTA — card singola con swipe-to-delete ─── */
-function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, selezionato, modalitaSelect }) {
+function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, selezionato, modalitaSelect, onToggleCliente }) {
   const oggi = dayjs()
   const statoInfo = STATO_FASE[f.stato] || STATO_FASE.pianificata
   const ritardo = f.data_fine_prevista && dayjs(f.data_fine_prevista).isBefore(oggi) && f.percentuale < 100
@@ -540,10 +542,14 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
                 <p className="font-semibold text-gray-900 truncate">{f.nome}</p>
-                {f.visibile_cliente && (
-                  <span title="Visibile al cliente" className="flex-shrink-0">
-                    <Eye size={12} className="text-blue-500" />
-                  </span>
+                {canWrite && (
+                  <button
+                    onClick={e => { e.stopPropagation(); onToggleCliente(f.id, !f.visibile_cliente) }}
+                    title={f.visibile_cliente ? 'Visibile al cliente — clicca per nascondere' : 'Nascosto al cliente — clicca per condividere'}
+                    className={`flex-shrink-0 p-0.5 rounded transition-colors ${f.visibile_cliente ? 'text-blue-500 hover:text-blue-700' : 'text-gray-300 hover:text-blue-400'}`}
+                  >
+                    {f.visibile_cliente ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
                 )}
               </div>
               <p className="text-xs text-gray-400">{f.categoria} {sal ? `• SAL #${sal.numero}` : ''}</p>
@@ -601,7 +607,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
 }
 
 /* ─── VISTA LISTA ─── */
-function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onDeleteMultiple, onUpdate }) {
+function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onDeleteMultiple, onUpdate, onToggleCliente }) {
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
   const [modalitaSelect, setModalitaSelect] = useState(false)
   const [selezionati, setSelezionati] = useState(new Set())
@@ -664,6 +670,7 @@ function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onDeleteMultiple
           onEdit={onEdit}
           onDelete={onDelete}
           onUpdate={onUpdate}
+          onToggleCliente={onToggleCliente}
           onSelect={toggleSelect}
           selezionato={selezionati.has(f.id)}
           modalitaSelect={modalitaSelect}
