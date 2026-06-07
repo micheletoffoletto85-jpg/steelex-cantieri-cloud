@@ -7,16 +7,18 @@ export default function SplashScreen({ onDone, utente }) {
   // Durata un po' più lunga per i clienti (più d'impatto)
   useEffect(() => {
     if (isCliente) {
-      const t1 = setTimeout(() => setFase(1), 300)
-      const t2 = setTimeout(() => setFase(2), 1200)
-      const t3 = setTimeout(() => setFase(3), 2000)
-      const t4 = setTimeout(() => onDone(), 3200)
+      // fase 0→logo, 1→nome+linea, 2→partnership, 3→fade out
+      const t1 = setTimeout(() => setFase(1), 400)   // logo appare subito
+      const t2 = setTimeout(() => setFase(2), 1400)  // partnership entra
+      const t3 = setTimeout(() => setFase(3), 3800)  // pausa lunga — leggi tutto
+      const t4 = setTimeout(() => onDone(), 4600)    // fade out + entra
       return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4) }
     } else {
-      const t1 = setTimeout(() => setFase(1), 400)
-      const t2 = setTimeout(() => setFase(2), 1800)
-      const t3 = setTimeout(() => onDone(), 2600)
-      return () => { clearTimeout(t1); clearTimeout(t2) ; clearTimeout(t3) }
+      // fase 0→logo, 1→testo+partnership, 2→fade out
+      const t1 = setTimeout(() => setFase(1), 400)   // testo + partnership entrano
+      const t2 = setTimeout(() => setFase(2), 3500)  // pausa — leggi tutto
+      const t3 = setTimeout(() => onDone(), 4300)    // fade out + entra
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
     }
   }, [onDone, isCliente])
 
