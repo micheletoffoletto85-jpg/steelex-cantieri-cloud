@@ -305,8 +305,11 @@ function ComputoSection({ cantiereId, canWrite }) {
     return up
   }))
 
-  const subtotale = voci.reduce((s,v) => s+(v.totale_cliente||0), 0)
-  const costoTot  = voci.reduce((s,v) => s+(v.totale_costo||0), 0)
+  // Calcolo difensivo: se totale_cliente è 0 o mancante, lo deriva da prezzo*qt
+  const _totCli = v => parseFloat(v.totale_cliente) || parseFloat(((parseFloat(v.prezzo_unitario)||0) * (parseFloat(v.qt)||1)).toFixed(2))
+  const _totCos = v => parseFloat(v.totale_costo)   || parseFloat(((parseFloat(v.costo_unitario) ||0) * (parseFloat(v.qt)||1)).toFixed(2))
+  const subtotale = voci.reduce((s,v) => s + _totCli(v), 0)
+  const costoTot  = voci.reduce((s,v) => s + _totCos(v), 0)
   const ivaPerc   = base.iva_perc === '' ? 22 : (parseFloat(base.iva_perc) ?? 22)
   const totale    = subtotale * (1 + ivaPerc/100)
   const acconto   = totale * (parseFloat(base.acconto_perc)||30)/100
@@ -894,17 +897,24 @@ function ComputoSection({ cantiereId, canWrite }) {
                   data_preventivo: base.data_preventivo || null,  // stringa vuota → null
                   iva_perc: base.iva_perc === '' ? 22 : (parseFloat(base.iva_perc) ?? 22),
                   acconto_perc: parseFloat(base.acconto_perc) || 30,
-                  voci: voci.map(v => ({
-                    descrizione:    v.descrizione,
-                    categoria:      v.categoria,
-                    um:             v.um || 'cad',
-                    quantita:       parseFloat(v.qt) || 1,
-                    prezzo_costo:   parseFloat(v.costo_unitario) || 0,
-                    ricarico_perc:  parseFloat(v.ricarico_perc) || 0,
-                    prezzo_cliente: parseFloat(v.prezzo_unitario) || 0,
-                    totale_costo:   parseFloat(v.totale_costo) || 0,
-                    totale_cliente: parseFloat(v.totale_cliente) || 0,
-                  })),
+                  voci: voci.map(v => {
+                    const qt  = parseFloat(v.qt) || 1
+                    const cos = parseFloat(v.costo_unitario)  || 0
+                    const cli = parseFloat(v.prezzo_unitario) || 0
+                    const totCos = parseFloat(v.totale_costo)   || parseFloat((cos * qt).toFixed(2))
+                    const totCli = parseFloat(v.totale_cliente) || parseFloat((cli * qt).toFixed(2))
+                    return {
+                      descrizione:    v.descrizione,
+                      categoria:      v.categoria,
+                      um:             v.um || 'cad',
+                      quantita:       qt,
+                      prezzo_costo:   cos,
+                      ricarico_perc:  parseFloat(v.ricarico_perc) || 0,
+                      prezzo_cliente: cli,
+                      totale_costo:   totCos,
+                      totale_cliente: totCli,
+                    }
+                  }),
                 }
                 saveMutation.mutate(payload)
               }}

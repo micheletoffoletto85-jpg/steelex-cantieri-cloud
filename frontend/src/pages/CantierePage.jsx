@@ -91,7 +91,7 @@ export default function CantierePage() {
         ))}
       </div>
 
-      {tab === 'info'     && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} />}
+      {tab === 'info'     && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
       {tab === 'team'     && <TeamTab cantiereId={id} utente={utente} />}
       {tab === 'gantt'    && <GanttTab cantiereId={id} />}
       {tab === 'checklist'&& <ChecklistTab cantiereId={id} />}
@@ -104,12 +104,13 @@ export default function CantierePage() {
 }
 
 /* ─── TAB INFO ─── */
-function InfoTab({ cantiere, editing, form, set }) {
+function InfoTab({ cantiere, editing, form, set, utente }) {
   const data = editing ? form : cantiere
+  const isStaff = ['admin', 'capo_cantiere'].includes(utente?.ruolo)
   const { data: economia } = useQuery(
     ['economia', cantiere.id],
     () => api.get(`/cantieri/${cantiere.id}/economia`).then(r => r.data),
-    { staleTime: 30000 }
+    { staleTime: 30000, enabled: isStaff }
   )
 
   const fmt = v => `€ ${(v || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -143,8 +144,8 @@ function InfoTab({ cantiere, editing, form, set }) {
         <InfoField icon={<Calendar size={14} />} label="Fine Prevista" type="date" value={data.data_fine_prevista || ''} editing={editing} onChange={v => set('data_fine_prevista', v)} />
       </div>
 
-      {/* Riepilogo economico (solo lettura, dati live da economia) */}
-      {!editing && (
+      {/* Riepilogo economico — solo admin e capo cantiere */}
+      {!editing && isStaff && (
         <div className="border-t border-gray-100 pt-3 space-y-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Economia</p>
           <div className="grid grid-cols-3 gap-2">
