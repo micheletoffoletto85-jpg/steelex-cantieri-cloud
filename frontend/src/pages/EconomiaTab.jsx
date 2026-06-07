@@ -343,8 +343,16 @@ function ComputoSection({ cantiereId, canWrite }) {
   }
 
   const parseNum = s => {
-    if (s == null) return null
-    const n = parseFloat(String(s).replace(/[^\d.,-]/g,'').replace(',','.'))
+    if (s == null || s === '') return null
+    let t = String(s).replace(/[^\d.,-]/g, '').trim() // rimuovi €, spazi, ecc.
+    if (!t) return null
+    // Formato italiano: 1.234,56 → punto=migliaia, virgola=decimale
+    if (/\d+\.\d{3},\d{1,2}$/.test(t)) t = t.replace(/\./g, '').replace(',', '.')
+    // Formato con solo virgola decimale: 1234,56
+    else if (/,\d{1,2}$/.test(t) && !t.includes('.')) t = t.replace(',', '.')
+    // Rimuovi eventuali punti migliaia residui (es. 1.234.567)
+    else if ((t.match(/\./g)||[]).length > 1) t = t.replace(/\./g, '')
+    const n = parseFloat(t)
     return isNaN(n) ? null : n
   }
 

@@ -45,7 +45,7 @@ export default function CantierePage() {
   // Vista cliente — completamente separata, senza dati economici/interni
   if (isCliente) {
     return (
-      <div className="max-w-2xl mx-auto space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/cantieri')} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft size={20} /></button>
           <h1 className="text-xl font-bold truncate">{cantiere.nome}</h1>
@@ -59,7 +59,7 @@ export default function CantierePage() {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/cantieri')} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft size={20} /></button>
