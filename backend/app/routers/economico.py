@@ -39,6 +39,9 @@ def _check(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
         return c
     if user.ruolo == RuoloUtente.fornitore:
         return c
+    # cliente (e artigiano): accesso solo se assegnato al cantiere
+    if user.id in [u.id for u in c.artigiani]:
+        return c
     raise HTTPException(403, "Accesso negato")
 
 def _solo_staff(user: Utente):
