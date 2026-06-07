@@ -1036,6 +1036,8 @@ function DiarioTab({ cantiereId }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0 })
   const [uploadingFor, setUploadingFor] = useState(null)
+  const [editId, setEditId] = useState(null)       // id nota in modifica
+  const [editTesto, setEditTesto] = useState('')    // testo in modifica
   // Stato registrazione vocale
   const [recStato, setRecStato] = useState('idle') // idle | recording | processing
   const [recSecondi, setRecSecondi] = useState(0)
@@ -1048,6 +1050,16 @@ function DiarioTab({ cantiereId }) {
   const createMutation = useMutation(
     () => api.post(`/cantieri/${cantiereId}/diari`, { ...form, cantiere_id: Number(cantiereId), operai_presenti: Number(form.operai_presenti) }),
     { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); setShowForm(false); toast.success('Diario salvato!') } }
+  )
+
+  const updateMutation = useMutation(
+    ({ id, attivita }) => api.put(`/cantieri/${cantiereId}/diari/${id}`, { attivita }),
+    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); setEditId(null); toast.success('Nota aggiornata!') } }
+  )
+
+  const deleteMutation = useMutation(
+    id => api.delete(`/cantieri/${cantiereId}/diari/${id}`),
+    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Nota eliminata') } }
   )
 
   const uploadFoto = async (diarioId, file) => {
@@ -1197,13 +1209,34 @@ function DiarioTab({ cantiereId }) {
                 </div>
                 {d.autore_nome && <p className="text-xs text-gray-400">{d.autore_nome}</p>}
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500 flex-shrink-0">
-                {d.meteo && <span>{d.meteo}</span>}
-                {d.operai_presenti > 0 && <span>👷 {d.operai_presenti}</span>}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {d.meteo && <span className="text-sm text-gray-500">{d.meteo}</span>}
+                {d.operai_presenti > 0 && <span className="text-sm text-gray-500">👷 {d.operai_presenti}</span>}
+                <button onClick={() => { setEditId(d.id); setEditTesto(d.attivita || '') }}
+                  className="p-1 text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica">
+                  <Edit2 size={14} />
+                </button>
+                <button onClick={() => { if (window.confirm('Eliminare questa nota?')) deleteMutation.mutate(d.id) }}
+                  className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Elimina">
+                  <Trash2 size={14} />
+                </button>
               </div>
             </div>
 
-            {d.attivita && <p className="text-sm text-gray-700 leading-relaxed">{d.attivita}</p>}
+            {editId === d.id ? (
+              <div className="space-y-2">
+                <textarea className="input-field h-28 resize-none text-sm w-full" value={editTesto} onChange={e => setEditTesto(e.target.value)} autoFocus />
+                <div className="flex gap-2">
+                  <button onClick={() => setEditId(null)} className="btn-secondary flex-1 text-sm">Annulla</button>
+                  <button onClick={() => updateMutation.mutate({ id: d.id, attivita: editTesto })}
+                    disabled={updateMutation.isLoading} className="btn-primary flex-1 text-sm">
+                    {updateMutation.isLoading ? 'Salvo...' : 'Salva'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              d.attivita && <p className="text-sm text-gray-700 leading-relaxed">{d.attivita}</p>
+            )}
 
             {/* Voci contabilizzabili estratte dalla voce */}
             {d.voci_estratte?.length > 0 && (

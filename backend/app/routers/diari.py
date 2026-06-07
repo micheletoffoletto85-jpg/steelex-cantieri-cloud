@@ -57,6 +57,17 @@ def aggiorna_diario(cantiere_id: int, diario_id: int, data: DiarioUpdate, db: Se
     return _diario_out(diario)
 
 
+@router.delete("/{diario_id}", status_code=204)
+def elimina_diario(cantiere_id: int, diario_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id, DiarioGiornaliero.cantiere_id == cantiere_id).first()
+    if not diario:
+        raise HTTPException(status_code=404, detail="Diario non trovato")
+    if user.ruolo not in ("admin", "capo_cantiere") and diario.autore_id != user.id:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    db.delete(diario)
+    db.commit()
+
+
 @router.post("/{diario_id}/foto", response_model=DiarioOut)
 async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id).first()
