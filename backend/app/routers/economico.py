@@ -616,31 +616,34 @@ async def import_computo_ai(
                 import anthropic
                 claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
                 lista_desc = "\n".join(f"{i+1}. {d}" for i,d in enumerate(desc_per_categoria))
-                prompt_analisi = f"""Analizza queste voci di un computo metrico edile e per ciascuna restituisci:
-1. La categoria edile
-2. Se la riga è "sospetta" (da escludere di default dall'import)
+                prompt_analisi = f"""Sei un esperto di computi metrici edili.
+Analizza le seguenti voci estratte da un Excel e per CIASCUNA restituisci categoria e se è sospetta.
 
-Categorie disponibili: Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro
+Categorie: Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro
 
-Una riga è SOSPETTA se sembra:
-- Un subtotale o totale parziale di capitolo
-- Un'intestazione di sezione senza essere una vera voce di lavoro
-- Una voce alternativa/opzionale (contiene parole come "alternativa", "oppure", "in alternativa", "opzione", "variante")
-- Un doppione evidente di una voce precedente (stessa lavorazione, quantità diverse)
-- Una nota o descrizione generica senza valore commerciale
+Una riga è SOSPETTA (sospetta:true) se:
+- È un subtotale/totale parziale di capitolo (es. "Totale struttura", "Sommano €", "Subtotale")
+- È un'intestazione di capitolo/sezione (es. "A - OPERE STRUTTURALI", "CAP. 1")
+- Contiene parole come: alternativa, oppure, variante, opzione, in sostituzione
+- È un doppione della voce precedente con descrizione quasi identica
+- È una nota generica senza prezzo reale
 
-Voci:
-{lista_desc[:6000]}
+Voci (una per riga, formato: numero. descrizione):
+{lista_desc[:8000]}
 
-Rispondi SOLO con un JSON array di oggetti, uno per voce, nello stesso ordine.
-Esempio: [{{"cat":"Ponteggi","sospetta":false}},{{"cat":"Materiali","sospetta":true}}]
-Risposta:"""
+Rispondi ESCLUSIVAMENTE con un array JSON valido, senza markdown, senza testo aggiuntivo.
+Formato esatto: [{{"cat":"Struttura","sospetta":false}},{{"cat":"Materiali","sospetta":true}}]
+L'array deve avere ESATTAMENTE {len(desc_per_categoria)} elementi nello stesso ordine delle voci."""
                 try:
                     msg = claude.messages.create(
-                        model="claude-haiku-4-5", max_tokens=3000,
+                        model="claude-haiku-4-5", max_tokens=4000,
                         messages=[{"role":"user","content":prompt_analisi}]
                     )
                     raw = msg.content[0].text.strip()
+                    # Rimuovi eventuali blocchi markdown ```json ... ```
+                    raw = _re.sub(r'^```[a-z]*\s*', '', raw, flags=_re.MULTILINE)
+                    raw = _re.sub(r'```\s*$', '', raw, flags=_re.MULTILINE).strip()
+                    # Estrai array JSON (anche se Claude aggiunge testo prima/dopo)
                     m = _re.search(r'\[.*\]', raw, _re.DOTALL)
                     if m:
                         analisi = _json.loads(m.group())
@@ -649,8 +652,10 @@ Risposta:"""
                                 if isinstance(a.get("cat"), str):
                                     voci[i]["categoria"] = a["cat"]
                                 voci[i]["sospetta"] = bool(a.get("sospetta", False))
+                    else:
+                        print(f"[import-computo] Claude non ha restituito JSON valido: {raw[:200]}")
                 except Exception as _e_claude:
-                    print(f"[import-computo] Claude error: {_e_claude}")  # visibile nei log Railway
+                    print(f"[import-computo] Claude error: {_e_claude}")
 
         elif ext == ".csv":
             import csv, io as _io
@@ -681,53 +686,72 @@ Risposta:"""
                 })
 
         elif ext == ".pdf":
-            # Estrai testo con PyMuPDF, poi Claude interpreta tutto
-            import fitz as _fitz
-            doc_pdf = _fitz.open(stream=contenuto, filetype="pdf")
-            testo_pdf = "\n".join(page.get_text() for page in doc_pdf)
-            doc_pdf.close()
-
-            if not testo_pdf.strip():
-                raise HTTPException(400, "Il PDF non contiene testo estraibile (potrebbe essere una scansione).")
-
+            # PDF: renderizza pagine come immagini → Claude Vision legge le tabelle
             if not settings.ANTHROPIC_API_KEY:
                 raise HTTPException(503, "Anthropic API key non configurata")
 
-            import anthropic as _ant, json as _json2
+            import fitz as _fitz, base64 as _b64, anthropic as _ant, json as _json2
+
+            doc_pdf = _fitz.open(stream=contenuto, filetype="pdf")
+
+            # Prova prima estrazione testo; se c'è abbastanza testo usa testo, altrimenti vision
+            testo_pagine = [p.get_text() for p in doc_pdf]
+            testo_totale = "\n".join(testo_pagine)
+            usa_vision = len(testo_totale.strip()) < 500  # meno di 500 char = PDF grafico
+
             claude_pdf = _ant.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-            prompt_pdf = f"""Hai ricevuto il testo di un preventivo/computo metrico edile (estratto da PDF).
-Il tuo compito è estrarre tutte le voci di lavoro/fornitura presenti nel documento.
+
+            PROMPT_VOCI = """Sei un esperto di computi metrici edili. Analizza questo documento e estrai TUTTE le voci di lavoro/fornitura.
 
 Per ogni voce restituisci:
-- descrizione: testo della voce (max 200 caratteri)
-- um: unità di misura (mc, mq, ml, cad, kg, ore, corp, ecc.)
-- quantita: numero (float, default 1.0)
-- prezzo_cliente: prezzo unitario concordato col cliente (float, 0 se non presente)
-- totale_cliente: totale voce (float, 0 se non calcolabile)
-- categoria: categoria edile tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro]
-- sospetta: true se la riga sembra un subtotale, intestazione di capitolo, voce alternativa o doppione; false altrimenti
+- descrizione: testo della voce (max 200 char)
+- um: unità di misura (mq, ml, mc, cad, kg, ore, corp, ecc.)
+- quantita: numero float (default 1.0)
+- prezzo_cliente: prezzo unitario float (0 se assente)
+- totale_cliente: totale voce float (0 se non calcolabile)
+- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro]
+- sospetta: true se è subtotale/intestazione capitolo/voce alternativa/doppione, false altrimenti
 
-IGNORA: intestazioni, totali generali, dati del cliente/fornitore, note legali, pagine di presentazione.
+IGNORA: copertine, foto, testi descrittivi, condizioni generali, firme, contatti.
+INCLUDI: solo righe con descrizione e prezzo/quantità.
 
-Testo del documento:
----
-{testo_pdf[:12000]}
----
+Rispondi ESCLUSIVAMENTE con un array JSON valido, senza markdown.
+Esempio: [{"descrizione":"Posa LSF","um":"mq","quantita":120.0,"prezzo_cliente":85.5,"totale_cliente":10260.0,"categoria":"Struttura","sospetta":false}]"""
 
-Rispondi SOLO con un JSON array. Esempio:
-[{{"descrizione":"Fornitura e posa pannelli LSF","um":"mq","quantita":120.0,"prezzo_cliente":85.50,"totale_cliente":10260.0,"categoria":"Struttura","sospetta":false}}]
-Risposta:"""
             try:
+                if usa_vision:
+                    # Renderizza tutte le pagine come immagini (max 20 per token budget)
+                    mat = _fitz.Matrix(1.5, 1.5)  # 150% zoom → qualità sufficiente
+                    content_blocks = [{"type": "text", "text": PROMPT_VOCI + "\n\nPagine del documento:"}]
+                    for pg_idx, page in enumerate(doc_pdf):
+                        if pg_idx >= 20:
+                            break
+                        pix = page.get_pixmap(matrix=mat)
+                        img_b64 = _b64.b64encode(pix.tobytes("png")).decode()
+                        content_blocks.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/png", "data": img_b64}
+                        })
+                    model_pdf = "claude-sonnet-4-6"  # vision richiede modello capace
+                else:
+                    # PDF con testo: manda testo + ask Claude
+                    content_blocks = [{"type": "text", "text": PROMPT_VOCI + f"\n\nTesto documento:\n{testo_totale[:14000]}"}]
+                    model_pdf = "claude-haiku-4-5"
+
+                doc_pdf.close()
+
                 msg_pdf = claude_pdf.messages.create(
-                    model="claude-haiku-4-5", max_tokens=4000,
-                    messages=[{"role": "user", "content": prompt_pdf}]
+                    model=model_pdf, max_tokens=6000,
+                    messages=[{"role": "user", "content": content_blocks}]
                 )
                 raw_pdf = msg_pdf.content[0].text.strip()
+                raw_pdf = _re.sub(r'^```[a-z]*\s*', '', raw_pdf, flags=_re.MULTILINE)
+                raw_pdf = _re.sub(r'```\s*$', '', raw_pdf, flags=_re.MULTILINE).strip()
                 m_pdf = _re.search(r'\[.*\]', raw_pdf, _re.DOTALL)
                 if not m_pdf:
-                    raise HTTPException(400, "Claude non ha trovato voci nel documento.")
+                    raise HTTPException(400, f"Claude non ha trovato voci nel documento. Risposta: {raw_pdf[:300]}")
                 parsed = _json2.loads(m_pdf.group())
-                for i, v in enumerate(parsed):
+                for v in parsed:
                     if not isinstance(v, dict) or not v.get("descrizione"):
                         continue
                     qt  = float(v.get("quantita") or 1.0)
