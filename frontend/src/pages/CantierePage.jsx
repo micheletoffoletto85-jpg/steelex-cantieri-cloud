@@ -682,7 +682,7 @@ function MappeTab({ cantiereId }) {
     setPinSelezionato(null)
   }
 
-  const supportsPreview = (doc) => ['jpg','jpeg','png','gif','webp','pdf'].includes(doc?.tipo?.toLowerCase())
+  const supportsPreview = (doc) => ['jpg','jpeg','png','gif','webp','pdf','heic','heif'].includes(doc?.tipo?.toLowerCase())
   const previewUrl = (doc) => `/cantieri/${cantiereId}/documenti/${doc.id}/preview`
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
@@ -697,7 +697,7 @@ function MappeTab({ cantiereId }) {
             <p className="font-medium text-sm text-gray-800">{uploading ? 'Caricamento...' : 'Carica mappa o documento'}</p>
             <p className="text-xs text-gray-400">JPG, PNG, PDF — max 50MB</p>
           </div>
-          <input type="file" className="hidden" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf"
+          <input type="file" className="hidden" accept="image/*,.pdf"
             onChange={e => { if (e.target.files[0]) { setUploading(true); uploadMutation.mutate(e.target.files[0], { onSettled: () => setUploading(false) }) } }} disabled={uploading} />
         </label>
       )}

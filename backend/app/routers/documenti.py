@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/cantieri", tags=["Documenti"])
 
-ESTENSIONI_CONSENTITE = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".webp"}
+ESTENSIONI_CONSENTITE = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".webp", ".heic", ".heif", ".dxf", ".dwg"}
 RUOLI_VALIDI = {"admin", "capo_cantiere", "fornitore", "cliente"}
 
 # ─── AUTORIZZAZIONI ───────────────────────────────────────────────────────────
@@ -363,7 +363,7 @@ def preview_documento(
         with open(cache_path, "rb") as f:
             return Response(content=f.read(), media_type="image/png")
 
-    if tipo in ("jpg", "jpeg", "png", "gif", "webp"):
+    if tipo in ("jpg", "jpeg", "png", "gif", "webp", "heic", "heif"):
         try:
             contenuto, ct = leggi_file(_chiave_da_url(doc.url))
             return Response(content=contenuto, media_type=ct)
