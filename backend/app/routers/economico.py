@@ -142,7 +142,20 @@ def _ricalcola(prev, voci, iva_perc, acconto_perc):
 @router.get("/{cantiere_id}/preventivi", response_model=List[PreventivoOut])
 def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user); _blocca_cliente(user)
-    return db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).order_by(PreventivoCantiere.creato_il.desc()).all()
+    records = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).order_by(PreventivoCantiere.creato_il.desc()).all()
+    # Ricalcola al volo i computi salvati con vecchio codice (totale=0 ma voci presenti)
+    changed = False
+    for prev in records:
+        voci = prev.voci or []
+        if prev.totale == 0 and len(voci) > 0:
+            _ricalcola(prev, voci, prev.iva_perc, prev.acconto_perc)
+            changed = True
+    if changed:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+    return records
 
 @router.post("/{cantiere_id}/preventivi", response_model=PreventivoOut, status_code=201)
 def crea_preventivo(cantiere_id: int, body: PreventivoCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):

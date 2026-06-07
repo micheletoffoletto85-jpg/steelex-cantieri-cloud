@@ -510,6 +510,21 @@ function ComputoSection({ cantiereId, canWrite }) {
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
 
+  // Fallback: se il backend torna totale=0 (dati vecchi), ricalcola dai voci
+  const _pSubtotale = (p) => {
+    if (p.subtotale > 0) return p.subtotale
+    return (p.voci || []).reduce((s,v) => {
+      const tc = parseFloat(v.totale_cliente) || 0
+      const fallback = (parseFloat(v.prezzo_cliente)||parseFloat(v.prezzo_unitario)||0) * (parseFloat(v.quantita)||parseFloat(v.qt)||1)
+      return s + (tc > 0 ? tc : fallback)
+    }, 0)
+  }
+  const _pTotale = (p) => {
+    if (p.totale > 0) return p.totale
+    const sub = _pSubtotale(p)
+    return sub * (1 + (p.iva_perc || 22) / 100)
+  }
+
   return (
     <div className="space-y-3">
       <MiniRiepilogoLive cantiereId={cantiereId} />
@@ -929,8 +944,8 @@ function ComputoSection({ cantiereId, canWrite }) {
         <div className="bg-steelex-orange/10 rounded-xl px-4 py-3 flex justify-between items-center border border-steelex-orange/20">
           <span className="text-sm font-semibold text-gray-700">Totale tutti i computi</span>
           <div className="text-right">
-            <p className="text-lg font-bold text-steelex-orange">{fmt(preventivi.reduce((s,p)=>s+(p.totale||0),0))}</p>
-            <p className="text-xs text-gray-400">Imponibile: {fmt(preventivi.reduce((s,p)=>s+(p.subtotale||0),0))}</p>
+            <p className="text-lg font-bold text-steelex-orange">{fmt(preventivi.reduce((s,p)=>s+_pTotale(p),0))}</p>
+            <p className="text-xs text-gray-400">Imponibile: {fmt(preventivi.reduce((s,p)=>s+_pSubtotale(p),0))}</p>
           </div>
         </div>
       )}
@@ -940,11 +955,11 @@ function ComputoSection({ cantiereId, canWrite }) {
         <div key={p.id} className="card space-y-2">
           <div className="flex items-start justify-between">
             <div><p className="font-bold">{p.numero || 'Computo'}</p>{p.data && <p className="text-xs text-gray-400">{fmtD(p.data)}</p>}</div>
-            <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(p.totale)}</p><p className="text-xs text-gray-400">Acconto: {fmt(p.acconto_importo)}</p></div>
+            <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(_pTotale(p))}</p><p className="text-xs text-gray-400">Acconto: {fmt(p.acconto_importo)}</p></div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div><span className="text-gray-400 block">Costo base</span><span className="font-medium">{fmt(p.costo_totale)}</span></div>
-            <div><span className="text-gray-400 block">Margine</span><span className={`font-medium ${(p.subtotale-p.costo_totale)>=0?'text-green-600':'text-red-600'}`}>{fmt(p.subtotale-p.costo_totale)}</span></div>
+            <div><span className="text-gray-400 block">Margine</span><span className={`font-medium ${(_pSubtotale(p)-p.costo_totale)>=0?'text-green-600':'text-red-600'}`}>{fmt(_pSubtotale(p)-p.costo_totale)}</span></div>
             <div><span className="text-gray-400 block">Acc. ricevuto</span><span className="font-medium text-blue-600">{fmt(p.acconto_ricevuto)}</span></div>
           </div>
           <div className="flex items-center justify-between gap-2">
