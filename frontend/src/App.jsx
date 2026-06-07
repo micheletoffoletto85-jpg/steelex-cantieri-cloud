@@ -38,7 +38,7 @@ function AppContent() {
 
   return (
     <>
-      {splash && <SplashScreen onDone={() => setSplash(false)} />}
+      {splash && <SplashScreen onDone={() => setSplash(false)} utente={utente} />}
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>

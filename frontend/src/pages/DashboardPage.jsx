@@ -45,10 +45,27 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Intestazione */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Ciao, {utente?.nome} 👋</h1>
-        <p className="text-gray-500 text-sm">Ecco la situazione dei cantieri oggi</p>
-      </div>
+      {utente?.ruolo === 'cliente' ? (
+        <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
+          {/* Sfondo decorativo */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
+            <div className="absolute -bottom-12 -left-4 w-32 h-32 rounded-full bg-steelex-orange" />
+          </div>
+          <div className="relative">
+            <img src="/logo-steelex.png" alt="Steelex" className="h-7 mb-4 opacity-80" />
+            <p className="text-sm tracking-widest text-gray-400 uppercase mb-1">Benvenuto</p>
+            <h1 className="text-2xl font-bold text-white">{utente?.nome}</h1>
+            <div className="mt-3 h-0.5 w-16 bg-steelex-orange rounded" />
+            <p className="text-gray-400 text-sm mt-3">Qui puoi seguire l'avanzamento del tuo cantiere in tempo reale.</p>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Ciao, {utente?.nome} 👋</h1>
+          <p className="text-gray-500 text-sm">Ecco la situazione dei cantieri oggi</p>
+        </div>
+      )}
 
       {/* Layout desktop: 2 colonne | mobile: stack */}
       <div className="lg:grid lg:grid-cols-3 lg:gap-6 space-y-6 lg:space-y-0">
