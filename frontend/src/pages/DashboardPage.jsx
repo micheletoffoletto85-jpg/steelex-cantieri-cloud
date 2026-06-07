@@ -14,6 +14,7 @@ const STATO_LABEL = {
 
 export default function DashboardPage() {
   const { utente } = useAuth()
+  const isCliente = utente?.ruolo === 'cliente'
   const { data: cantieri = [] } = useQuery('cantieri', () => api.get('/cantieri').then(r => r.data))
 
   const stats = {
@@ -79,16 +80,18 @@ export default function DashboardPage() {
             <StatCard icon={TrendingUp} label="Avanz. Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
           </div>
 
-          {/* Azioni rapide — solo desktop */}
-          <div className="hidden lg:block card space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Azioni rapide</p>
-            <Link to="/cantieri" className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
-              <HardHat size={16} className="text-steelex-orange" /> Vai ai cantieri
-            </Link>
-            <Link to="/cantieri" state={{ nuovo: true }} className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
-              <AlertCircle size={16} className="text-blue-500" /> Nuovo cantiere
-            </Link>
-          </div>
+          {/* Azioni rapide — solo desktop, no cliente */}
+          {!isCliente && (
+            <div className="hidden lg:block card space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Azioni rapide</p>
+              <Link to="/cantieri" className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
+                <HardHat size={16} className="text-steelex-orange" /> Vai ai cantieri
+              </Link>
+              <Link to="/cantieri" state={{ nuovo: true }} className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
+                <AlertCircle size={16} className="text-blue-500" /> Nuovo cantiere
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Colonna destra: cantieri recenti */}
@@ -100,8 +103,14 @@ export default function DashboardPage() {
           {cantieri.length === 0 ? (
             <div className="card text-center py-8 text-gray-400">
               <HardHat size={40} className="mx-auto mb-2 opacity-30" />
-              <p>Nessun cantiere ancora</p>
-              <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
+              {isCliente ? (
+                <p>Non sei ancora assegnato a nessun cantiere.<br/><span className="text-xs">Contatta il responsabile per ricevere l'accesso.</span></p>
+              ) : (
+                <>
+                  <p>Nessun cantiere ancora</p>
+                  <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-2">
