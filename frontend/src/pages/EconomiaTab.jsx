@@ -896,9 +896,8 @@ function ComputoSection({ cantiereId, canWrite }) {
                 <div className="flex justify-between text-gray-500"><span>Costo totale (riservato)</span><span>{fmt(costoTot)}</span></div>
                 <div className="flex justify-between"><span>Margine</span><span className={margine>=0?'text-green-600 font-medium':'text-red-600'}>{fmt(margine)} ({costoTot>0?Math.round((margine/costoTot)*100):0}%)</span></div>
               </>}
-              <div className="flex justify-between border-t pt-1"><span>Subtotale cliente</span><span className="font-semibold">{fmt(subtotale)}</span></div>
-              <div className="flex justify-between text-gray-500"><span>IVA {ivaPerc}%</span><span>{fmt(subtotale*ivaPerc/100)}</span></div>
-              <div className="flex justify-between text-steelex-orange font-bold text-base"><span>TOTALE</span><span>{fmt(totale)}</span></div>
+              <div className="flex justify-between border-t pt-1 text-steelex-orange font-bold text-base"><span>TOTALE NETTO</span><span>{fmt(subtotale)}</span></div>
+              <div className="flex justify-between text-gray-400 text-xs"><span>+ IVA {ivaPerc}%</span><span>{fmt(subtotale*ivaPerc/100)}</span></div>
               <div className="flex justify-between text-blue-600"><span>Acconto {base.acconto_perc}%</span><span>{fmt(acconto)}</span></div>
             </div>
           )}
@@ -944,8 +943,8 @@ function ComputoSection({ cantiereId, canWrite }) {
         <div className="bg-steelex-orange/10 rounded-xl px-4 py-3 flex justify-between items-center border border-steelex-orange/20">
           <span className="text-sm font-semibold text-gray-700">Totale tutti i computi</span>
           <div className="text-right">
-            <p className="text-lg font-bold text-steelex-orange">{fmt(preventivi.reduce((s,p)=>s+_pTotale(p),0))}</p>
-            <p className="text-xs text-gray-400">Imponibile: {fmt(preventivi.reduce((s,p)=>s+_pSubtotale(p),0))}</p>
+            <p className="text-lg font-bold text-steelex-orange">{fmt(preventivi.reduce((s,p)=>s+_pSubtotale(p),0))}</p>
+            <p className="text-xs text-gray-400">+ IVA: {fmt(preventivi.reduce((s,p)=>s+(_pTotale(p)-_pSubtotale(p)),0))}</p>
           </div>
         </div>
       )}
@@ -955,7 +954,7 @@ function ComputoSection({ cantiereId, canWrite }) {
         <div key={p.id} className="card space-y-2">
           <div className="flex items-start justify-between">
             <div><p className="font-bold">{p.numero || 'Computo'}</p>{p.data && <p className="text-xs text-gray-400">{fmtD(p.data)}</p>}</div>
-            <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(_pTotale(p))}</p><p className="text-xs text-gray-400">Acconto: {fmt(p.acconto_importo)}</p></div>
+            <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(_pSubtotale(p))}</p><p className="text-xs text-gray-400">+ IVA {p.iva_perc}%: {fmt(_pTotale(p) - _pSubtotale(p))}</p></div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div><span className="text-gray-400 block">Costo base</span><span className="font-medium">{fmt(p.costo_totale)}</span></div>
