@@ -72,9 +72,11 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     sal_list = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).all()
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
 
-    prev_ok = next((p for p in preventivi if p.stato == "accettato"), None)
-    budget = prev_ok.subtotale if prev_ok else (cantiere.budget or 0)
-    budget_iva = prev_ok.totale if prev_ok else budget
+    # Usa i preventivi accettati; se nessuno accettato, somma tutti
+    prev_accettati = [p for p in preventivi if p.stato == "accettato"]
+    prev_base = prev_accettati if prev_accettati else preventivi
+    budget     = sum(p.subtotale for p in prev_base) or (cantiere.budget or 0)
+    budget_iva = sum(p.totale    for p in prev_base) or budget
 
     totale_speso = sum(s.importo for s in spese)
     sal_emessi = sum(s.importo for s in sal_list if s.stato in ("emesso","pagato"))
