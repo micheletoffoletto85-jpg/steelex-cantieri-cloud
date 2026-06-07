@@ -59,7 +59,13 @@ export default function GanttTab({ cantiereId }) {
   )
   const updateMutation = useMutation(
     ({ id, data }) => api.put(`/cantieri/${cantiereId}/fasi/${id}`, data),
-    { onSuccess: () => { qc.invalidateQueries(['fasi', cantiereId]); qc.invalidateQueries(['aggiornamenti-cliente', cantiereId]); chiudiForm(); toast.success('Aggiornato') },
+    { onSuccess: (_, variables) => {
+        qc.invalidateQueries(['fasi', cantiereId])
+        qc.invalidateQueries(['aggiornamenti-cliente', cantiereId])
+        chiudiForm()
+        if (variables.data?.visibile_cliente) toast.success('✓ Fase condivisa con il cliente')
+        else toast.success('Aggiornato')
+      },
       onError: e => toast.error(e.response?.data?.detail || 'Errore') }
   )
   const deleteMutation = useMutation(

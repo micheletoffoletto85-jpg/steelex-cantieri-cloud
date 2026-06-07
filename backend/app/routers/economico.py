@@ -372,12 +372,10 @@ def aggiornamenti_cliente(cantiere_id: int, db: Session = Depends(get_db), user:
     cantiere = db.query(CantiereModel).filter(CantiereModel.id == cantiere_id).first()
     fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine, FaseLavoro.data_inizio).all()
 
-    # Fasi visibili al cliente
-    fasi_cliente = [f for f in fasi if f.visibile_cliente]
-    # Se nessuna segnata, mostra tutte (cantiere nuovo, admin non ha ancora configurato)
-    fasi_da_mostrare = fasi_cliente if fasi_cliente else fasi
+    # Fasi visibili al cliente (solo quelle segnate)
+    fasi_da_mostrare = [f for f in fasi if f.visibile_cliente]
 
-    # Avanzamento globale (media percentuali)
+    # Avanzamento globale calcolato su TUTTE le fasi (non solo quelle condivise)
     perc_globale = round(sum(f.percentuale for f in fasi) / len(fasi), 1) if fasi else 0
 
     # Note diario condivise con cliente (ultime 8)
@@ -398,9 +396,12 @@ def aggiornamenti_cliente(cantiere_id: int, db: Session = Depends(get_db), user:
     return {
         "cantiere_nome": cantiere.nome if cantiere else "",
         "avanzamento_globale": perc_globale,
+        "totale_fasi": len(fasi),
+        "fasi_condivise": len(fasi_da_mostrare),
         "fasi": [
             {"id": f.id, "nome": f.nome, "categoria": f.categoria, "colore": f.colore,
              "percentuale": f.percentuale, "stato": f.stato,
+             "visibile_cliente": f.visibile_cliente,
              "data_inizio": str(f.data_inizio) if f.data_inizio else None,
              "data_fine_prevista": str(f.data_fine_prevista) if f.data_fine_prevista else None}
             for f in fasi_da_mostrare

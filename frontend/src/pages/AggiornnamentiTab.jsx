@@ -24,7 +24,7 @@ export default function AggiornnamentiTab({ cantiereId }) {
   const { data, isLoading, error } = useQuery(
     ['aggiornamenti-cliente', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/aggiornamenti-cliente`).then(r => r.data),
-    { staleTime: 30000, retry: 1 }
+    { staleTime: 0, retry: 1 }
   )
 
   if (isLoading) return (
@@ -40,7 +40,7 @@ export default function AggiornnamentiTab({ cantiereId }) {
     </div>
   )
 
-  const { avanzamento_globale, fasi, note_condivise, appuntamenti } = data
+  const { avanzamento_globale, fasi, note_condivise, appuntamenti, fasi_condivise, totale_fasi } = data
 
   return (
     <div className="space-y-5">
@@ -61,9 +61,19 @@ export default function AggiornnamentiTab({ cantiereId }) {
       </div>
 
       {/* ── Fasi lavoro ── */}
+      {fasi.length === 0 && totale_fasi > 0 && (
+        <div className="card text-center py-6 border-2 border-dashed border-orange-200">
+          <p className="text-sm text-gray-500">Nessuna fase condivisa ancora.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Vai nel <strong>Gantt</strong> → modifica una fase → attiva <em>"Mostra al cliente"</em>
+          </p>
+        </div>
+      )}
       {fasi.length > 0 && (
         <div className="card space-y-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Cronoprogramma</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            Cronoprogramma ({fasi_condivise} fase{fasi_condivise !== 1 ? 'i' : ''} condivisa{fasi_condivise !== 1 ? '' : ''})
+          </p>
           {fasi.map(f => {
             const stato = STATO_LABEL[f.stato] || STATO_LABEL.pianificata
             const Icona = stato.icon
