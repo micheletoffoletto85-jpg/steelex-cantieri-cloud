@@ -230,6 +230,9 @@ function ComputoSection({ cantiereId, canWrite }) {
   const [modalita, setModalita] = useState('costo') // 'costo' = costo+ricarico | 'cliente' = prezzi cliente diretti
   const [showPaste, setShowPaste] = useState(false)
   const [pasteText, setPasteText] = useState('')
+  const [pasteRighe, setPasteRighe] = useState(null)   // righe grezze dopo incolla
+  const [colMap, setColMap] = useState({})             // { colIndex: ruolo }
+  // ruoli: 'desc' | 'um' | 'qt' | 'prezzo' | 'tot' | 'ignora'
 
   const { data: preventivi = [], isLoading } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
 
@@ -356,102 +359,68 @@ function ComputoSection({ cantiereId, canWrite }) {
     return isNaN(n) ? null : n
   }
 
-  const [pasteDebug, setPasteDebug] = useState(null) // {intestazione, colonneRilevate, primaRiga}
-
-  const elaboraIncolla = (testo) => {
-    const src = testo ?? pasteText
-    if (!src.trim()) return
-    const righe = src.trim().split('\n').map(r => r.split('\t').map(c => c.trim()))
-
-    // ── Intestazione SOLO se riga con celle CORTE e parole chiave ────
-    // (evita di scambiare descrizioni lunghe per header)
-    const KW_HEADER = ['u.m.','unità','quant','prezzo','costo unit','totale','importo']
-    let dataStart = 0
-    let colDesc=0, colUm=-1, colQt=-1, colPrezzo=-1, colTot=-1
-    let intestazione = null
-
-    for (let i = 0; i < Math.min(5, righe.length); i++) {
-      const riga = righe[i]
-      // Riga header = tutte celle corte (< 40 char) E contiene keyword
-      const tuttoCorto = riga.every(c => c.length < 40)
-      const haKw = KW_HEADER.some(k => riga.join(' ').toLowerCase().includes(k))
-      if (tuttoCorto && haKw) {
-        intestazione = riga
-        riga.forEach((h, ci) => {
-          const hl = h.toLowerCase().replace(/[^a-z0-9.]/g, '')
-          if (/descri|voce|lavora|oggetto/.test(hl) && ci > 0) colDesc = ci
-          if (/um|unita|misura/.test(hl)) colUm = ci
-          if (/quant|qta|qt/.test(hl)) colQt = ci
-          if (/prezzo|pu|unitario|costounit/.test(hl)) colPrezzo = ci
-          if (/totale|importo|tot/.test(hl)) colTot = ci
-        })
-        dataStart = i + 1
-        break
-      }
+  // Dopo incolla: mostra tabella grezza e chiedi all'utente di mappare le colonne
+  const onPasteRicevuto = (testo) => {
+    const righe = testo.trim().split('\n')
+      .map(r => r.split('\t').map(c => c.trim()))
+      .filter(r => r.some(c => c))
+    if (!righe.length) { toast.error('Nessuna riga trovata'); return }
+    const nCols = Math.max(...righe.map(r => r.length))
+    // Suggerimento automatico: col con testo lungo = desc, ultime numeriche = prezzo/tot
+    const campione = righe.slice(0, 10)
+    const numScore = Array(nCols).fill(0)
+    campione.forEach(r => r.forEach((c, ci) => { if (parseNum(c) !== null) numScore[ci]++ }))
+    const soglia = Math.max(1, Math.floor(campione.length * 0.3))
+    const colNum = numScore.map((n,i) => n >= soglia ? i : -1).filter(i => i >= 0)
+    const suggeriti = {}
+    // colonna con testo più lungo = desc
+    let maxLen = 0, colDescSugg = 0
+    campione.forEach(r => r.forEach((c,ci) => { if (!colNum.includes(ci) && c.length > maxLen) { maxLen=c.length; colDescSugg=ci } }))
+    suggeriti[colDescSugg] = 'desc'
+    if (colNum.length >= 3) {
+      suggeriti[colNum[0]] = 'qt'
+      suggeriti[colNum[colNum.length-2]] = 'prezzo'
+      suggeriti[colNum[colNum.length-1]] = 'tot'
+    } else if (colNum.length === 2) {
+      suggeriti[colNum[0]] = 'prezzo'
+      suggeriti[colNum[1]] = 'tot'
+    } else if (colNum.length === 1) {
+      suggeriti[colNum[0]] = 'tot'
     }
-
-    // ── Se nessun header trovato: rileva struttura dalle righe dati ──
-    if (!intestazione) {
-      // Scansiona le prime 5 righe non vuote e conta i pattern numerici per colonna
-      const campione = righe.filter(r => r.some(c => c)).slice(0, 8)
-      const nCols = Math.max(...campione.map(r => r.length), 0)
-      // Per ogni colonna conta quante righe hanno un numero valido
-      const numCount = Array(nCols).fill(0)
-      campione.forEach(r => r.forEach((c, ci) => { if (parseNum(c) !== null) numCount[ci]++ }))
-      // Colonne numeriche = quelle con almeno il 40% di valori numerici
-      const soglia = Math.max(1, Math.floor(campione.length * 0.4))
-      const colNum = numCount.map((n,i) => n >= soglia ? i : -1).filter(i => i >= 0)
-      // Struttura tipica STEELEX: [desc, um, qt, prezzo_unit, totale]
-      // col 0 = descrizione (testo lungo), poi opzionalmente um (corto), poi numeri
-      colDesc = 0
-      if (colNum.length >= 3) { colQt = colNum[0]; colPrezzo = colNum[colNum.length-2]; colTot = colNum[colNum.length-1] }
-      else if (colNum.length === 2) { colPrezzo = colNum[0]; colTot = colNum[1] }
-      else if (colNum.length === 1) { colTot = colNum[0] }
-      // U.M. = prima colonna corta non numerica dopo la descrizione
-      campione.forEach(r => {
-        for (let ci = 1; ci < r.length; ci++) {
-          if (colNum.includes(ci)) break
-          if (r[ci] && r[ci].length <= 6 && parseNum(r[ci]) === null) { colUm = ci; break }
-        }
-      })
+    // prima colonna corta non numerica dopo desc = um
+    for (let ci = 0; ci < nCols; ci++) {
+      if (ci === colDescSugg || colNum.includes(ci)) continue
+      if (campione.some(r => r[ci] && r[ci].length <= 6)) { suggeriti[ci] = 'um'; break }
     }
+    setPasteRighe(righe)
+    setColMap(suggeriti)
+    setShowPaste(false)
+  }
 
-    // ── Debug info ──────────────────────────────────────────────────
-    const primaRigaDati = righe[dataStart] || []
-    setPasteDebug({
-      intestazione: intestazione ? intestazione.join(' | ') : '(non trovata)',
-      colonne: `desc:${colDesc} um:${colUm} qt:${colQt} prezzo:${colPrezzo} tot:${colTot}`,
-      primaRiga: primaRigaDati.join(' | '),
-      valoriParsati: `qt="${primaRigaDati[colQt]}"→${parseNum(primaRigaDati[colQt])} pr="${primaRigaDati[colPrezzo]}"→${parseNum(primaRigaDati[colPrezzo])} tot="${primaRigaDati[colTot]}"→${parseNum(primaRigaDati[colTot])}`
-    })
-
-    // ── Costruisci voci ──────────────────────────────────────────────
+  const confermaMappatura = () => {
+    const colDesc   = parseInt(Object.entries(colMap).find(([,v]) => v==='desc')?.[0] ?? '-1')
+    const colUm     = parseInt(Object.entries(colMap).find(([,v]) => v==='um')?.[0] ?? '-1')
+    const colQt     = parseInt(Object.entries(colMap).find(([,v]) => v==='qt')?.[0] ?? '-1')
+    const colPrezzo = parseInt(Object.entries(colMap).find(([,v]) => v==='prezzo')?.[0] ?? '-1')
+    const colTot    = parseInt(Object.entries(colMap).find(([,v]) => v==='tot')?.[0] ?? '-1')
+    if (colDesc < 0) { toast.error('Assegna almeno la colonna Descrizione'); return }
     const vv = []
-    for (let i = dataStart; i < righe.length; i++) {
-      const r = righe[i]
-      if (!r.length || r.every(c => !c)) continue
-      const desc = (colDesc >= 0 ? r[colDesc] : r[0]) || ''
-      if (!desc || desc.length < 2) continue
+    pasteRighe.forEach((r, i) => {
+      const desc = r[colDesc] || ''
+      if (!desc || desc.length < 2) return
       const qt  = parseNum(colQt  >= 0 ? r[colQt]    : null) ?? 1
       const pr  = parseNum(colPrezzo >= 0 ? r[colPrezzo] : null) ?? 0
       const tot = parseNum(colTot >= 0 ? r[colTot]   : null) ?? (qt * pr)
       const um  = (colUm >= 0 ? r[colUm] : '') || 'cad'
-      vv.push({
-        id: Date.now() + i,
-        descrizione: desc.slice(0, 200),
-        categoria: 'Altro', um,
-        quantita: qt, prezzo_costo: pr, ricarico_perc: 0,
-        prezzo_cliente: pr, totale_costo: tot, totale_cliente: tot,
-        sospetta: false,
-      })
-    }
-
-    if (!vv.length) { toast.error('Nessuna riga trovata'); return }
+      vv.push({ id: Date.now()+i, descrizione: desc.slice(0,200), categoria:'Altro', um,
+        quantita:qt, prezzo_costo:pr, ricarico_perc:0, prezzo_cliente:pr,
+        totale_costo:tot, totale_cliente:tot, sospetta:false })
+    })
+    if (!vv.length) { toast.error('Nessuna riga valida'); return }
     setVociImportate(vv)
     setRigheSelezionate(new Set(vv.map(v => v.id)))
-    setShowPaste(false)
-    setPasteText('')
-    toast.success(`${vv.length} righe incollate`)
+    setPasteRighe(null)
+    toast.success(`${vv.length} righe importate`)
   }
 
   const _normalizzaVoce = (v, i) => {
@@ -537,17 +506,17 @@ function ComputoSection({ cantiereId, canWrite }) {
                 <button onClick={() => setShowPaste(false)} className="text-gray-400 hover:text-gray-600 flex-shrink-0"><X size={16}/></button>
               </div>
               <textarea
-                className="w-full h-40 text-xs font-mono border border-gray-200 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-green-300"
+                className="w-full h-36 text-xs font-mono border border-gray-200 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-green-300"
                 placeholder="Incolla qui il contenuto copiato da Excel (Ctrl+V)..."
                 value={pasteText}
                 onChange={e => setPasteText(e.target.value)}
-                onPaste={e => { const t = e.clipboardData.getData('text'); setPasteText(t); setTimeout(() => elaboraIncolla(t), 50) }}
+                onPaste={e => { const t = e.clipboardData.getData('text'); setTimeout(() => onPasteRicevuto(t), 30) }}
               />
               <div className="flex gap-2">
-                <button onClick={() => setShowPaste(false)} className="btn-secondary flex-1 text-sm">Annulla</button>
-                <button onClick={elaboraIncolla} disabled={!pasteText.trim()}
+                <button onClick={() => { setShowPaste(false); setPasteText('') }} className="btn-secondary flex-1 text-sm">Annulla</button>
+                <button onClick={() => onPasteRicevuto(pasteText)} disabled={!pasteText.trim()}
                   className="btn-primary flex-1 text-sm disabled:opacity-50 flex items-center justify-center gap-1">
-                  <ClipboardList size={14}/> Importa righe
+                  <ClipboardList size={14}/> Continua
                 </button>
               </div>
             </div>
@@ -555,20 +524,80 @@ function ComputoSection({ cantiereId, canWrite }) {
         </div>
       )}
 
+      {/* Mappatura colonne */}
+      {pasteRighe && (
+        <div className="card border-2 border-green-300 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold text-green-900">Assegna le colonne</p>
+              <p className="text-xs text-gray-500 mt-0.5">Per ogni colonna scegli cosa contiene. Abbiamo suggerito in automatico — correggi se necessario.</p>
+            </div>
+            <button onClick={() => setPasteRighe(null)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+          </div>
+
+          {/* Tabella anteprima con dropdown per colonna */}
+          <div className="overflow-x-auto border border-gray-200 rounded-xl">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr>
+                  {Array.from({length: Math.max(...pasteRighe.slice(0,3).map(r=>r.length))}, (_,ci) => (
+                    <th key={ci} className="p-1.5 text-center border-b border-gray-200 min-w-[100px]">
+                      <select
+                        value={colMap[ci] || 'ignora'}
+                        onChange={e => setColMap(m => ({...m, [ci]: e.target.value}))}
+                        className={`text-xs rounded px-1 py-0.5 border w-full font-semibold ${
+                          colMap[ci]==='desc'   ? 'bg-blue-100 border-blue-300 text-blue-800' :
+                          colMap[ci]==='tot'    ? 'bg-orange-100 border-orange-300 text-orange-800' :
+                          colMap[ci]==='prezzo' ? 'bg-purple-100 border-purple-300 text-purple-800' :
+                          colMap[ci]==='qt'     ? 'bg-green-100 border-green-300 text-green-800' :
+                          colMap[ci]==='um'     ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
+                          'bg-gray-100 border-gray-200 text-gray-400'
+                        }`}>
+                        <option value="ignora">— ignora</option>
+                        <option value="desc">Descrizione</option>
+                        <option value="um">U.M.</option>
+                        <option value="qt">Quantità</option>
+                        <option value="prezzo">Prezzo unit.</option>
+                        <option value="tot">Totale</option>
+                      </select>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pasteRighe.slice(0, 8).map((r, ri) => (
+                  <tr key={ri} className={ri%2===0?'bg-white':'bg-gray-50/50'}>
+                    {Array.from({length: Math.max(...pasteRighe.slice(0,3).map(x=>x.length))}, (_,ci) => (
+                      <td key={ci} className={`p-1.5 border-t border-gray-100 max-w-[200px] truncate ${
+                        colMap[ci]==='desc'   ? 'bg-blue-50' :
+                        colMap[ci]==='tot'    ? 'bg-orange-50 text-right font-medium' :
+                        colMap[ci]==='prezzo' ? 'bg-purple-50 text-right' :
+                        colMap[ci]==='qt'     ? 'bg-green-50 text-right' :
+                        colMap[ci]==='um'     ? 'bg-yellow-50 text-center' : 'text-gray-300'
+                      }`} title={r[ci]||''}>
+                        {r[ci] || ''}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {pasteRighe.length > 8 && <p className="text-xs text-gray-400 text-center">Mostrate 8 di {pasteRighe.length} righe</p>}
+          <div className="flex gap-2">
+            <button onClick={() => setPasteRighe(null)} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={confermaMappatura}
+              disabled={!Object.values(colMap).includes('desc')}
+              className="btn-primary flex-1 flex items-center justify-center gap-1 disabled:opacity-50">
+              <CheckCircle2 size={14}/> Importa {pasteRighe.length} righe
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Import con selezione righe */}
       {vociImportate && (
         <div className="card border-2 border-purple-300 space-y-3">
-          {pasteDebug && (
-            <details className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-xs text-gray-500">
-              <summary className="cursor-pointer font-medium text-gray-600">Debug colonne rilevate</summary>
-              <div className="mt-1 space-y-0.5 font-mono">
-                <p>Intestazione: {pasteDebug.intestazione}</p>
-                <p>Colonne: {pasteDebug.colonne}</p>
-                <p>Prima riga: {pasteDebug.primaRiga}</p>
-                <p>Parsing: {pasteDebug.valoriParsati}</p>
-              </div>
-            </details>
-          )}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 flex-wrap">
               <Sparkles size={16} className="text-purple-600" />
