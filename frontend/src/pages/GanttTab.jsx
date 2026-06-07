@@ -34,7 +34,7 @@ export default function GanttTab({ cantiereId }) {
   const [editId, setEditId] = useState(null)
   const [vista, setVista] = useState(() => window.innerWidth < 640 ? 'lista' : 'gantt')
   const [tooltipFase, setTooltipFase] = useState(null) // fase selezionata nel Gantt
-  const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#FF6B00', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'' })
+  const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#FF6B00', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'', visibile_cliente: false })
   const setF = (k,v) => setForm(f => ({...f, [k]:v}))
   const [importando, setImportando] = useState(false)
   const [fasiImportate, setFasiImportate] = useState(null)
@@ -52,12 +52,12 @@ export default function GanttTab({ cantiereId }) {
 
   const createMutation = useMutation(
     d => api.post(`/cantieri/${cantiereId}/fasi`, d),
-    { onSuccess: () => { qc.invalidateQueries(['fasi', cantiereId]); chiudiForm(); toast.success('Fase aggiunta!') },
+    { onSuccess: () => { qc.invalidateQueries(['fasi', cantiereId]); qc.invalidateQueries(['aggiornamenti-cliente', cantiereId]); chiudiForm(); toast.success('Fase aggiunta!') },
       onError: e => toast.error(e.response?.data?.detail || 'Errore') }
   )
   const updateMutation = useMutation(
     ({ id, data }) => api.put(`/cantieri/${cantiereId}/fasi/${id}`, data),
-    { onSuccess: () => { qc.invalidateQueries(['fasi', cantiereId]); chiudiForm(); toast.success('Aggiornato') },
+    { onSuccess: () => { qc.invalidateQueries(['fasi', cantiereId]); qc.invalidateQueries(['aggiornamenti-cliente', cantiereId]); chiudiForm(); toast.success('Aggiornato') },
       onError: e => toast.error(e.response?.data?.detail || 'Errore') }
   )
   const deleteMutation = useMutation(
@@ -243,6 +243,13 @@ export default function GanttTab({ cantiereId }) {
               </select>
             </div>
           </div>
+          {/* Visibilità cliente */}
+          <label className="flex items-center gap-2 cursor-pointer select-none py-1">
+            <input type="checkbox" checked={!!form.visibile_cliente} onChange={e => setF('visibile_cliente', e.target.checked)}
+              className="w-4 h-4 accent-steelex-orange" />
+            <span className="text-sm text-gray-600">Mostra questa fase al cliente</span>
+          </label>
+
           <div className="flex gap-2">
             <button onClick={chiudiForm} className="btn-secondary flex-1">Annulla</button>
             <button onClick={salva} disabled={!form.nome || createMutation.isLoading || updateMutation.isLoading} className="btn-primary flex-1">

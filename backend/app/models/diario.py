@@ -17,6 +17,7 @@ class DiarioGiornaliero(Base):
     foto_urls = Column(JSON, default=list)
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
     # Campi per registrazione vocale AI
+    condividi_cliente = Column(Boolean, default=False)  # mostra al cliente nella pagina aggiornamenti
     fonte = Column(String(20), default="manuale")       # manuale | voce
     testo_originale = Column(Text)                      # testo grezzo prima della traduzione
     lingua_originale = Column(String(10))               # es. "ro", "en", "it"

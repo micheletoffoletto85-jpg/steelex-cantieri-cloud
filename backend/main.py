@@ -39,6 +39,8 @@ def _migra():
             caricato_da INTEGER REFERENCES utenti(id),
             caricato_il TIMESTAMPTZ DEFAULT NOW()
         )""",
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS condividi_cliente BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE fasi_lavoro ADD COLUMN IF NOT EXISTS visibile_cliente BOOLEAN DEFAULT FALSE",
         """CREATE TABLE IF NOT EXISTS richieste_documenti (
             id           SERIAL PRIMARY KEY,
             cantiere_id  INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,

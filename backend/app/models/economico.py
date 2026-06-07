@@ -207,5 +207,7 @@ class FaseLavoro(Base):
     note = Column(String)
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 
+    visibile_cliente = Column(Boolean, default=False)  # condividi fase con il cliente
+
     cantiere = relationship("Cantiere", back_populates="fasi")
     sal = relationship("SAL", back_populates="fasi")

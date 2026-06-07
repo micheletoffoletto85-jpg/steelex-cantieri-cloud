@@ -335,6 +335,7 @@ class FaseOut(BaseModel):
     categoria: str; colore: str; ordine: int; data_inizio: Optional[date]
     data_fine_prevista: Optional[date]; data_fine_reale: Optional[date]
     percentuale: float; stato: str; note: Optional[str]; creato_il: Optional[datetime]
+    visibile_cliente: bool = False
     class Config: from_attributes = True
 
 class FaseCreate(BaseModel):
@@ -342,6 +343,7 @@ class FaseCreate(BaseModel):
     ordine: int = 0; data_inizio: Optional[date] = None
     data_fine_prevista: Optional[date] = None; sal_id: Optional[int] = None
     percentuale: float = 0.0; stato: str = "pianificata"; note: Optional[str] = None
+    visibile_cliente: bool = False
 
 class FaseUpdate(BaseModel):
     nome: Optional[str] = None; categoria: Optional[str] = None
@@ -349,11 +351,69 @@ class FaseUpdate(BaseModel):
     data_inizio: Optional[date] = None; data_fine_prevista: Optional[date] = None
     data_fine_reale: Optional[date] = None; percentuale: Optional[float] = None
     stato: Optional[str] = None; sal_id: Optional[int] = None; note: Optional[str] = None
+    visibile_cliente: Optional[bool] = None
 
 @router.get("/{cantiere_id}/fasi", response_model=List[FaseOut])
 def lista_fasi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
     return db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine, FaseLavoro.data_inizio).all()
+
+@router.get("/{cantiere_id}/aggiornamenti-cliente")
+def aggiornamenti_cliente(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Dati aggregati per la pagina aggiornamenti visibile al cliente."""
+    _check(cantiere_id, db, user)
+    from app.models.diario import DiarioGiornaliero
+    from app.models.cantiere import Cantiere as CantiereModel
+    import datetime
+
+    cantiere = db.query(CantiereModel).filter(CantiereModel.id == cantiere_id).first()
+    fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine, FaseLavoro.data_inizio).all()
+
+    # Fasi visibili al cliente
+    fasi_cliente = [f for f in fasi if f.visibile_cliente]
+    # Se nessuna segnata, mostra tutte (cantiere nuovo, admin non ha ancora configurato)
+    fasi_da_mostrare = fasi_cliente if fasi_cliente else fasi
+
+    # Avanzamento globale (media percentuali)
+    perc_globale = round(sum(f.percentuale for f in fasi) / len(fasi), 1) if fasi else 0
+
+    # Note diario condivise con cliente (ultime 8)
+    note = (db.query(DiarioGiornaliero)
+              .filter(DiarioGiornaliero.cantiere_id == cantiere_id,
+                      DiarioGiornaliero.condividi_cliente == True)
+              .order_by(DiarioGiornaliero.data.desc())
+              .limit(8).all())
+
+    # Prossimi appuntamenti = fasi visibili con data_inizio futura o oggi
+    oggi = datetime.date.today()
+    appuntamenti = [
+        f for f in fasi_da_mostrare
+        if f.data_inizio and f.data_inizio >= oggi and f.stato not in ("completata",)
+    ]
+    appuntamenti.sort(key=lambda f: f.data_inizio)
+
+    return {
+        "cantiere_nome": cantiere.nome if cantiere else "",
+        "avanzamento_globale": perc_globale,
+        "fasi": [
+            {"id": f.id, "nome": f.nome, "categoria": f.categoria, "colore": f.colore,
+             "percentuale": f.percentuale, "stato": f.stato,
+             "data_inizio": str(f.data_inizio) if f.data_inizio else None,
+             "data_fine_prevista": str(f.data_fine_prevista) if f.data_fine_prevista else None}
+            for f in fasi_da_mostrare
+        ],
+        "note_condivise": [
+            {"id": n.id, "data": str(n.data), "testo": n.attivita or "",
+             "meteo": n.meteo or "", "fonte": n.fonte or "manuale"}
+            for n in note
+        ],
+        "appuntamenti": [
+            {"id": f.id, "nome": f.nome, "data": str(f.data_inizio),
+             "data_fine": str(f.data_fine_prevista) if f.data_fine_prevista else None,
+             "colore": f.colore, "stato": f.stato}
+            for f in appuntamenti[:5]
+        ],
+    }
 
 @router.post("/{cantiere_id}/fasi", response_model=FaseOut, status_code=201)
 def crea_fase(cantiere_id: int, body: FaseCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):

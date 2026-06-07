@@ -5,6 +5,7 @@ import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpe
 import EconomiaTab from './EconomiaTab'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
+import AggiornnamentiTab from './AggiornnamentiTab'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -80,7 +81,8 @@ export default function CantierePage() {
 
       {/* Tab bar — scroll orizzontale su mobile */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {[['info','Info',null],['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],
+        {[['info','Info',null],['aggiornamenti','Aggiornamenti',Calendar],
+          ...(!['cliente'].includes(utente?.ruolo) ? [['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map]] : []),
           ...(['admin','capo_cantiere'].includes(utente?.ruolo) ? [['economia','Economia',Euro]] : []),
           ['documenti','Documenti',FolderOpen],
         ].map(([key,label,Icon]) => (
@@ -91,14 +93,15 @@ export default function CantierePage() {
         ))}
       </div>
 
-      {tab === 'info'     && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
-      {tab === 'team'     && <TeamTab cantiereId={id} utente={utente} />}
-      {tab === 'gantt'    && <GanttTab cantiereId={id} />}
-      {tab === 'checklist'&& <ChecklistTab cantiereId={id} />}
-      {tab === 'diario'   && <DiarioTab cantiereId={id} />}
-      {tab === 'mappe'    && <MappeTab cantiereId={id} />}
-      {tab === 'economia'  && <EconomiaTab cantiereId={id} />}
-      {tab === 'documenti' && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
+      {tab === 'info'          && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
+      {tab === 'aggiornamenti' && <AggiornnamentiTab cantiereId={id} />}
+      {tab === 'team'          && <TeamTab cantiereId={id} utente={utente} />}
+      {tab === 'gantt'         && <GanttTab cantiereId={id} />}
+      {tab === 'checklist'     && <ChecklistTab cantiereId={id} />}
+      {tab === 'diario'        && <DiarioTab cantiereId={id} />}
+      {tab === 'mappe'         && <MappeTab cantiereId={id} />}
+      {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
+      {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
     </div>
   )
 }
@@ -1053,8 +1056,8 @@ function DiarioTab({ cantiereId }) {
   )
 
   const updateMutation = useMutation(
-    ({ id, attivita }) => api.put(`/cantieri/${cantiereId}/diari/${id}`, { attivita }),
-    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); setEditId(null); toast.success('Nota aggiornata!') } }
+    ({ id, attivita, condividi_cliente }) => api.put(`/cantieri/${cantiereId}/diari/${id}`, { attivita, condividi_cliente }),
+    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); qc.invalidateQueries(['aggiornamenti-cliente', cantiereId]); setEditId(null) } }
   )
 
   const deleteMutation = useMutation(
@@ -1276,7 +1279,14 @@ function DiarioTab({ cantiereId }) {
               </div>
             )}
 
-            <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor===d.id?'opacity-50':''}`}>
+              {/* Spunta condividi cliente */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={!!d.condividi_cliente}
+                onChange={e => updateMutation.mutate({ id: d.id, attivita: d.attivita, condividi_cliente: e.target.checked })}
+                className="w-3.5 h-3.5 accent-steelex-orange" />
+              <span className="text-xs text-gray-400">Condividi con cliente</span>
+            </label>
+          <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor===d.id?'opacity-50':''}`}>
               <Camera size={16} />
               {uploadingFor===d.id ? 'Caricamento...' : 'Aggiungi foto'}
               <input type="file" accept="image/*" capture="environment" className="hidden"

@@ -17,6 +17,7 @@ class DiarioUpdate(BaseModel):
     problemi: Optional[str] = None
     meteo: Optional[str] = None
     operai_presenti: Optional[int] = None
+    condividi_cliente: Optional[bool] = None
 
 class DiarioOut(DiarioBase):
     id: int
@@ -28,6 +29,7 @@ class DiarioOut(DiarioBase):
     testo_originale: Optional[str] = None
     lingua_originale: Optional[str] = None
     voci_estratte: Optional[Any] = None
+    condividi_cliente: bool = False
     autore_nome: Optional[str] = None   # calcolato nel router
 
     class Config:
