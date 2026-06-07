@@ -38,6 +38,8 @@ export default function GanttTab({ cantiereId }) {
   const setF = (k,v) => setForm(f => ({...f, [k]:v}))
   const [importando, setImportando] = useState(false)
   const [fasiImportate, setFasiImportate] = useState(null)
+  // Conferma eliminazione (no confirm() nativo — non funziona su iOS PWA)
+  const [confirmDialog, setConfirmDialog] = useState(null) // { ids: [], testo: '' }
 
   const { data: fasi = [], isLoading, isError, error } = useQuery(
     ['fasi', cantiereId],
@@ -66,6 +68,14 @@ export default function GanttTab({ cantiereId }) {
   )
 
   const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#FF6B00',data_inizio:'',data_fine_prevista:'',sal_id:'',percentuale:0,stato:'pianificata',note:'',visibile_cliente:false }) }
+
+  // Elimina con dialogo React (no confirm() nativo — bloccato su iOS PWA)
+  const richiediElimina = (ids, testo) => setConfirmDialog({ ids: Array.isArray(ids) ? ids : [ids], testo: testo || 'Eliminare questa fase?' })
+  const confermaCancella = () => {
+    if (!confirmDialog) return
+    confirmDialog.ids.forEach(id => deleteMutation.mutate(id))
+    setConfirmDialog(null)
+  }
 
   const importaGanttAI = async (file) => {
     setImportando(true)
@@ -259,6 +269,26 @@ export default function GanttTab({ cantiereId }) {
         </div>
       )}
 
+      {/* ── Dialogo conferma eliminazione (sostituisce confirm() nativo) ── */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/50" onClick={() => setConfirmDialog(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-red-500" />
+              </div>
+              <p className="font-semibold text-gray-900">{confirmDialog.testo}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDialog(null)} className="btn-secondary flex-1">Annulla</button>
+              <button onClick={confermaCancella} className="flex-1 py-2.5 px-4 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-colors">
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {fasi.length === 0 ? (
         <div className="card text-center py-10 text-gray-400">
           <Calendar size={36} className="mx-auto mb-2 opacity-30" />
@@ -275,12 +305,15 @@ export default function GanttTab({ cantiereId }) {
           )}
           <GanttChart fasi={fasi} salList={salList} canWrite={canWrite}
             onEdit={apriModifica}
-            onDelete={id => confirm('Eliminare fase?') && deleteMutation.mutate(id)}
+            onDelete={id => richiediElimina(id)}
             onUpdate={(id, data) => updateMutation.mutate({id, data})}
             tooltipFase={tooltipFase} setTooltipFase={setTooltipFase} />
         </>
       ) : (
-        <ListaFasi fasi={fasi} salList={salList} canWrite={canWrite} onEdit={apriModifica} onDelete={id => confirm('Eliminare fase?') && deleteMutation.mutate(id)} onUpdate={(id, data) => updateMutation.mutate({id, data})} />
+        <ListaFasi fasi={fasi} salList={salList} canWrite={canWrite} onEdit={apriModifica}
+          onDelete={id => richiediElimina(id)}
+          onDeleteMultiple={(ids) => richiediElimina(ids, `Eliminare ${ids.length} fasi selezionate?`)}
+          onUpdate={(id, data) => updateMutation.mutate({id, data})} />
       )}
     </div>
   )
@@ -474,7 +507,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
       {/* Pannello elimina (rivelato dallo swipe) */}
       <div className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center">
         <button
-          onClick={() => { if (confirm('Eliminare questa fase?')) onDelete(f.id) }}
+          onClick={() => onDelete(f.id)}
           className="flex flex-col items-center text-white gap-1"
         >
           <Trash2 size={20} />
@@ -522,7 +555,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
                   <Edit2 size={15} />
                 </button>
                 <button
-                  onClick={e => { e.stopPropagation(); if (confirm('Eliminare questa fase?')) onDelete(f.id) }}
+                  onClick={e => { e.stopPropagation(); onDelete(f.id) }}
                   className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                 >
                   <Trash2 size={15} />
@@ -562,7 +595,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
 }
 
 /* ─── VISTA LISTA ─── */
-function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
+function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onDeleteMultiple, onUpdate }) {
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
   const [modalitaSelect, setModalitaSelect] = useState(false)
   const [selezionati, setSelezionati] = useState(new Set())
@@ -575,8 +608,8 @@ function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
     })
   }
   const eliminaSelezionati = () => {
-    if (!confirm(`Eliminare ${selezionati.size} fase/i selezionate?`)) return
-    selezionati.forEach(id => onDelete(id))
+    const ids = Array.from(selezionati)
+    onDeleteMultiple(ids)
     setSelezionati(new Set())
     setModalitaSelect(false)
   }
