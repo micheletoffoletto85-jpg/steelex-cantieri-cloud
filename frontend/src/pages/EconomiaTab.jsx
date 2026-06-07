@@ -228,6 +228,8 @@ function ComputoSection({ cantiereId, canWrite }) {
   const importInputRef = useRef(null)
   const [ricarico_globale, setRicaricoGlobale] = useState('')
   const [modalita, setModalita] = useState('costo') // 'costo' = costo+ricarico | 'cliente' = prezzi cliente diretti
+  const [showPaste, setShowPaste] = useState(false)
+  const [pasteText, setPasteText] = useState('')
 
   const { data: preventivi = [], isLoading } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
 
@@ -340,6 +342,69 @@ function ComputoSection({ cantiereId, canWrite }) {
     } finally { setImportando(false) }
   }
 
+  const parseNum = s => {
+    if (s == null) return null
+    const n = parseFloat(String(s).replace(/[^\d.,-]/g,'').replace(',','.'))
+    return isNaN(n) ? null : n
+  }
+
+  const elaboraIncolla = () => {
+    if (!pasteText.trim()) return
+    const righe = pasteText.trim().split('\n').map(r => r.split('\t').map(c => c.trim()))
+    // Trova riga intestazione (contiene parole chiave)
+    const KW = ['descri','voce','lavora','u.m.','unità','quant','prezzo','totale','importo']
+    let dataStart = 0
+    let colDesc=-1, colUm=-1, colQt=-1, colPrezzo=-1, colTot=-1
+    for (let i = 0; i < Math.min(5, righe.length); i++) {
+      const joined = righe[i].join(' ').toLowerCase()
+      if (KW.some(k => joined.includes(k))) {
+        righe[i].forEach((h, ci) => {
+          const hl = h.toLowerCase()
+          if (/descri|voce|lavora|oggetto/.test(hl) && colDesc < 0) colDesc = ci
+          else if (/u\.m\.|unità|misura/.test(hl) && colUm < 0) colUm = ci
+          else if (/quant|qta|q\.t/.test(hl) && colQt < 0) colQt = ci
+          else if (/prezzo|p\.u\.|unitario|costo/.test(hl) && colPrezzo < 0) colPrezzo = ci
+          else if (/totale|importo/.test(hl) && colTot < 0) colTot = ci
+        })
+        dataStart = i + 1
+        break
+      }
+    }
+    // Fallback posizionale se non trova intestazione
+    if (colDesc < 0) { colDesc=0; colUm=1; colQt=2; colPrezzo=3; colTot=4 }
+
+    const vv = []
+    for (let i = dataStart; i < righe.length; i++) {
+      const r = righe[i]
+      if (!r.length || r.every(c => !c)) continue
+      const desc = colDesc >= 0 ? r[colDesc] || '' : r[0] || ''
+      if (!desc) continue
+      const qt  = parseNum(colQt >= 0 ? r[colQt] : null) ?? 1
+      const pr  = parseNum(colPrezzo >= 0 ? r[colPrezzo] : null) ?? 0
+      const tot = parseNum(colTot >= 0 ? r[colTot] : null) ?? (qt * pr)
+      const um  = (colUm >= 0 ? r[colUm] : '') || 'cad'
+      vv.push({
+        id: Date.now() + i,
+        descrizione: desc.slice(0, 200),
+        categoria: 'Altro',
+        um,
+        quantita: qt,
+        prezzo_costo: pr,
+        ricarico_perc: 0,
+        prezzo_cliente: pr,
+        totale_costo: tot,
+        totale_cliente: tot,
+        sospetta: false,
+      })
+    }
+    if (!vv.length) { toast.error('Nessuna riga trovata — controlla che il testo sia copiato da Excel'); return }
+    setVociImportate(vv)
+    setRigheSelezionate(new Set(vv.map(v => v.id)))
+    setShowPaste(false)
+    setPasteText('')
+    toast.success(`${vv.length} righe incollate — deseleziona quelle che non vuoi`)
+  }
+
   const _normalizzaVoce = (v, i) => {
     const qt    = parseFloat(v.quantita || v.qt || 1)
     const costo = parseFloat(v.prezzo_costo || v.costo_unitario || 0)
@@ -396,22 +461,48 @@ function ComputoSection({ cantiereId, canWrite }) {
     <div className="space-y-3">
       <MiniRiepilogoLive cantiereId={cantiereId} />
       {canWrite && !showForm && (
-        <div className="flex gap-2">
-          <button onClick={() => setShowForm(true)} className="btn-primary flex-1 flex items-center justify-center gap-2">
-            <Plus size={16} /> Nuovo Computo
-          </button>
-          <label className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 cursor-pointer flex-shrink-0 ${importando?'opacity-50 pointer-events-none':''}`}
-            title="Importa computo da Excel o PDF — Claude pre-analizza le righe">
-            {importando ? <Loader2 size={13} className="animate-spin"/> : <Sparkles size={13}/>}
-            {importando ? 'Lettura...' : 'Importa Excel / PDF'}
-            <input type="file" accept=".xlsx,.xls,.csv,.pdf" className="hidden"
-              disabled={importando} onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
-          </label>
-          <a href="/api/v1/cantieri/template-computo"
-            download className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 flex-shrink-0"
-            title="Scarica il template Excel per l'import">
-            <Download size={13} /> Template
-          </a>
+        <div className="space-y-2">
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => setShowForm(true)} className="btn-primary flex-1 flex items-center justify-center gap-2 min-w-[140px]">
+              <Plus size={16} /> Nuovo Computo
+            </button>
+            <button onClick={() => { setShowPaste(v => !v); setPasteText('') }}
+              className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium border flex-shrink-0 transition-colors ${showPaste ? 'bg-green-100 border-green-400 text-green-800' : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'}`}>
+              <ClipboardList size={13}/> Incolla da Excel
+            </button>
+            <a href="/api/v1/cantieri/template-computo"
+              download className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 flex-shrink-0">
+              <Download size={13} /> Template
+            </a>
+          </div>
+
+          {showPaste && (
+            <div className="card border-2 border-green-300 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-green-900 text-sm">Incolla righe da Excel</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    1. Apri il tuo Excel &nbsp;·&nbsp; 2. Seleziona le righe che vuoi (salta subtotali e alternative) &nbsp;·&nbsp; 3. Copia (Ctrl+C) &nbsp;·&nbsp; 4. Incolla qui sotto
+                  </p>
+                </div>
+                <button onClick={() => setShowPaste(false)} className="text-gray-400 hover:text-gray-600 flex-shrink-0"><X size={16}/></button>
+              </div>
+              <textarea
+                className="w-full h-40 text-xs font-mono border border-gray-200 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-green-300"
+                placeholder="Incolla qui il contenuto copiato da Excel (Ctrl+V)..."
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                onPaste={e => { setTimeout(() => elaboraIncolla(), 50) }}
+              />
+              <div className="flex gap-2">
+                <button onClick={() => setShowPaste(false)} className="btn-secondary flex-1 text-sm">Annulla</button>
+                <button onClick={elaboraIncolla} disabled={!pasteText.trim()}
+                  className="btn-primary flex-1 text-sm disabled:opacity-50 flex items-center justify-center gap-1">
+                  <ClipboardList size={14}/> Importa righe
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
