@@ -585,35 +585,46 @@ async def import_computo_ai(
                 })
                 desc_per_categoria.append(desc_str[:150])
 
-            # Claude assegna SOLO le categorie (niente numeri)
+            # Claude: categorizzazione + rilevamento righe sospette in un solo passaggio
             if voci and settings.ANTHROPIC_API_KEY:
                 import anthropic
                 claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
                 lista_desc = "\n".join(f"{i+1}. {d}" for i,d in enumerate(desc_per_categoria))
-                prompt_cat = f"""Assegna una categoria edile a ciascuna voce di questo computo metrico.
+                prompt_analisi = f"""Analizza queste voci di un computo metrico edile e per ciascuna restituisci:
+1. La categoria edile
+2. Se la riga è "sospetta" (da escludere di default dall'import)
+
 Categorie disponibili: Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro
+
+Una riga è SOSPETTA se sembra:
+- Un subtotale o totale parziale di capitolo
+- Un'intestazione di sezione senza essere una vera voce di lavoro
+- Una voce alternativa/opzionale (contiene parole come "alternativa", "oppure", "in alternativa", "opzione", "variante")
+- Un doppione evidente di una voce precedente (stessa lavorazione, quantità diverse)
+- Una nota o descrizione generica senza valore commerciale
 
 Voci:
 {lista_desc[:6000]}
 
-Rispondi SOLO con un JSON array di stringhe, una categoria per voce, nello stesso ordine.
-Esempio: ["Ponteggi","Materiali","Manodopera",...]
+Rispondi SOLO con un JSON array di oggetti, uno per voce, nello stesso ordine.
+Esempio: [{{"cat":"Ponteggi","sospetta":false}},{{"cat":"Materiali","sospetta":true}}]
 Risposta:"""
                 try:
                     msg = claude.messages.create(
-                        model="claude-haiku-4-5", max_tokens=2000,
-                        messages=[{"role":"user","content":prompt_cat}]
+                        model="claude-haiku-4-5", max_tokens=3000,
+                        messages=[{"role":"user","content":prompt_analisi}]
                     )
-                    raw_cat = msg.content[0].text.strip()
-                    # estrai array JSON
-                    m = _re.search(r'\[.*\]', raw_cat, _re.DOTALL)
+                    raw = msg.content[0].text.strip()
+                    m = _re.search(r'\[.*\]', raw, _re.DOTALL)
                     if m:
-                        categorie = _json.loads(m.group())
-                        for i, cat in enumerate(categorie):
-                            if i < len(voci) and isinstance(cat, str):
-                                voci[i]["categoria"] = cat
+                        analisi = _json.loads(m.group())
+                        for i, a in enumerate(analisi):
+                            if i < len(voci) and isinstance(a, dict):
+                                if isinstance(a.get("cat"), str):
+                                    voci[i]["categoria"] = a["cat"]
+                                voci[i]["sospetta"] = bool(a.get("sospetta", False))
                 except Exception:
-                    pass  # categorie restano "Altro", non blocca
+                    pass  # categorie restano "Altro", sospetta resta False
 
         elif ext == ".csv":
             import csv, io as _io

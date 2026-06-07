@@ -327,9 +327,14 @@ function ComputoSection({ cantiereId, canWrite }) {
       const r = await api.post(`/cantieri/${cantiereId}/preventivi/import-computo`, fd, { headers: {'Content-Type':'multipart/form-data'} })
       const vv = r.data.voci
       setVociImportate(vv)
-      // seleziona tutte le righe di default
-      setRigheSelezionate(new Set(vv.map(v => v.id)))
-      toast.success(`${r.data.totale_voci} righe trovate — deseleziona quelle che non vuoi`)
+      // seleziona di default solo le righe NON sospette
+      const selDefault = new Set(vv.filter(v => !v.sospetta).map(v => v.id))
+      setRigheSelezionate(selDefault)
+      const nSospette = vv.filter(v => v.sospetta).length
+      if (nSospette > 0)
+        toast.success(`${r.data.totale_voci} righe trovate · ${nSospette} sospette escluse automaticamente`)
+      else
+        toast.success(`${r.data.totale_voci} righe trovate — tutte selezionate`)
     } catch(e) {
       toast.error(e.response?.data?.detail || 'Errore import')
     } finally { setImportando(false) }
@@ -395,10 +400,17 @@ function ComputoSection({ cantiereId, canWrite }) {
           <button onClick={() => setShowForm(true)} className="btn-primary flex-1 flex items-center justify-center gap-2">
             <Plus size={16} /> Nuovo Computo
           </button>
+          <label className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 cursor-pointer flex-shrink-0 ${importando?'opacity-50 pointer-events-none':''}`}
+            title="Importa computo da Excel — Claude pre-analizza le righe">
+            {importando ? <Loader2 size={13} className="animate-spin"/> : <Sparkles size={13}/>}
+            {importando ? 'Lettura...' : 'Importa Excel'}
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+              disabled={importando} onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
+          </label>
           <a href="/api/v1/cantieri/template-computo"
             download className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 flex-shrink-0"
             title="Scarica il template Excel per l'import">
-            <Download size={13} /> Template Excel
+            <Download size={13} /> Template
           </a>
         </div>
       )}
@@ -407,9 +419,14 @@ function ComputoSection({ cantiereId, canWrite }) {
       {vociImportate && (
         <div className="card border-2 border-purple-300 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Sparkles size={16} className="text-purple-600" />
-              <h3 className="font-bold text-purple-900">{vociImportate.length} righe trovate nel file</h3>
+              <h3 className="font-bold text-purple-900">{vociImportate.length} righe trovate</h3>
+              {vociImportate.filter(v=>v.sospetta).length > 0 && (
+                <span className="text-xs bg-yellow-100 text-yellow-800 rounded-full px-2 py-0.5 font-medium">
+                  ⚠ {vociImportate.filter(v=>v.sospetta).length} sospette escluse
+                </span>
+              )}
             </div>
             <button onClick={() => { setVociImportate(null); setRigheSelezionate(null) }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
           </div>
@@ -443,12 +460,19 @@ function ComputoSection({ cantiereId, canWrite }) {
                   return (
                     <tr key={v.id}
                       onClick={() => setRigheSelezionate(prev => { const s=new Set(prev); sel?s.delete(v.id):s.add(v.id); return s })}
-                      className={`border-t border-gray-100 cursor-pointer transition-colors ${sel ? 'bg-white hover:bg-orange-50' : 'bg-gray-50 opacity-40 hover:opacity-60'}`}>
+                      className={`border-t border-gray-100 cursor-pointer transition-colors ${
+                        sel
+                          ? v.sospetta ? 'bg-yellow-50 hover:bg-yellow-100' : 'bg-white hover:bg-orange-50'
+                          : 'bg-gray-50 opacity-40 hover:opacity-60'
+                      }`}>
                       <td className="p-2 text-center">
                         <input type="checkbox" readOnly checked={sel} className="accent-orange-500 w-4 h-4" />
                       </td>
                       <td className="p-2">
-                        <p className="font-medium text-gray-900 leading-tight">{v.descrizione || '—'}</p>
+                        <div className="flex items-center gap-1.5 leading-tight">
+                          <p className="font-medium text-gray-900">{v.descrizione || '—'}</p>
+                          {v.sospetta && <span className="flex-shrink-0 text-[10px] font-semibold bg-yellow-200 text-yellow-800 rounded px-1 py-0.5">⚠ sospetta</span>}
+                        </div>
                         <p className="text-gray-400 mt-0.5">{v.categoria}</p>
                       </td>
                       <td className="p-2 text-center text-gray-500">{v.um || '—'}</td>
