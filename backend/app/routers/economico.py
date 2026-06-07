@@ -528,23 +528,48 @@ async def import_computo_ai(
                 desc_str = str(desc or "").replace("\n"," ").strip()
                 desc_low = desc_str.lower()
 
-                # Salta righe inutili
+                # Salta righe completamente vuote
                 if not desc_str and pr_raw is None and tot_raw is None:
                     continue
                 if desc_low in PAROLE_INTESTAZIONE:
                     continue
-                if desc_low in PAROLE_SKIP and not codice:
-                    continue
-                # Salta righe di riepilogo/imposta (anche se hanno un totale)
+                # Righe che sono chiaramente totali generali/IVA: skip totale
                 if any(k in desc_low for k in KEYWORD_RIEPILOGO):
                     continue
-                # Salta righe che sono solo titoli di sezione senza prezzo né qt
+
                 qt_n  = _parse_numero(qt_raw)
                 pr_n  = _parse_numero(pr_raw)
                 tot_n = _parse_numero(tot_raw)
 
+                # Righe subtotale di capitolo (descrizione "TOTALE xxx" con un importo ma senza qt/prezzo unitario)
+                gia_sospetta = False
+                if desc_low in PAROLE_SKIP and not codice:
+                    if tot_n is not None:
+                        # Teniamola ma la marchiamo come sospetta (è un subtotale di capitolo)
+                        gia_sospetta = True
+                    else:
+                        continue
+
+                # Righe intestazione di capitolo senza prezzi → sospette ma utili per contesto
                 if pr_n is None and tot_n is None:
-                    continue  # niente numeri → riga di testo/titolo
+                    if desc_str and len(desc_str) > 3:
+                        gia_sospetta = True
+                        # inserisci come riga sospetta senza numeri
+                        voci.append({
+                            "id": len(voci) + 1,
+                            "descrizione": desc_str[:200],
+                            "categoria": "Altro",
+                            "um": "-",
+                            "quantita": 0.0,
+                            "prezzo_costo": 0.0,
+                            "ricarico_perc": 0.0,
+                            "prezzo_cliente": 0.0,
+                            "totale_costo": 0.0,
+                            "totale_cliente": 0.0,
+                            "sospetta": True,
+                        })
+                        desc_per_categoria.append(desc_str[:150])
+                    continue
 
                 # Calcola totale: usa il valore della colonna se c'è, altrimenti calcola
                 if tot_n is not None:
@@ -582,6 +607,7 @@ async def import_computo_ai(
                     "prezzo_cliente": prezzo_cliente_val,
                     "totale_costo": totale_val,
                     "totale_cliente": totale_cliente_val,
+                    "sospetta": gia_sospetta,
                 })
                 desc_per_categoria.append(desc_str[:150])
 
@@ -623,8 +649,8 @@ Risposta:"""
                                 if isinstance(a.get("cat"), str):
                                     voci[i]["categoria"] = a["cat"]
                                 voci[i]["sospetta"] = bool(a.get("sospetta", False))
-                except Exception:
-                    pass  # categorie restano "Altro", sospetta resta False
+                except Exception as _e_claude:
+                    print(f"[import-computo] Claude error: {_e_claude}")  # visibile nei log Railway
 
         elif ext == ".csv":
             import csv, io as _io
@@ -648,6 +674,7 @@ Risposta:"""
                 voci.append({
                     "id": len(voci)+1, "descrizione": desc_str[:200],
                     "categoria": "Altro", "um": r[1].strip() if len(r)>1 else "cad",
+                    "sospetta": False,
                     "quantita": round(qt_n or 1, 4), "prezzo_costo": pr_v,
                     "ricarico_perc": 0.0, "prezzo_cliente": pr_v,
                     "totale_costo": tot_v, "totale_cliente": tot_v,
