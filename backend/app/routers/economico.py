@@ -463,9 +463,19 @@ async def import_computo_ai(
                    "importo complessivo","sommano","totale parziale","totale ivato",
                    "totale complessivo ivato"}
     PAROLE_INTESTAZIONE = {"descrizione","voce","art.","lavorazione","u.m.","unità"}
-    # keyword che identificano righe di riepilogo/imposta (anche parziali)
     KEYWORD_RIEPILOGO = ["importo totale","importo complessivo","iva ","iva\n",
                          "totale ivato","totale complessivo ivato","sommano euro"]
+    # Keyword Python che marcano una riga sospetta (subtotali, alternativi, ecc.)
+    KW_SOSPETTA = [
+        "totale", "subtotale", "sommano", "importo", "riepilogo",
+        "alternativ", "oppure", "in alternativa", "variante", "opzione",
+        "cap.", "capitolo", "fase ", "sezione", "parte ",
+        "a -", "b -", "c -", "d -",  # intestazioni tipo "A - OPERE STRUTTURALI"
+    ]
+
+    def _is_sospetta_py(desc: str) -> bool:
+        d = desc.lower().strip()
+        return any(k in d for k in KW_SOSPETTA)
 
     voci = []
 
@@ -607,7 +617,7 @@ async def import_computo_ai(
                     "prezzo_cliente": prezzo_cliente_val,
                     "totale_costo": totale_val,
                     "totale_cliente": totale_cliente_val,
-                    "sospetta": gia_sospetta,
+                    "sospetta": gia_sospetta or _is_sospetta_py(desc_str),
                 })
                 desc_per_categoria.append(desc_str[:150])
 
@@ -651,7 +661,8 @@ L'array deve avere ESATTAMENTE {len(desc_per_categoria)} elementi nello stesso o
                             if i < len(voci) and isinstance(a, dict):
                                 if isinstance(a.get("cat"), str):
                                     voci[i]["categoria"] = a["cat"]
-                                voci[i]["sospetta"] = bool(a.get("sospetta", False))
+                                # OR: se Python l'ha già marcata sospetta, non la resetta
+                                voci[i]["sospetta"] = voci[i]["sospetta"] or bool(a.get("sospetta", False))
                     else:
                         print(f"[import-computo] Claude non ha restituito JSON valido: {raw[:200]}")
                 except Exception as _e_claude:
@@ -701,27 +712,40 @@ L'array deve avere ESATTAMENTE {len(desc_per_categoria)} elementi nello stesso o
 
             claude_pdf = _ant.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-            PROMPT_VOCI = """Sei un esperto di computi metrici edili. Analizza questo documento e estrai TUTTE le voci di lavoro/fornitura.
+            # Prompt compatto: usa valori brevi per risparmiare token
+            PROMPT_VOCI = """Sei un esperto di computi metrici edili. Estrai TUTTE le voci di lavoro/fornitura con prezzo.
 
-Per ogni voce restituisci:
-- descrizione: testo della voce (max 200 char)
-- um: unità di misura (mq, ml, mc, cad, kg, ore, corp, ecc.)
-- quantita: numero float (default 1.0)
-- prezzo_cliente: prezzo unitario float (0 se assente)
-- totale_cliente: totale voce float (0 se non calcolabile)
-- categoria: una tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro]
-- sospetta: true se è subtotale/intestazione capitolo/voce alternativa/doppione, false altrimenti
+Formato risposta — array JSON, ogni oggetto:
+{"d":"descrizione max 150 char","u":"um","q":quantita,"p":prezzo_unitario,"t":totale,"c":"categoria","s":bool_sospetta}
 
-IGNORA: copertine, foto, testi descrittivi, condizioni generali, firme, contatti.
-INCLUDI: solo righe con descrizione e prezzo/quantità.
+Categorie: Materiali Manodopera Nolo Servizi Sicurezza Struttura Finiture Impianti Ponteggi Altro
+s=true se: subtotale, intestazione capitolo, voce alternativa, doppione.
+IGNORA: copertine, foto, testi descrittivi, condizioni generali, firme.
 
-Rispondi ESCLUSIVAMENTE con un array JSON valido, senza markdown.
-Esempio: [{"descrizione":"Posa LSF","um":"mq","quantita":120.0,"prezzo_cliente":85.5,"totale_cliente":10260.0,"categoria":"Struttura","sospetta":false}]"""
+Rispondi SOLO con l'array JSON, senza markdown, senza testo aggiuntivo."""
+
+            def _parse_voci_pdf(raw):
+                """Estrae voci dal JSON di Claude, tollerante a troncamenti."""
+                raw = _re.sub(r'^```[a-z]*\s*|\s*```$', '', raw.strip(), flags=_re.MULTILINE).strip()
+                # Prova parsing completo
+                try:
+                    m = _re.search(r'\[.*\]', raw, _re.DOTALL)
+                    if m:
+                        return _json2.loads(m.group())
+                except Exception:
+                    pass
+                # JSON troncato: estrai oggetti completi uno per uno
+                risultati = []
+                for mo in _re.finditer(r'\{[^{}]+\}', raw, _re.DOTALL):
+                    try:
+                        risultati.append(_json2.loads(mo.group()))
+                    except Exception:
+                        pass
+                return risultati
 
             try:
                 if usa_vision:
-                    # Renderizza tutte le pagine come immagini (max 20 per token budget)
-                    mat = _fitz.Matrix(1.5, 1.5)  # 150% zoom → qualità sufficiente
+                    mat = _fitz.Matrix(1.5, 1.5)
                     content_blocks = [{"type": "text", "text": PROMPT_VOCI + "\n\nPagine del documento:"}]
                     for pg_idx, page in enumerate(doc_pdf):
                         if pg_idx >= 20:
@@ -732,45 +756,45 @@ Esempio: [{"descrizione":"Posa LSF","um":"mq","quantita":120.0,"prezzo_cliente":
                             "type": "image",
                             "source": {"type": "base64", "media_type": "image/png", "data": img_b64}
                         })
-                    model_pdf = "claude-sonnet-4-6"  # vision richiede modello capace
+                    model_pdf = "claude-sonnet-4-6"
                 else:
-                    # PDF con testo: manda testo + ask Claude
                     content_blocks = [{"type": "text", "text": PROMPT_VOCI + f"\n\nTesto documento:\n{testo_totale[:14000]}"}]
                     model_pdf = "claude-haiku-4-5"
 
                 doc_pdf.close()
 
                 msg_pdf = claude_pdf.messages.create(
-                    model=model_pdf, max_tokens=6000,
+                    model=model_pdf, max_tokens=16000,  # alto: evita troncamento
                     messages=[{"role": "user", "content": content_blocks}]
                 )
                 raw_pdf = msg_pdf.content[0].text.strip()
-                raw_pdf = _re.sub(r'^```[a-z]*\s*', '', raw_pdf, flags=_re.MULTILINE)
-                raw_pdf = _re.sub(r'```\s*$', '', raw_pdf, flags=_re.MULTILINE).strip()
-                m_pdf = _re.search(r'\[.*\]', raw_pdf, _re.DOTALL)
-                if not m_pdf:
-                    raise HTTPException(400, f"Claude non ha trovato voci nel documento. Risposta: {raw_pdf[:300]}")
-                parsed = _json2.loads(m_pdf.group())
+                parsed = _parse_voci_pdf(raw_pdf)
+                if not parsed:
+                    raise HTTPException(400, f"Claude non ha trovato voci nel documento. Risposta: {raw_pdf[:400]}")
                 for v in parsed:
-                    if not isinstance(v, dict) or not v.get("descrizione"):
+                    if not isinstance(v, dict):
                         continue
-                    qt  = float(v.get("quantita") or 1.0)
-                    pr  = float(v.get("prezzo_cliente") or 0.0)
-                    tot = float(v.get("totale_cliente") or 0.0)
+                    # Supporta sia chiavi lunghe ("descrizione") che corte ("d")
+                    desc = str(v.get("d") or v.get("descrizione") or "").strip()
+                    if not desc:
+                        continue
+                    qt  = float(v.get("q") or v.get("quantita") or 1.0)
+                    pr  = float(v.get("p") or v.get("prezzo_cliente") or 0.0)
+                    tot = float(v.get("t") or v.get("totale_cliente") or 0.0)
                     if tot == 0 and pr > 0:
                         tot = round(qt * pr, 2)
                     voci.append({
                         "id": len(voci) + 1,
-                        "descrizione":    str(v["descrizione"])[:200],
-                        "categoria":      str(v.get("categoria") or "Altro"),
-                        "um":             str(v.get("um") or "cad"),
+                        "descrizione":    desc[:200],
+                        "categoria":      str(v.get("c") or v.get("categoria") or "Altro"),
+                        "um":             str(v.get("u") or v.get("um") or "cad"),
                         "quantita":       round(qt, 4),
                         "prezzo_costo":   round(pr, 2),
                         "ricarico_perc":  0.0,
                         "prezzo_cliente": round(pr, 2),
                         "totale_costo":   round(tot, 2),
                         "totale_cliente": round(tot, 2),
-                        "sospetta":       bool(v.get("sospetta", False)),
+                        "sospetta":       bool(v.get("s") or v.get("sospetta", False)),
                     })
             except HTTPException:
                 raise
