@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AuthProvider, useAuth } from './lib/auth'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -16,17 +16,28 @@ function PrivateRoute({ children }) {
   return children
 }
 
-export default function App() {
+function AppContent() {
+  const { utente } = useAuth()
+  const prevUtente = useRef(undefined)
+
   const [splash, setSplash] = useState(() => {
-    // mostra splash solo alla prima apertura per sessione
     const visto = sessionStorage.getItem('splash_done')
     if (visto) return false
     sessionStorage.setItem('splash_done', '1')
     return true
   })
 
+  useEffect(() => {
+    // mostra splash quando si completa il login (utente passa da null → valore)
+    if (utente && prevUtente.current === null && sessionStorage.getItem('splash_login')) {
+      sessionStorage.removeItem('splash_login')
+      setSplash(true)
+    }
+    prevUtente.current = utente ?? null
+  }, [utente])
+
   return (
-    <AuthProvider>
+    <>
       {splash && <SplashScreen onDone={() => setSplash(false)} />}
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -37,6 +48,14 @@ export default function App() {
           <Route path="utenti" element={<UtentiPage />} />
         </Route>
       </Routes>
+    </>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
     </AuthProvider>
   )
 }

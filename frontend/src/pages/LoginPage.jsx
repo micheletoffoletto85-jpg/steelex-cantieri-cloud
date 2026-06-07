@@ -15,6 +15,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await login(email, password)
+      sessionStorage.setItem('splash_login', '1')
       navigate('/')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Credenziali errate')
