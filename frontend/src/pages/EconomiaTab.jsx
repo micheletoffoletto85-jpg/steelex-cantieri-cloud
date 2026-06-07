@@ -363,44 +363,57 @@ function ComputoSection({ cantiereId, canWrite }) {
     if (!src.trim()) return
     const righe = src.trim().split('\n').map(r => r.split('\t').map(c => c.trim()))
 
-    // ── Rileva intestazione ──────────────────────────────────────────
-    const KW = ['descri','voce','lavora','u.m.','unità','quant','prezzo','costo','totale','importo','articol']
+    // ── Intestazione SOLO se riga con celle CORTE e parole chiave ────
+    // (evita di scambiare descrizioni lunghe per header)
+    const KW_HEADER = ['u.m.','unità','quant','prezzo','costo unit','totale','importo']
     let dataStart = 0
-    let colDesc=-1, colUm=-1, colQt=-1, colPrezzo=-1, colTot=-1, colCodice=-1
+    let colDesc=0, colUm=-1, colQt=-1, colPrezzo=-1, colTot=-1
     let intestazione = null
 
-    for (let i = 0; i < Math.min(8, righe.length); i++) {
-      const joined = righe[i].join(' ').toLowerCase()
-      if (KW.some(k => joined.includes(k))) {
-        intestazione = righe[i]
-        righe[i].forEach((h, ci) => {
-          const hl = h.toLowerCase().replace(/[^a-z0-9.]/g,'')
-          if (/codice|cod|art/.test(hl) && colCodice < 0) colCodice = ci
-          if (/descri|voce|lavora|oggetto|lavoraz/.test(hl) && colDesc < 0) colDesc = ci
-          if (/um|unita|misura/.test(hl) && colUm < 0) colUm = ci
-          if (/quant|qta|qt/.test(hl) && colQt < 0) colQt = ci
-          if (/prezzo|pu|unitario|costounit/.test(hl) && colPrezzo < 0) colPrezzo = ci
-          if (/totale|importo|tot/.test(hl) && colTot < 0) colTot = ci
+    for (let i = 0; i < Math.min(5, righe.length); i++) {
+      const riga = righe[i]
+      // Riga header = tutte celle corte (< 40 char) E contiene keyword
+      const tuttoCorto = riga.every(c => c.length < 40)
+      const haKw = KW_HEADER.some(k => riga.join(' ').toLowerCase().includes(k))
+      if (tuttoCorto && haKw) {
+        intestazione = riga
+        riga.forEach((h, ci) => {
+          const hl = h.toLowerCase().replace(/[^a-z0-9.]/g, '')
+          if (/descri|voce|lavora|oggetto/.test(hl) && ci > 0) colDesc = ci
+          if (/um|unita|misura/.test(hl)) colUm = ci
+          if (/quant|qta|qt/.test(hl)) colQt = ci
+          if (/prezzo|pu|unitario|costounit/.test(hl)) colPrezzo = ci
+          if (/totale|importo|tot/.test(hl)) colTot = ci
         })
         dataStart = i + 1
         break
       }
     }
 
-    // ── Fallback: analisi prima riga dati per capire la struttura ──
-    if (colDesc < 0) {
-      // Trova colonna più lunga (testo) = descrizione; ultime colonne numeriche = prezzo/totale
-      const primaRiga = righe[dataStart] || righe[0] || []
-      const numCols = primaRiga.length
-      // Colonna con testo più lungo = descrizione
-      let maxLen = 0
-      primaRiga.forEach((c, ci) => { if (c.length > maxLen) { maxLen = c.length; colDesc = ci } })
-      // Ultime due colonne numeriche = prezzo, totale
-      const numIdx = []
-      primaRiga.forEach((c, ci) => { if (parseNum(c) !== null) numIdx.push(ci) })
-      if (numIdx.length >= 2) { colPrezzo = numIdx[numIdx.length-2]; colTot = numIdx[numIdx.length-1] }
-      else if (numIdx.length === 1) { colTot = numIdx[0] }
-      if (numIdx.length >= 3) colQt = numIdx[0]
+    // ── Se nessun header trovato: rileva struttura dalle righe dati ──
+    if (!intestazione) {
+      // Scansiona le prime 5 righe non vuote e conta i pattern numerici per colonna
+      const campione = righe.filter(r => r.some(c => c)).slice(0, 8)
+      const nCols = Math.max(...campione.map(r => r.length), 0)
+      // Per ogni colonna conta quante righe hanno un numero valido
+      const numCount = Array(nCols).fill(0)
+      campione.forEach(r => r.forEach((c, ci) => { if (parseNum(c) !== null) numCount[ci]++ }))
+      // Colonne numeriche = quelle con almeno il 40% di valori numerici
+      const soglia = Math.max(1, Math.floor(campione.length * 0.4))
+      const colNum = numCount.map((n,i) => n >= soglia ? i : -1).filter(i => i >= 0)
+      // Struttura tipica STEELEX: [desc, um, qt, prezzo_unit, totale]
+      // col 0 = descrizione (testo lungo), poi opzionalmente um (corto), poi numeri
+      colDesc = 0
+      if (colNum.length >= 3) { colQt = colNum[0]; colPrezzo = colNum[colNum.length-2]; colTot = colNum[colNum.length-1] }
+      else if (colNum.length === 2) { colPrezzo = colNum[0]; colTot = colNum[1] }
+      else if (colNum.length === 1) { colTot = colNum[0] }
+      // U.M. = prima colonna corta non numerica dopo la descrizione
+      campione.forEach(r => {
+        for (let ci = 1; ci < r.length; ci++) {
+          if (colNum.includes(ci)) break
+          if (r[ci] && r[ci].length <= 6 && parseNum(r[ci]) === null) { colUm = ci; break }
+        }
+      })
     }
 
     // ── Debug info ──────────────────────────────────────────────────
