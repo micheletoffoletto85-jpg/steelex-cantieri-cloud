@@ -14,9 +14,8 @@ export default function Layout() {
   const { utente, logout } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [notifiche, setNotifiche] = useState(null) // null=non verificato, true=attive, false=disattive
+  const [notifiche, setNotifiche] = useState(null)
 
-  // Verifica stato notifiche all'avvio
   useEffect(() => {
     if (!supportaNotifiche()) return
     if (!['admin', 'capo_cantiere', 'fornitore'].includes(utente?.ruolo)) return
@@ -32,8 +31,8 @@ export default function Layout() {
     } else {
       const ok = await registraPushNotifications()
       setNotifiche(ok)
-      if (ok) alert('✅ Notifiche attivate! Riceverai aggiornamenti dai tuoi cantieri.')
-      else alert('⚠️ Non è stato possibile attivare le notifiche. Verifica i permessi del browser.')
+      if (ok) alert('✅ Notifiche attivate!')
+      else alert('⚠️ Non è stato possibile attivare le notifiche.')
     }
   }
 
@@ -41,37 +40,32 @@ export default function Layout() {
   const mostraNotificheBell = supportaNotifiche() && ['admin', 'capo_cantiere', 'fornitore'].includes(utente?.ruolo)
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="bg-steelex-dark text-white px-4 py-3 flex items-center justify-between shadow-lg sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-steelex-orange rounded-lg flex items-center justify-center font-black text-white text-sm">S</div>
-          <span className="font-bold text-lg tracking-wide">STEELEX Cantieri</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-300 hidden sm:block">{utente?.nome} {utente?.cognome}</span>
-          {/* Pulsante notifiche */}
+    <div className="min-h-screen flex flex-col bg-gray-50">
+
+      {/* Header mobile (sm e sotto) */}
+      <header className="sm:hidden bg-steelex-dark text-white px-4 py-3 flex items-center justify-between shadow-lg sticky top-0 z-50">
+        <img src="/logo-steelex.png" alt="Steelex" className="h-7" />
+        <div className="flex items-center gap-1">
           {mostraNotificheBell && (
             <button onClick={toggleNotifiche}
-              className={`p-2 rounded-lg transition-colors ${notifiche ? 'text-steelex-orange hover:bg-white/10' : 'text-gray-400 hover:bg-white/10'}`}
-              title={notifiche ? 'Notifiche attive — clicca per disattivare' : 'Attiva notifiche push'}>
+              className={`p-2 rounded-lg transition-colors ${notifiche ? 'text-steelex-orange' : 'text-gray-400'}`}>
               {notifiche ? <Bell size={20} /> : <BellOff size={20} />}
             </button>
           )}
           <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
             <LogOut size={20} />
           </button>
-          <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 hover:bg-white/10 rounded-lg transition-colors sm:hidden">
+          <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
       </header>
 
-      <div className="flex flex-1">
-        {/* Sidebar desktop */}
-        <nav className="hidden sm:flex flex-col w-56 bg-white border-r border-gray-200 p-3 gap-1">
+      {/* Menu mobile */}
+      {menuOpen && (
+        <div className="sm:hidden absolute top-14 left-0 right-0 bg-white border-b border-gray-200 p-3 z-40 flex flex-col gap-1 shadow-lg">
           {navItems.filter(i => !i.adminOnly || utente?.ruolo === 'admin').map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end}
+            <NavLink key={to} to={to} end={end} onClick={() => setMenuOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-colors ${isActive ? 'bg-steelex-orange text-white' : 'text-gray-700 hover:bg-gray-100'}`
               }>
@@ -79,26 +73,65 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
-        </nav>
+        </div>
+      )}
 
-        {/* Menu mobile */}
-        {menuOpen && (
-          <div className="absolute top-14 left-0 right-0 bg-white border-b border-gray-200 p-3 z-40 sm:hidden flex flex-col gap-1">
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Sidebar desktop */}
+        <aside className="hidden sm:flex flex-col w-60 bg-steelex-dark text-white flex-shrink-0 sticky top-0 h-screen">
+
+          {/* Logo */}
+          <div className="px-5 py-5 border-b border-white/10">
+            <img src="/logo-steelex.png" alt="Steelex Cantieri" className="h-8" />
+          </div>
+
+          {/* Nav */}
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
             {navItems.filter(i => !i.adminOnly || utente?.ruolo === 'admin').map(({ to, label, icon: Icon, end }) => (
-              <NavLink key={to} to={to} end={end} onClick={() => setMenuOpen(false)}
+              <NavLink key={to} to={to} end={end}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-colors ${isActive ? 'bg-steelex-orange text-white' : 'text-gray-700 hover:bg-gray-100'}`
+                  `flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors text-sm ${
+                    isActive
+                      ? 'bg-steelex-orange text-white shadow-sm'
+                      : 'text-gray-300 hover:bg-white/10 hover:text-white'
+                  }`
                 }>
-                <Icon size={20} />
+                <Icon size={18} />
                 {label}
               </NavLink>
             ))}
+          </nav>
+
+          {/* Footer sidebar: utente + azioni */}
+          <div className="p-3 border-t border-white/10 space-y-1">
+            {mostraNotificheBell && (
+              <button onClick={toggleNotifiche}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                  notifiche ? 'text-steelex-orange hover:bg-white/10' : 'text-gray-400 hover:bg-white/10 hover:text-white'
+                }`}>
+                {notifiche ? <Bell size={18} /> : <BellOff size={18} />}
+                {notifiche ? 'Notifiche attive' : 'Attiva notifiche'}
+              </button>
+            )}
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/10 cursor-pointer group" onClick={handleLogout}>
+              <div className="w-7 h-7 rounded-full bg-steelex-orange flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {(utente?.nome?.[0] || '?').toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">{utente?.nome} {utente?.cognome}</p>
+                <p className="text-xs text-gray-400 capitalize">{utente?.ruolo?.replace('_', ' ')}</p>
+              </div>
+              <LogOut size={15} className="text-gray-400 group-hover:text-white flex-shrink-0" />
+            </div>
           </div>
-        )}
+        </aside>
 
         {/* Contenuto principale */}
-        <main className="flex-1 p-4 overflow-auto">
-          <Outlet />
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-screen-xl mx-auto p-4 sm:p-6 lg:p-8">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

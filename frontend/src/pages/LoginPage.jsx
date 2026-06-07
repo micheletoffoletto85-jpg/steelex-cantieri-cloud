@@ -28,10 +28,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-steelex-orange rounded-2xl mb-4 shadow-lg">
-            <span className="text-white font-black text-2xl">S</span>
-          </div>
-          <h1 className="text-white text-2xl font-bold">STEELEX Cantieri</h1>
+          <img src="/logo-steelex.png" alt="Steelex" className="h-12 mx-auto mb-4" />
           <p className="text-gray-400 text-sm mt-1">Gestione cantieri professionale</p>
         </div>
 

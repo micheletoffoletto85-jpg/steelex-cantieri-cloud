@@ -1,6 +1,6 @@
 import { useQuery } from 'react-query'
 import { Link } from 'react-router-dom'
-import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle } from 'lucide-react'
+import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, Plus } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -43,53 +43,77 @@ export default function DashboardPage() {
   const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
+      {/* Intestazione */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Ciao, {utente?.nome} 👋</h1>
         <p className="text-gray-500 text-sm">Ecco la situazione dei cantieri oggi</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon={HardHat} label="Totale Cantieri" value={stats.totale} color="orange" />
-        <StatCard icon={Clock} label="In Corso" value={stats.in_corso} color="blue" />
-        <StatCard icon={CheckCircle} label="Completati" value={stats.completati} color="green" />
-        <StatCard icon={TrendingUp} label="Avanzamento Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
-      </div>
+      {/* Layout desktop: 2 colonne | mobile: stack */}
+      <div className="lg:grid lg:grid-cols-3 lg:gap-6 space-y-6 lg:space-y-0">
 
-      {/* Cantieri recenti */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-gray-800">Cantieri Recenti</h2>
-          <Link to="/cantieri" className="text-steelex-orange text-sm font-medium">Vedi tutti →</Link>
-        </div>
-        {cantieri.length === 0 ? (
-          <div className="card text-center py-8 text-gray-400">
-            <HardHat size={40} className="mx-auto mb-2 opacity-30" />
-            <p>Nessun cantiere ancora</p>
-            <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
+        {/* Colonna sinistra: stats + azioni rapide */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard icon={HardHat} label="Totale Cantieri" value={stats.totale} color="orange" />
+            <StatCard icon={Clock} label="In Corso" value={stats.in_corso} color="blue" />
+            <StatCard icon={CheckCircle} label="Completati" value={stats.completati} color="green" />
+            <StatCard icon={TrendingUp} label="Avanz. Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
           </div>
-        ) : (
-          <div className="space-y-2">
-            {cantieriRecenti.map(c => (
-              <Link key={c.id} to={`/cantieri/${c.id}`} className="card flex items-center gap-3 hover:border-steelex-orange border-2 border-transparent transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
-                  <p className="text-sm text-gray-500 truncate">{c.cliente}{c.citta ? ` — ${c.citta}` : ''}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_BADGE[c.stato]}`}>{STATO_LABEL_DASH[c.stato]}</span>
-                  <div className="text-right hidden sm:block">
-                    <div className="text-steelex-orange font-bold text-sm">{c.avanzamento}%</div>
-                    <div className="w-16 bg-gray-200 rounded-full h-1.5 mt-1">
-                      <div className="bg-steelex-orange h-1.5 rounded-full" style={{ width: `${c.avanzamento}%` }} />
+
+          {/* Azioni rapide — solo desktop */}
+          <div className="hidden lg:block card space-y-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Azioni rapide</p>
+            <Link to="/cantieri" className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
+              <HardHat size={16} className="text-steelex-orange" /> Vai ai cantieri
+            </Link>
+            <Link to="/cantieri" state={{ nuovo: true }} className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
+              <AlertCircle size={16} className="text-blue-500" /> Nuovo cantiere
+            </Link>
+          </div>
+        </div>
+
+        {/* Colonna destra: cantieri recenti */}
+        <div className="lg:col-span-2">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-gray-800">Cantieri Recenti</h2>
+            <Link to="/cantieri" className="text-steelex-orange text-sm font-medium">Vedi tutti →</Link>
+          </div>
+          {cantieri.length === 0 ? (
+            <div className="card text-center py-8 text-gray-400">
+              <HardHat size={40} className="mx-auto mb-2 opacity-30" />
+              <p>Nessun cantiere ancora</p>
+              <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cantieriRecenti.map(c => (
+                <Link key={c.id} to={`/cantieri/${c.id}`}
+                  className="card flex items-center gap-3 hover:border-steelex-orange border-2 border-transparent transition-colors">
+                  <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+                    <HardHat size={18} className="text-steelex-orange" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
+                    <p className="text-sm text-gray-500 truncate">{c.cliente}{c.citta ? ` — ${c.citta}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_BADGE[c.stato]}`}>
+                      {STATO_LABEL_DASH[c.stato]}
+                    </span>
+                    <div className="text-right hidden sm:block w-16">
+                      <div className="text-steelex-orange font-bold text-sm">{c.avanzamento}%</div>
+                      <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                        <div className="bg-steelex-orange h-1.5 rounded-full transition-all" style={{ width: `${c.avanzamento}%` }} />
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
