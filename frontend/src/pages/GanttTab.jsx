@@ -4,7 +4,7 @@
  */
 import { useState, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2 } from 'lucide-react'
+import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -453,119 +453,183 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, toolt
   )
 }
 
-/* ─── HOOK LONG PRESS ─── */
-function useLongPress(callback, ms = 500) {
-  const timer = useRef(null)
-  const start = (e) => {
-    // Previene selezione testo su mobile
-    e.preventDefault()
-    timer.current = setTimeout(callback, ms)
+
+/* ─── VISTA LISTA — card singola con swipe-to-delete ─── */
+function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, selezionato, modalitaSelect }) {
+  const oggi = dayjs()
+  const statoInfo = STATO_FASE[f.stato] || STATO_FASE.pianificata
+  const ritardo = f.data_fine_prevista && dayjs(f.data_fine_prevista).isBefore(oggi) && f.percentuale < 100
+  const touchStartX = useRef(0)
+  const [swiped, setSwiped] = useState(false)
+
+  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX }
+  const handleTouchEnd = (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX.current
+    if (dx < -55) setSwiped(true)
+    else if (dx > 20) setSwiped(false)
   }
-  const stop = () => { clearTimeout(timer.current) }
-  return { onTouchStart: start, onTouchEnd: stop, onTouchMove: stop, onMouseDown: start, onMouseUp: stop, onMouseLeave: stop }
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl" style={{ background: '#ef4444' }}>
+      {/* Pannello elimina (rivelato dallo swipe) */}
+      <div className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center">
+        <button
+          onClick={() => { if (confirm('Eliminare questa fase?')) onDelete(f.id) }}
+          className="flex flex-col items-center text-white gap-1"
+        >
+          <Trash2 size={20} />
+          <span className="text-xs font-medium">Elimina</span>
+        </button>
+      </div>
+
+      {/* Card principale */}
+      <div
+        className={`bg-white rounded-2xl space-y-2 select-none p-4 transition-transform duration-200 ${swiped ? '-translate-x-20' : 'translate-x-0'} ${selezionato ? 'ring-2 ring-steelex-orange' : ''}`}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onClick={() => { if (modalitaSelect) onSelect(f.id) }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          {/* Checkbox selezione multipla */}
+          {modalitaSelect && canWrite && (
+            <input type="checkbox" checked={!!selezionato} onChange={() => onSelect(f.id)}
+              className="w-5 h-5 accent-steelex-orange flex-shrink-0 mt-0.5" onClick={e => e.stopPropagation()} />
+          )}
+
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-4 h-4 rounded-sm flex-shrink-0 mt-0.5" style={{ background: f.colore || '#ccc' }} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="font-semibold text-gray-900 truncate">{f.nome}</p>
+                {f.visibile_cliente && (
+                  <span title="Visibile al cliente" className="flex-shrink-0">
+                    <Eye size={12} className="text-blue-500" />
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400">{f.categoria} {sal ? `• SAL #${sal.numero}` : ''}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statoInfo.bg}`}>{statoInfo.label}</span>
+            {canWrite && !modalitaSelect && (
+              <>
+                <button
+                  onClick={e => { e.stopPropagation(); onEdit(f) }}
+                  className="p-1.5 text-gray-400 hover:text-steelex-orange hover:bg-orange-50 rounded-lg transition-colors"
+                >
+                  <Edit2 size={15} />
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); if (confirm('Eliminare questa fase?')) onDelete(f.id) }}
+                  className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Barra avanzamento */}
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>{fmtD(f.data_inizio)} → {fmtD(f.data_fine_prevista)}</span>
+            <span className={`font-medium ${ritardo ? 'text-red-500' : 'text-steelex-orange'}`}>{f.percentuale}%</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-2">
+            <div className="h-2 rounded-full transition-all" style={{ width: `${f.percentuale}%`, background: f.colore || '#FF6B00' }} />
+          </div>
+          {ritardo && <p className="text-xs text-red-500">⚠️ In ritardo di {oggi.diff(dayjs(f.data_fine_prevista), 'day')} giorni</p>}
+        </div>
+
+        {/* Aggiorna % rapido */}
+        {canWrite && !modalitaSelect && f.percentuale < 100 && (
+          <div className="flex gap-1 flex-wrap">
+            {[25, 50, 75, 100].filter(p => p > f.percentuale).map(p => (
+              <button key={p}
+                onClick={e => { e.stopPropagation(); onUpdate(f.id, { percentuale: p }) }}
+                className="text-xs px-2 py-1 bg-gray-100 hover:bg-steelex-orange hover:text-white rounded-lg transition-colors">
+                → {p}%
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /* ─── VISTA LISTA ─── */
 function ListaFasi({ fasi, salList, canWrite, onEdit, onDelete, onUpdate }) {
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
-  const oggi = dayjs()
-  const [dettaglio, setDettaglio] = useState(null)
+  const [modalitaSelect, setModalitaSelect] = useState(false)
+  const [selezionati, setSelezionati] = useState(new Set())
+
+  const toggleSelect = (id) => {
+    setSelezionati(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  const eliminaSelezionati = () => {
+    if (!confirm(`Eliminare ${selezionati.size} fase/i selezionate?`)) return
+    selezionati.forEach(id => onDelete(id))
+    setSelezionati(new Set())
+    setModalitaSelect(false)
+  }
 
   return (
     <div className="space-y-2">
-      {/* Modale dettaglio fase (long press) */}
-      {dettaglio && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/50" onClick={() => setDettaglio(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-            {/* Header colorato */}
-            <div className="p-4" style={{ background: dettaglio.colore || '#FF6B00' }}>
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="font-bold text-white text-lg leading-snug">{dettaglio.nome}</h2>
-                <button onClick={() => setDettaglio(null)} className="text-white/80 hover:text-white flex-shrink-0 mt-0.5"><X size={20} /></button>
-              </div>
-              <span className="text-xs text-white/80 mt-1 inline-block">{dettaglio.categoria}</span>
-            </div>
-            {/* Dettagli */}
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-xs text-gray-400">Inizio</p><p className="font-semibold">{fmtDFull(dettaglio.data_inizio) || '—'}</p></div>
-                <div><p className="text-xs text-gray-400">Fine prevista</p><p className="font-semibold">{fmtDFull(dettaglio.data_fine_prevista) || '—'}</p></div>
-                {dettaglio.data_fine_reale && <div><p className="text-xs text-gray-400">Fine reale</p><p className="font-semibold text-green-600">{fmtDFull(dettaglio.data_fine_reale)}</p></div>}
-                <div><p className="text-xs text-gray-400">Avanzamento</p><p className="font-bold text-steelex-orange text-lg">{dettaglio.percentuale}%</p></div>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-3">
-                <div className="h-3 rounded-full" style={{ width: `${dettaglio.percentuale}%`, background: dettaglio.colore || '#FF6B00' }} />
-              </div>
-              {dettaglio.sal_id && salMap[dettaglio.sal_id] && (
-                <p className="text-xs text-blue-600">🔗 SAL #{salMap[dettaglio.sal_id].numero} — {salMap[dettaglio.sal_id].titolo}</p>
-              )}
-              {dettaglio.note && <p className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3 italic">{dettaglio.note}</p>}
-              {canWrite && (
-                <div className="flex gap-2 pt-1">
-                  <button onClick={() => { onEdit(dettaglio); setDettaglio(null) }} className="btn-primary flex-1 flex items-center justify-center gap-2">
-                    <Edit2 size={15} /> Modifica
+      {/* Toolbar selezione multipla */}
+      {canWrite && (
+        <div className="flex items-center justify-between">
+          {modalitaSelect ? (
+            <>
+              <p className="text-sm text-gray-600 font-medium">
+                {selezionati.size > 0 ? `${selezionati.size} selezionate` : 'Tocca per selezionare'}
+              </p>
+              <div className="flex gap-2">
+                {selezionati.size > 0 && (
+                  <button onClick={eliminaSelezionati}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded-xl text-sm font-medium">
+                    <Trash2 size={14} /> Elimina ({selezionati.size})
                   </button>
-                  <button onClick={() => { if (confirm('Eliminare fase?')) { onDelete(dettaglio.id); setDettaglio(null) } }} className="px-4 py-2 rounded-xl text-red-500 border border-red-200 hover:bg-red-50 text-sm font-medium">
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              )}
+                )}
+                <button onClick={() => { setModalitaSelect(false); setSelezionati(new Set()) }}
+                  className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-sm font-medium">
+                  Annulla
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 ml-auto">
+              <p className="text-xs text-gray-400 hidden sm:block">← Scorri per eliminare</p>
+              <button onClick={() => setModalitaSelect(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
+                <Users size={13} /> Seleziona
+              </button>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {fasi.map(f => {
-        const sal = f.sal_id ? salMap[f.sal_id] : null
-        const statoInfo = STATO_FASE[f.stato] || STATO_FASE.pianificata
-        const ritardo = f.data_fine_prevista && dayjs(f.data_fine_prevista).isBefore(oggi) && f.percentuale < 100
-        const longPressProps = useLongPress(() => setDettaglio(f))
-
-        return (
-          <div key={f.id} className="card space-y-2 select-none" {...longPressProps}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <div className="w-4 h-4 rounded-sm flex-shrink-0 mt-0.5" style={{ background: f.colore || '#ccc' }} />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{f.nome}</p>
-                  <p className="text-xs text-gray-400">{f.categoria} {sal ? `• SAL #${sal.numero}` : ''}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statoInfo.bg}`}>{statoInfo.label}</span>
-                {canWrite && <>
-                  <button onClick={() => onEdit(f)} className="p-1 text-gray-400 hover:text-steelex-orange"><Edit2 size={14} /></button>
-                  <button onClick={() => onDelete(f.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
-                </>}
-              </div>
-            </div>
-
-            {/* Barra avanzamento */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>{fmtD(f.data_inizio)} → {fmtD(f.data_fine_prevista)}</span>
-                <span className={`font-medium ${ritardo ? 'text-red-500' : 'text-steelex-orange'}`}>{f.percentuale}%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className="h-2 rounded-full transition-all" style={{ width: `${f.percentuale}%`, background: f.colore || '#FF6B00' }} />
-              </div>
-              {ritardo && <p className="text-xs text-red-500">⚠️ In ritardo di {oggi.diff(dayjs(f.data_fine_prevista),'day')} giorni</p>}
-            </div>
-
-            {/* Aggiorna % rapido */}
-            {canWrite && f.percentuale < 100 && (
-              <div className="flex gap-1 flex-wrap">
-                {[25,50,75,100].filter(p => p > f.percentuale).map(p => (
-                  <button key={p} onClick={() => onUpdate(f.id, { percentuale: p })}
-                    className="text-xs px-2 py-1 bg-gray-100 hover:bg-steelex-orange hover:text-white rounded-lg transition-colors">
-                    → {p}%
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })}
+      {fasi.map(f => (
+        <FaseCard
+          key={f.id}
+          f={f}
+          sal={f.sal_id ? salMap[f.sal_id] : null}
+          canWrite={canWrite}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onUpdate={onUpdate}
+          onSelect={toggleSelect}
+          selezionato={selezionati.has(f.id)}
+          modalitaSelect={modalitaSelect}
+        />
+      ))}
     </div>
   )
 }
