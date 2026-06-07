@@ -128,9 +128,15 @@ export default function Layout() {
         </aside>
 
         {/* Contenuto principale */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-4 sm:p-6">
+        <main className="flex-1 overflow-y-auto flex flex-col">
+          <div className="p-4 sm:p-6 flex-1">
             <Outlet />
+          </div>
+          {/* Firma in fondo ad ogni pagina */}
+          <div className="px-4 pb-4 pt-2 text-center">
+            <p className="text-[10px] text-gray-300 tracking-wide">
+              Powered by <span className="font-medium text-gray-400">Geom. Michele Toffoletto</span>
+            </p>
           </div>
         </main>
       </div>

@@ -16,19 +16,37 @@ function PrivateRoute({ children }) {
   return children
 }
 
-// Variabile modulo: si azzera ad ogni fresh load (ricarica pagina / apertura PWA)
-// Rimane true solo durante la navigazione interna nella stessa sessione JS
+// Variabile modulo: per browser normali (si azzera ad ogni fresh load)
 let _splashMostrato = false
+
+function _deveVedereSplash() {
+  // Su iOS PWA (standalone), WebKit sospende l'app invece di ricaricarla
+  // → la variabile modulo rimane true. Usiamo un timestamp per detectare nuova apertura.
+  const isStandalone = !!(window.navigator.standalone ||
+    window.matchMedia('(display-mode: standalone)').matches)
+
+  if (isStandalone) {
+    const ultima = parseInt(sessionStorage.getItem('splash_ts') || '0')
+    const ora = Date.now()
+    const SOGLIA_MS = 45_000  // 45 secondi = sicuramente nuova apertura
+    if (ora - ultima > SOGLIA_MS) {
+      sessionStorage.setItem('splash_ts', String(ora))
+      return true
+    }
+    return false
+  }
+
+  // Browser normale
+  if (_splashMostrato) return false
+  _splashMostrato = true
+  return true
+}
 
 function AppContent() {
   const { utente } = useAuth()
   const prevUtente = useRef(undefined)
 
-  const [splash, setSplash] = useState(() => {
-    if (_splashMostrato) return false
-    _splashMostrato = true
-    return true
-  })
+  const [splash, setSplash] = useState(() => _deveVedereSplash())
 
   useEffect(() => {
     // mostra splash quando si completa il login (utente passa da null → valore)
