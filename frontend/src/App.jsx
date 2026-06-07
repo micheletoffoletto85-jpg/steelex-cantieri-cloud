@@ -16,14 +16,17 @@ function PrivateRoute({ children }) {
   return children
 }
 
+// Variabile modulo: si azzera ad ogni fresh load (ricarica pagina / apertura PWA)
+// Rimane true solo durante la navigazione interna nella stessa sessione JS
+let _splashMostrato = false
+
 function AppContent() {
   const { utente } = useAuth()
   const prevUtente = useRef(undefined)
 
   const [splash, setSplash] = useState(() => {
-    const visto = sessionStorage.getItem('splash_done')
-    if (visto) return false
-    sessionStorage.setItem('splash_done', '1')
+    if (_splashMostrato) return false
+    _splashMostrato = true
     return true
   })
 
