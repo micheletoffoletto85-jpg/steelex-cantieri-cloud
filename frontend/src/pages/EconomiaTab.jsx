@@ -753,10 +753,18 @@ function ComputoSection({ cantiereId, canWrite }) {
 function SpeseSection({ cantiereId, canWrite }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
+  const [editSpesaId, setEditSpesaId] = useState(null)
   const [uploadingFor, setUploadingFor] = useState(null)
   const [analizzando, setAnalizzando] = useState(false)
   const [form, setForm] = useState({ descrizione:'', fornitore:'', categoria:'materiali', importo:'', data:'', note:'' })
   const set = (k,v) => setForm(f => ({...f,[k]:v}))
+
+  const apriModificaSpesa = (s) => {
+    setEditSpesaId(s.id)
+    setForm({ descrizione: s.descrizione, fornitore: s.fornitore||'', categoria: s.categoria||'materiali', importo: String(s.importo), data: s.data||'', note: s.note||'' })
+    setShowForm(true)
+  }
+  const chiudiFormSpesa = () => { setShowForm(false); setEditSpesaId(null); setForm({ descrizione:'', fornitore:'', categoria:'materiali', importo:'', data:'', note:'' }) }
 
   const analizzaFottura = async (file) => {
     setAnalizzando(true)
@@ -789,13 +797,23 @@ function SpeseSection({ cantiereId, canWrite }) {
 
   const createMutation = useMutation(
     d => api.post(`/cantieri/${cantiereId}/spese`, d),
-    { onSuccess: () => { qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); setShowForm(false); setForm({descrizione:'',fornitore:'',categoria:'materiali',importo:'',data:'',note:''}); toast.success('Spesa registrata!') },
+    { onSuccess: () => { qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); chiudiFormSpesa(); toast.success('Spesa registrata!') },
+      onError: e => toast.error(e.response?.data?.detail||'Errore') }
+  )
+  const updateSpesaMutation = useMutation(
+    ({id, d}) => api.put(`/cantieri/${cantiereId}/spese/${id}`, d),
+    { onSuccess: () => { qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); chiudiFormSpesa(); toast.success('Spesa aggiornata!') },
       onError: e => toast.error(e.response?.data?.detail||'Errore') }
   )
   const deleteMutation = useMutation(
     id => api.delete(`/cantieri/${cantiereId}/spese/${id}`),
     { onSuccess: () => { qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); toast.success('Eliminata') } }
   )
+  const salvaSpesa = () => {
+    const payload = {...form, importo: parseFloat(form.importo)||0, data: form.data||null}
+    if (editSpesaId) updateSpesaMutation.mutate({id: editSpesaId, d: payload})
+    else createMutation.mutate(payload)
+  }
   const uploadAllegato = async (spesaId, file) => {
     setUploadingFor(spesaId)
     try {
@@ -836,7 +854,7 @@ function SpeseSection({ cantiereId, canWrite }) {
 
       {showForm && (
         <div className="card space-y-3">
-          <div className="flex items-center justify-between"><h3 className="font-bold">Nuova Spesa</h3><button onClick={() => setShowForm(false)}><X size={16} /></button></div>
+          <div className="flex items-center justify-between"><h3 className="font-bold">{editSpesaId ? 'Modifica Spesa' : 'Nuova Spesa'}</h3><button onClick={chiudiFormSpesa}><X size={16} /></button></div>
           {form.descrizione && (
             <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg p-2 text-xs text-purple-700">
               <Sparkles size={12} /><span>Dati pre-compilati da Claude — verifica prima di salvare</span>
@@ -853,10 +871,10 @@ function SpeseSection({ cantiereId, canWrite }) {
           </div>
           <textarea className="input-field h-12 resize-none text-sm" placeholder="Note..." value={form.note} onChange={e => set('note',e.target.value)} />
           <div className="flex gap-2">
-            <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">Annulla</button>
-            <button onClick={() => createMutation.mutate({...form, importo:parseFloat(form.importo)||0, data:form.data||null})}
-              disabled={!form.descrizione||!form.importo||createMutation.isLoading} className="btn-primary flex-1">
-              {createMutation.isLoading ? 'Salvataggio...' : 'Registra'}
+            <button onClick={chiudiFormSpesa} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={salvaSpesa}
+              disabled={!form.descrizione||!form.importo||(createMutation.isLoading||updateSpesaMutation.isLoading)} className="btn-primary flex-1">
+              {(createMutation.isLoading||updateSpesaMutation.isLoading) ? 'Salvataggio...' : editSpesaId ? 'Aggiorna' : 'Registra'}
             </button>
           </div>
         </div>
@@ -901,6 +919,7 @@ function SpeseSection({ cantiereId, canWrite }) {
                   <FileText size={14} />
                   <input type="file" accept=".pdf" className="hidden" onChange={e => e.target.files[0] && uploadAllegato(s.id, e.target.files[0])} />
                 </label>
+                <button onClick={() => apriModificaSpesa(s)} className="p-1 text-gray-400 hover:text-steelex-orange"><Edit2 size={14} /></button>
                 <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(s.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
               </div>
             )}
