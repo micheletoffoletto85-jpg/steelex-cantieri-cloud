@@ -915,6 +915,15 @@ function ComputoSection({ cantiereId, canWrite }) {
         </div>
       )}
 
+      {preventivi.length > 1 && !showForm && (
+        <div className="bg-steelex-orange/10 rounded-xl px-4 py-3 flex justify-between items-center border border-steelex-orange/20">
+          <span className="text-sm font-semibold text-gray-700">Totale tutti i computi</span>
+          <div className="text-right">
+            <p className="text-lg font-bold text-steelex-orange">{fmt(preventivi.reduce((s,p)=>s+(p.totale||0),0))}</p>
+            <p className="text-xs text-gray-400">Imponibile: {fmt(preventivi.reduce((s,p)=>s+(p.subtotale||0),0))}</p>
+          </div>
+        </div>
+      )}
       {preventivi.length === 0 && !showForm ? (
         <div className="card text-center py-8 text-gray-400"><ClipboardList size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun computo</p><p className="text-xs mt-1">Inserisci le voci di costo con il tuo ricarico per creare il preventivo cliente</p></div>
       ) : preventivi.map(p => (

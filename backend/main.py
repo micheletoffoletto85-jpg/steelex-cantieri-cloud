@@ -8,6 +8,7 @@ from app.database import engine, Base
 from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
+from app.routers import archivio as archivio_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -26,6 +27,17 @@ def _migra():
             cantiere_id INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
             utente_id   INTEGER NOT NULL REFERENCES utenti(id)   ON DELETE CASCADE,
             PRIMARY KEY (cantiere_id, utente_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS archivio_docs (
+            id          SERIAL PRIMARY KEY,
+            cantiere_id INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
+            nome        VARCHAR(300) NOT NULL,
+            categoria   VARCHAR(50) DEFAULT 'varie',
+            descrizione TEXT,
+            file_url    VARCHAR(500) NOT NULL,
+            tipo_file   VARCHAR(10),
+            caricato_da INTEGER REFERENCES utenti(id),
+            caricato_il TIMESTAMPTZ DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS richieste_documenti (
             id           SERIAL PRIMARY KEY,
@@ -83,6 +95,7 @@ app.include_router(documenti.router, prefix="/api/v1")
 app.include_router(economico_router.router, prefix="/api/v1")
 app.include_router(notifiche.router, prefix="/api/v1")
 app.include_router(raccolta_docs_router.router, prefix="/api/v1")
+app.include_router(archivio_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():

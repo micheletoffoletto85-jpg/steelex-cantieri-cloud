@@ -1335,170 +1335,177 @@ function TeamTab({ cantiereId, utente }) {
   )
 }
 
-/* ─── TAB RACCOLTA DOCUMENTI ─── */
-const STATO_DOC = {
-  richiesto:  { label: 'Richiesto',  bg: 'bg-yellow-100 text-yellow-700', icon: Clock },
-  caricato:   { label: 'Caricato',   bg: 'bg-blue-100 text-blue-700',     icon: Upload },
-  approvato:  { label: 'Approvato',  bg: 'bg-green-100 text-green-700',   icon: ThumbsUp },
-  rifiutato:  { label: 'Rifiutato',  bg: 'bg-red-100 text-red-700',       icon: ThumbsDown },
+/* ─── TAB ARCHIVIO DOCUMENTI ─── */
+const CATEGORIE_DOC = {
+  progetto:       { label: 'Progetto',       bg: 'bg-blue-100 text-blue-700' },
+  strutturale:    { label: 'Strutturale',    bg: 'bg-purple-100 text-purple-700' },
+  contratti:      { label: 'Contratti',      bg: 'bg-green-100 text-green-700' },
+  autorizzazioni: { label: 'Autorizzazioni', bg: 'bg-yellow-100 text-yellow-700' },
+  relazioni:      { label: 'Relazioni',      bg: 'bg-orange-100 text-orange-700' },
+  foto:           { label: 'Foto',           bg: 'bg-pink-100 text-pink-700' },
+  varie:          { label: 'Varie',          bg: 'bg-gray-100 text-gray-600' },
 }
+
+const TIPO_ICONA = { pdf: '📄', dwg: '📐', dxf: '📐', jpg: '🖼', jpeg: '🖼', png: '🖼', xlsx: '📊', xls: '📊', docx: '📝', doc: '📝', zip: '🗜' }
 
 function RaccoltaDocumentiTab({ cantiereId, utente }) {
   const qc = useQueryClient()
   const isStaff = ['admin', 'capo_cantiere'].includes(utente?.ruolo)
-  const uploadRefs = useRef({})
+  const [cerca, setCerca] = useState('')
+  const [catFiltro, setCatFiltro] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [formUpload, setFormUpload] = useState({ nome: '', categoria: 'varie', descrizione: '' })
+  const [fileInAttesa, setFileInAttesa] = useState(null)
+  const fileRef = useRef()
+
+  const apiUrl = import.meta.env.VITE_API_URL || ''
 
   const { data: docs = [], isLoading } = useQuery(
-    ['raccolta-docs', cantiereId],
-    () => api.get(`/cantieri/${cantiereId}/raccolta-docs`).then(r => r.data),
-    { staleTime: 0 }
-  )
-
-  const [showNuova, setShowNuova] = useState(false)
-  const [form, setForm] = useState({ titolo: '', descrizione: '', scadenza: '' })
-  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  const crea = useMutation(
-    () => api.post(`/cantieri/${cantiereId}/raccolta-docs`, { titolo: form.titolo, descrizione: form.descrizione || null, scadenza: form.scadenza || null }),
-    { onSuccess: () => { qc.invalidateQueries(['raccolta-docs', cantiereId]); setShowNuova(false); setForm({ titolo: '', descrizione: '', scadenza: '' }); toast.success('Richiesta creata') } }
-  )
-
-  const aggiorna = useMutation(
-    ({ id, stato, note_rifiuto }) => api.patch(`/cantieri/${cantiereId}/raccolta-docs/${id}`, { stato, note_rifiuto }),
-    { onSuccess: () => qc.invalidateQueries(['raccolta-docs', cantiereId]) }
+    ['archivio', cantiereId, catFiltro, cerca],
+    () => {
+      const params = new URLSearchParams()
+      if (catFiltro) params.set('categoria', catFiltro)
+      if (cerca)    params.set('cerca', cerca)
+      return api.get(`/cantieri/${cantiereId}/archivio?${params}`).then(r => r.data)
+    },
+    { staleTime: 0, keepPreviousData: true }
   )
 
   const elimina = useMutation(
-    (id) => api.delete(`/cantieri/${cantiereId}/raccolta-docs/${id}`),
-    { onSuccess: () => { qc.invalidateQueries(['raccolta-docs', cantiereId]); toast.success('Eliminata') } }
+    (id) => api.delete(`/cantieri/${cantiereId}/archivio/${id}`),
+    { onSuccess: () => { qc.invalidateQueries(['archivio', cantiereId]); toast.success('Eliminato') } }
   )
 
-  const uploadDoc = async (docId, file) => {
-    const fd = new FormData(); fd.append('file', file)
-    try {
-      await api.post(`/cantieri/${cantiereId}/raccolta-docs/${docId}/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      qc.invalidateQueries(['raccolta-docs', cantiereId])
-      toast.success('Documento caricato!')
-    } catch { toast.error('Errore upload') }
+  const selezioneFile = (e) => {
+    const f = e.target.files[0]; if (!f) return
+    setFileInAttesa(f)
+    setFormUpload(p => ({ ...p, nome: f.name.replace(/\.[^.]+$/, '') }))
   }
 
-  const pendenti = docs.filter(d => d.stato === 'richiesto').length
-  const caricati = docs.filter(d => d.stato === 'caricato').length
+  const carica = async () => {
+    if (!fileInAttesa) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', fileInAttesa)
+      const params = new URLSearchParams({ nome: formUpload.nome || fileInAttesa.name, categoria: formUpload.categoria, descrizione: formUpload.descrizione })
+      await api.post(`/cantieri/${cantiereId}/archivio?${params}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      qc.invalidateQueries(['archivio', cantiereId])
+      setFileInAttesa(null); setFormUpload({ nome: '', categoria: 'varie', descrizione: '' })
+      if (fileRef.current) fileRef.current.value = ''
+      toast.success('Documento caricato!')
+    } catch { toast.error('Errore upload') } finally { setUploading(false) }
+  }
+
+  const docPerCategoria = Object.keys(CATEGORIE_DOC).reduce((acc, cat) => {
+    const lista = docs.filter(d => d.categoria === cat)
+    if (lista.length) acc[cat] = lista
+    return acc
+  }, {})
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-gray-800">Raccolta Documenti</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {docs.length} documenti richiesti · {pendenti} in attesa · {caricati} da approvare
-          </p>
+      {/* Barra ricerca + filtro categoria */}
+      <div className="flex gap-2 flex-wrap">
+        <div className="flex-1 min-w-[200px] relative">
+          <FileText size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input className="input-field pl-8" placeholder="Cerca documento..."
+            value={cerca} onChange={e => setCerca(e.target.value)} />
         </div>
-        {isStaff && (
-          <button onClick={() => setShowNuova(true)} className="btn-primary flex items-center gap-1 text-sm px-3 py-2">
-            <Plus size={14} /> Nuova richiesta
-          </button>
+        <select className="input-field w-auto" value={catFiltro} onChange={e => setCatFiltro(e.target.value)}>
+          <option value="">Tutte le sezioni</option>
+          {Object.entries(CATEGORIE_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        {utente?.ruolo !== 'cliente' && (
+          <label className="btn-primary flex items-center gap-1 text-sm px-3 py-2 cursor-pointer">
+            <Upload size={14} /> Carica
+            <input ref={fileRef} type="file" className="hidden"
+              accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.doc,.zip"
+              onChange={selezioneFile} />
+          </label>
         )}
       </div>
 
-      {/* Form nuova richiesta */}
-      {showNuova && (
+      {/* Form upload dopo selezione file */}
+      {fileInAttesa && (
         <div className="card border border-steelex-orange/30 space-y-3">
-          <p className="font-semibold text-sm text-gray-700">Nuova richiesta documento</p>
-          <input className="input-field" placeholder="Titolo (es. DURC, Visura camerale, Assicurazione...)"
-            value={form.titolo} onChange={e => setF('titolo', e.target.value)} />
-          <textarea className="input-field h-20 resize-none" placeholder="Descrizione o istruzioni per il caricamento (opzionale)"
-            value={form.descrizione} onChange={e => setF('descrizione', e.target.value)} />
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Scadenza (opzionale)</label>
-            <input type="date" className="input-field" value={form.scadenza} onChange={e => setF('scadenza', e.target.value)} />
-          </div>
+          <p className="font-semibold text-sm text-gray-700">📎 {fileInAttesa.name}</p>
+          <input className="input-field" placeholder="Nome documento"
+            value={formUpload.nome} onChange={e => setFormUpload(p => ({ ...p, nome: e.target.value }))} />
           <div className="flex gap-2">
-            <button onClick={() => setShowNuova(false)} className="btn-secondary flex-1">Annulla</button>
-            <button onClick={() => crea.mutate()} disabled={!form.titolo || crea.isLoading} className="btn-primary flex-1">
-              {crea.isLoading ? 'Creazione...' : 'Crea richiesta'}
+            <select className="input-field flex-1" value={formUpload.categoria}
+              onChange={e => setFormUpload(p => ({ ...p, categoria: e.target.value }))}>
+              {Object.entries(CATEGORIE_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+          <input className="input-field" placeholder="Note (opzionale)"
+            value={formUpload.descrizione} onChange={e => setFormUpload(p => ({ ...p, descrizione: e.target.value }))} />
+          <div className="flex gap-2">
+            <button onClick={() => { setFileInAttesa(null); if (fileRef.current) fileRef.current.value = '' }} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={carica} disabled={uploading} className="btn-primary flex-1">
+              {uploading ? 'Caricamento...' : 'Salva in archivio'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Lista documenti */}
-      {docs.length === 0 && !showNuova && (
+      {/* Lista vuota */}
+      {docs.length === 0 && !fileInAttesa && (
         <div className="card text-center py-10 text-gray-400">
           <FolderOpen size={32} className="mx-auto mb-2 opacity-30" />
-          <p>Nessun documento richiesto</p>
-          {isStaff && <p className="text-xs mt-1">Crea una richiesta per raccogliere documenti da fornitori e artigiani</p>}
+          <p>{cerca || catFiltro ? 'Nessun documento trovato' : 'Archivio vuoto'}</p>
+          {utente?.ruolo !== 'cliente' && !cerca && !catFiltro && <p className="text-xs mt-1">Carica disegni, contratti, relazioni e qualsiasi documento di cantiere</p>}
         </div>
       )}
 
-      {docs.map(doc => {
-        const s = STATO_DOC[doc.stato] || STATO_DOC.richiesto
-        const Icon = s.icon
-        const scaduta = doc.scadenza && new Date(doc.scadenza) < new Date() && doc.stato === 'richiesto'
-        return (
-          <div key={doc.id} className={`card space-y-2 ${scaduta ? 'border border-red-200' : ''}`}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${s.bg}`}>
-                    <Icon size={10} /> {s.label}
-                  </span>
-                  {scaduta && <span className="text-xs text-red-500 font-medium">⚠ Scaduto</span>}
-                  {doc.scadenza && !scaduta && <span className="text-xs text-gray-400">Scade: {new Date(doc.scadenza).toLocaleDateString('it-IT')}</span>}
-                </div>
-                <p className="font-semibold text-gray-800 mt-1">{doc.titolo}</p>
-                {doc.descrizione && <p className="text-xs text-gray-500 mt-0.5">{doc.descrizione}</p>}
-                {doc.assegnato_nome && <p className="text-xs text-gray-400 mt-0.5">Assegnato a: {doc.assegnato_nome}</p>}
-                {doc.note_rifiuto && <p className="text-xs text-red-500 mt-1">Motivo rifiuto: {doc.note_rifiuto}</p>}
-              </div>
-              {isStaff && (
-                <button onClick={() => { if (confirm('Eliminare la richiesta?')) elimina.mutate(doc.id) }}
-                  className="p-1 text-gray-300 hover:text-red-500 flex-shrink-0"><Trash2 size={14} /></button>
-              )}
-            </div>
-
-            {/* Azioni in base allo stato */}
-            <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-gray-100">
-              {/* Fornitore/artigiano: carica il documento */}
-              {!isStaff && (doc.stato === 'richiesto' || doc.stato === 'rifiutato') && (
-                <label className="btn-primary text-xs px-3 py-1.5 cursor-pointer flex items-center gap-1">
-                  <Upload size={12} /> Carica documento
-                  <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png"
-                    onChange={e => e.target.files[0] && uploadDoc(doc.id, e.target.files[0])} />
-                </label>
-              )}
-
-              {/* Staff: approva / rifiuta */}
-              {isStaff && doc.stato === 'caricato' && (
-                <>
-                  <button onClick={() => aggiorna.mutate({ id: doc.id, stato: 'approvato' })}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-medium">
-                    <ThumbsUp size={12} /> Approva
-                  </button>
-                  <button onClick={() => {
-                    const nota = prompt('Motivo del rifiuto (opzionale):') ?? ''
-                    aggiorna.mutate({ id: doc.id, stato: 'rifiutato', note_rifiuto: nota })
-                  }} className="flex items-center gap-1 text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 font-medium">
-                    <ThumbsDown size={12} /> Rifiuta
-                  </button>
-                </>
-              )}
-
-              {/* Link al file caricato */}
-              {doc.file_url && (
-                <a href={doc.file_url.startsWith('http') ? doc.file_url : `${import.meta.env.VITE_API_URL}${doc.file_url}`}
-                  target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline ml-auto">
-                  <Download size={12} /> Visualizza documento
-                </a>
-              )}
-            </div>
+      {/* Documenti raggruppati per categoria (solo se non c'è filtro attivo) */}
+      {!catFiltro && !cerca && Object.entries(docPerCategoria).map(([cat, lista]) => (
+        <div key={cat}>
+          <div className="flex items-center gap-2 mb-2 mt-1">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${CATEGORIE_DOC[cat]?.bg}`}>{CATEGORIE_DOC[cat]?.label}</span>
+            <span className="text-xs text-gray-400">{lista.length} file</span>
           </div>
-        )
-      })}
+          <div className="space-y-1.5">
+            {lista.map(doc => <DocRow key={doc.id} doc={doc} apiUrl={apiUrl} isStaff={isStaff} onElimina={() => { if (confirm('Eliminare?')) elimina.mutate(doc.id) }} />)}
+          </div>
+        </div>
+      ))}
+
+      {/* Lista piatta quando c'è ricerca/filtro */}
+      {(catFiltro || cerca) && docs.map(doc => (
+        <DocRow key={doc.id} doc={doc} apiUrl={apiUrl} isStaff={isStaff} onElimina={() => { if (confirm('Eliminare?')) elimina.mutate(doc.id) }} />
+      ))}
+    </div>
+  )
+}
+
+function DocRow({ doc, apiUrl, isStaff, onElimina }) {
+  const ext = doc.tipo_file || ''
+  const icona = TIPO_ICONA[ext.toLowerCase()] || '📎'
+  const cat = CATEGORIE_DOC[doc.categoria]
+  const fileUrl = doc.file_url?.startsWith('http') ? doc.file_url : `${apiUrl}${doc.file_url}`
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 bg-white rounded-xl border border-gray-100 hover:border-gray-200 transition-colors group">
+      <span className="text-xl flex-shrink-0">{icona}</span>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-gray-800 text-sm truncate">{doc.nome}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          {cat && <span className={`text-xs px-1.5 py-0.5 rounded-full ${cat.bg}`}>{cat.label}</span>}
+          {doc.descrizione && <span className="text-xs text-gray-400 truncate">{doc.descrizione}</span>}
+          <span className="text-xs text-gray-300 ml-auto flex-shrink-0">{new Date(doc.caricato_il).toLocaleDateString('it-IT')}</span>
+        </div>
+      </div>
+      <a href={fileUrl} target="_blank" rel="noreferrer"
+        className="p-1.5 text-gray-400 hover:text-blue-600 flex-shrink-0" title="Apri">
+        <Download size={14} />
+      </a>
+      {isStaff && (
+        <button onClick={onElimina} className="p-1.5 text-gray-200 hover:text-red-500 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Trash2 size={14} />
+        </button>
+      )}
     </div>
   )
 }
