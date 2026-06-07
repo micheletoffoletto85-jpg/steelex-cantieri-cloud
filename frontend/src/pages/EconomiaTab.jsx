@@ -149,7 +149,7 @@ function RiepilogoSection({ cantiereId, attiva }) {
       )}
       {prevOk && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-700 flex justify-between items-center">
-          <div>✅ <strong>Computo #{prevOk.numero || prevOk.id}</strong> accettato</div>
+          <div>✅ <strong>{prevOk.numero || 'Computo'}</strong> accettato</div>
           <div>Acconto: <strong>{fmt(prevOk.acconto_ricevuto)}</strong> / {fmt(prevOk.acconto_importo)}</div>
         </div>
       )}
@@ -714,7 +714,7 @@ function ComputoSection({ cantiereId, canWrite }) {
             <button onClick={chiudi}><X size={16} /></button>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input className="input-field" placeholder="N° Preventivo" value={base.numero} onChange={e => setB('numero',e.target.value)} />
+            <input className="input-field" placeholder="Titolo computo (opzionale)" value={base.numero} onChange={e => setB('numero',e.target.value)} />
             <input type="date" className="input-field" value={base.data_preventivo} onChange={e => setB('data_preventivo',e.target.value)} />
             <div><label className="text-xs text-gray-500 block mb-1">IVA %</label>
               <input type="number" className="input-field" value={base.iva_perc} onChange={e => setB('iva_perc',e.target.value)} /></div>
@@ -920,7 +920,7 @@ function ComputoSection({ cantiereId, canWrite }) {
       ) : preventivi.map(p => (
         <div key={p.id} className="card space-y-2">
           <div className="flex items-start justify-between">
-            <div><p className="font-bold">Computo {p.numero||`#${p.id}`}</p>{p.data && <p className="text-xs text-gray-400">{fmtD(p.data)}</p>}</div>
+            <div><p className="font-bold">{p.numero || 'Computo'}</p>{p.data && <p className="text-xs text-gray-400">{fmtD(p.data)}</p>}</div>
             <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(p.totale)}</p><p className="text-xs text-gray-400">Acconto: {fmt(p.acconto_importo)}</p></div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
@@ -81,7 +81,8 @@ export default function CantierePage() {
       {/* Tab bar — scroll orizzontale su mobile */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
         {[['info','Info',null],['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map],
-          ...(['admin','capo_cantiere'].includes(utente?.ruolo) ? [['economia','Economia',Euro]] : [])
+          ...(['admin','capo_cantiere'].includes(utente?.ruolo) ? [['economia','Economia',Euro]] : []),
+          ['documenti','Documenti',FolderOpen],
         ].map(([key,label,Icon]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -96,7 +97,8 @@ export default function CantierePage() {
       {tab === 'checklist'&& <ChecklistTab cantiereId={id} />}
       {tab === 'diario'   && <DiarioTab cantiereId={id} />}
       {tab === 'mappe'    && <MappeTab cantiereId={id} />}
-      {tab === 'economia' && <EconomiaTab cantiereId={id} />}
+      {tab === 'economia'  && <EconomiaTab cantiereId={id} />}
+      {tab === 'documenti' && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
     </div>
   )
 }
@@ -1332,3 +1334,172 @@ function TeamTab({ cantiereId, utente }) {
     </div>
   )
 }
+
+/* ─── TAB RACCOLTA DOCUMENTI ─── */
+const STATO_DOC = {
+  richiesto:  { label: 'Richiesto',  bg: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  caricato:   { label: 'Caricato',   bg: 'bg-blue-100 text-blue-700',     icon: Upload },
+  approvato:  { label: 'Approvato',  bg: 'bg-green-100 text-green-700',   icon: ThumbsUp },
+  rifiutato:  { label: 'Rifiutato',  bg: 'bg-red-100 text-red-700',       icon: ThumbsDown },
+}
+
+function RaccoltaDocumentiTab({ cantiereId, utente }) {
+  const qc = useQueryClient()
+  const isStaff = ['admin', 'capo_cantiere'].includes(utente?.ruolo)
+  const uploadRefs = useRef({})
+
+  const { data: docs = [], isLoading } = useQuery(
+    ['raccolta-docs', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/raccolta-docs`).then(r => r.data),
+    { staleTime: 0 }
+  )
+
+  const [showNuova, setShowNuova] = useState(false)
+  const [form, setForm] = useState({ titolo: '', descrizione: '', scadenza: '' })
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const crea = useMutation(
+    () => api.post(`/cantieri/${cantiereId}/raccolta-docs`, { titolo: form.titolo, descrizione: form.descrizione || null, scadenza: form.scadenza || null }),
+    { onSuccess: () => { qc.invalidateQueries(['raccolta-docs', cantiereId]); setShowNuova(false); setForm({ titolo: '', descrizione: '', scadenza: '' }); toast.success('Richiesta creata') } }
+  )
+
+  const aggiorna = useMutation(
+    ({ id, stato, note_rifiuto }) => api.patch(`/cantieri/${cantiereId}/raccolta-docs/${id}`, { stato, note_rifiuto }),
+    { onSuccess: () => qc.invalidateQueries(['raccolta-docs', cantiereId]) }
+  )
+
+  const elimina = useMutation(
+    (id) => api.delete(`/cantieri/${cantiereId}/raccolta-docs/${id}`),
+    { onSuccess: () => { qc.invalidateQueries(['raccolta-docs', cantiereId]); toast.success('Eliminata') } }
+  )
+
+  const uploadDoc = async (docId, file) => {
+    const fd = new FormData(); fd.append('file', file)
+    try {
+      await api.post(`/cantieri/${cantiereId}/raccolta-docs/${docId}/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      qc.invalidateQueries(['raccolta-docs', cantiereId])
+      toast.success('Documento caricato!')
+    } catch { toast.error('Errore upload') }
+  }
+
+  const pendenti = docs.filter(d => d.stato === 'richiesto').length
+  const caricati = docs.filter(d => d.stato === 'caricato').length
+
+  if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-gray-800">Raccolta Documenti</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {docs.length} documenti richiesti · {pendenti} in attesa · {caricati} da approvare
+          </p>
+        </div>
+        {isStaff && (
+          <button onClick={() => setShowNuova(true)} className="btn-primary flex items-center gap-1 text-sm px-3 py-2">
+            <Plus size={14} /> Nuova richiesta
+          </button>
+        )}
+      </div>
+
+      {/* Form nuova richiesta */}
+      {showNuova && (
+        <div className="card border border-steelex-orange/30 space-y-3">
+          <p className="font-semibold text-sm text-gray-700">Nuova richiesta documento</p>
+          <input className="input-field" placeholder="Titolo (es. DURC, Visura camerale, Assicurazione...)"
+            value={form.titolo} onChange={e => setF('titolo', e.target.value)} />
+          <textarea className="input-field h-20 resize-none" placeholder="Descrizione o istruzioni per il caricamento (opzionale)"
+            value={form.descrizione} onChange={e => setF('descrizione', e.target.value)} />
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Scadenza (opzionale)</label>
+            <input type="date" className="input-field" value={form.scadenza} onChange={e => setF('scadenza', e.target.value)} />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowNuova(false)} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={() => crea.mutate()} disabled={!form.titolo || crea.isLoading} className="btn-primary flex-1">
+              {crea.isLoading ? 'Creazione...' : 'Crea richiesta'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Lista documenti */}
+      {docs.length === 0 && !showNuova && (
+        <div className="card text-center py-10 text-gray-400">
+          <FolderOpen size={32} className="mx-auto mb-2 opacity-30" />
+          <p>Nessun documento richiesto</p>
+          {isStaff && <p className="text-xs mt-1">Crea una richiesta per raccogliere documenti da fornitori e artigiani</p>}
+        </div>
+      )}
+
+      {docs.map(doc => {
+        const s = STATO_DOC[doc.stato] || STATO_DOC.richiesto
+        const Icon = s.icon
+        const scaduta = doc.scadenza && new Date(doc.scadenza) < new Date() && doc.stato === 'richiesto'
+        return (
+          <div key={doc.id} className={`card space-y-2 ${scaduta ? 'border border-red-200' : ''}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${s.bg}`}>
+                    <Icon size={10} /> {s.label}
+                  </span>
+                  {scaduta && <span className="text-xs text-red-500 font-medium">⚠ Scaduto</span>}
+                  {doc.scadenza && !scaduta && <span className="text-xs text-gray-400">Scade: {new Date(doc.scadenza).toLocaleDateString('it-IT')}</span>}
+                </div>
+                <p className="font-semibold text-gray-800 mt-1">{doc.titolo}</p>
+                {doc.descrizione && <p className="text-xs text-gray-500 mt-0.5">{doc.descrizione}</p>}
+                {doc.assegnato_nome && <p className="text-xs text-gray-400 mt-0.5">Assegnato a: {doc.assegnato_nome}</p>}
+                {doc.note_rifiuto && <p className="text-xs text-red-500 mt-1">Motivo rifiuto: {doc.note_rifiuto}</p>}
+              </div>
+              {isStaff && (
+                <button onClick={() => { if (confirm('Eliminare la richiesta?')) elimina.mutate(doc.id) }}
+                  className="p-1 text-gray-300 hover:text-red-500 flex-shrink-0"><Trash2 size={14} /></button>
+              )}
+            </div>
+
+            {/* Azioni in base allo stato */}
+            <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-gray-100">
+              {/* Fornitore/artigiano: carica il documento */}
+              {!isStaff && (doc.stato === 'richiesto' || doc.stato === 'rifiutato') && (
+                <label className="btn-primary text-xs px-3 py-1.5 cursor-pointer flex items-center gap-1">
+                  <Upload size={12} /> Carica documento
+                  <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png"
+                    onChange={e => e.target.files[0] && uploadDoc(doc.id, e.target.files[0])} />
+                </label>
+              )}
+
+              {/* Staff: approva / rifiuta */}
+              {isStaff && doc.stato === 'caricato' && (
+                <>
+                  <button onClick={() => aggiorna.mutate({ id: doc.id, stato: 'approvato' })}
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-medium">
+                    <ThumbsUp size={12} /> Approva
+                  </button>
+                  <button onClick={() => {
+                    const nota = prompt('Motivo del rifiuto (opzionale):') ?? ''
+                    aggiorna.mutate({ id: doc.id, stato: 'rifiutato', note_rifiuto: nota })
+                  }} className="flex items-center gap-1 text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 font-medium">
+                    <ThumbsDown size={12} /> Rifiuta
+                  </button>
+                </>
+              )}
+
+              {/* Link al file caricato */}
+              {doc.file_url && (
+                <a href={doc.file_url.startsWith('http') ? doc.file_url : `${import.meta.env.VITE_API_URL}${doc.file_url}`}
+                  target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline ml-auto">
+                  <Download size={12} /> Visualizza documento
+                </a>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
