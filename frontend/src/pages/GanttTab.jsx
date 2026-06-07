@@ -65,7 +65,7 @@ export default function GanttTab({ cantiereId }) {
     { onSuccess: () => { qc.invalidateQueries(['fasi', cantiereId]); toast.success('Eliminata') } }
   )
 
-  const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#FF6B00',data_inizio:'',data_fine_prevista:'',sal_id:'',percentuale:0,stato:'pianificata',note:'' }) }
+  const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#FF6B00',data_inizio:'',data_fine_prevista:'',sal_id:'',percentuale:0,stato:'pianificata',note:'',visibile_cliente:false }) }
 
   const importaGanttAI = async (file) => {
     setImportando(true)
