@@ -32,7 +32,7 @@ export default function SplashScreen({ onDone }) {
       {/* Tagline */}
       <div className="overflow-hidden h-6 mt-3">
         <div className={`transition-all duration-500 delay-300 ${fase >= 1 ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'}`}>
-          <span className="text-xs tracking-[0.3em] text-gray-400 uppercase">Gestione cantieri LSF</span>
+          <span className="text-xs tracking-[0.3em] text-gray-400 uppercase">Gestione cantieri</span>
         </div>
       </div>
     </div>

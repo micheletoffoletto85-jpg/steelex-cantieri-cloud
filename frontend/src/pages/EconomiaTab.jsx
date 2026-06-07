@@ -451,7 +451,31 @@ function ComputoSection({ cantiereId, canWrite }) {
 
   const confermaImport = () => {
     const selezionate = (vociImportate || []).filter(v => righeSelezionate?.has(v.id))
-    const normalizzate = selezionate.map((v, i) => _normalizzaVoce(v, i))
+    const normalizzate = selezionate.map((v, i) => {
+      // Voci da incolla: totale_costo/totale_cliente già calcolati da confermaMappatura — usarli direttamente
+      const qt         = parseFloat(v.quantita || v.qt || 1)
+      const totCosto   = parseFloat(v.totale_costo   || 0)
+      const totCliente = parseFloat(v.totale_cliente || 0)
+      const totUso     = totCliente || totCosto
+      // Prezzo unitario: mappato dall'utente oppure derivato dal totale
+      let costoUnit  = parseFloat(v.prezzo_costo   || v.costo_unitario  || 0)
+      let prezzoUnit = parseFloat(v.prezzo_cliente || v.prezzo_unitario || costoUnit || 0)
+      if (costoUnit  === 0 && totUso > 0) costoUnit  = totUso / qt
+      if (prezzoUnit === 0 && totUso > 0) prezzoUnit = totUso / qt
+      console.log('[import voce]', v.descrizione, { qt, totCosto, totCliente, costoUnit, prezzoUnit })
+      return {
+        id:              Date.now() + i,
+        descrizione:     v.descrizione || '',
+        categoria:       v.categoria   || 'Materiali',
+        qt,
+        um:              v.um          || 'cad',
+        costo_unitario:  parseFloat(costoUnit.toFixed(2)),
+        ricarico_perc:   0,
+        prezzo_unitario: parseFloat(prezzoUnit.toFixed(2)),
+        totale_costo:    parseFloat(totCosto.toFixed(2))   || parseFloat((costoUnit  * qt).toFixed(2)),
+        totale_cliente:  parseFloat(totCliente.toFixed(2)) || parseFloat((prezzoUnit * qt).toFixed(2)),
+      }
+    })
     setVoci(prev => [...prev, ...normalizzate])
     setVociImportate(null); setRigheSelezionate(null)
     setShowForm(true)
