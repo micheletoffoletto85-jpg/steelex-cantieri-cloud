@@ -424,10 +424,15 @@ function ComputoSection({ cantiereId, canWrite }) {
   }
 
   const _normalizzaVoce = (v, i) => {
-    const qt    = parseFloat(v.quantita || v.qt || 1)
-    const costo = parseFloat(v.prezzo_costo || v.costo_unitario || 0)
-    const ric   = parseFloat(v.ricarico_perc || 0)
-    const prezzoC = parseFloat(v.prezzo_cliente || v.prezzo_unitario || costo * (1 + ric / 100) || 0)
+    const qt               = parseFloat(v.quantita || v.qt || 1)
+    const totCostoStored   = parseFloat(v.totale_costo   || 0)
+    const totClienteStored = parseFloat(v.totale_cliente || 0)
+    let costo   = parseFloat(v.prezzo_costo   || v.costo_unitario  || 0)
+    const ric   = parseFloat(v.ricarico_perc  || 0)
+    let prezzoC = parseFloat(v.prezzo_cliente || v.prezzo_unitario || costo * (1 + ric / 100) || 0)
+    // Se il prezzo unitario non è mappato ma il totale sì, lo deriva (caso incolla Excel con solo colonna Totale)
+    if (costo   === 0 && totCostoStored   > 0) costo   = totCostoStored   / qt
+    if (prezzoC === 0 && totClienteStored > 0) prezzoC = totClienteStored / qt
     return {
       id: Date.now() + i,
       descrizione: v.descrizione || '',
@@ -436,7 +441,7 @@ function ComputoSection({ cantiereId, canWrite }) {
       costo_unitario:  parseFloat(costo.toFixed(2)),
       ricarico_perc:   parseFloat(ric.toFixed(2)),
       prezzo_unitario: parseFloat(prezzoC.toFixed(2)),
-      totale_costo:    parseFloat((costo * qt).toFixed(2)),
+      totale_costo:    parseFloat((costo   * qt).toFixed(2)),
       totale_cliente:  parseFloat((prezzoC * qt).toFixed(2)),
     }
   }
