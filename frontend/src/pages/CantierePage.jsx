@@ -104,6 +104,18 @@ export default function CantierePage() {
 /* ─── TAB INFO ─── */
 function InfoTab({ cantiere, editing, form, set }) {
   const data = editing ? form : cantiere
+  const { data: economia } = useQuery(
+    ['economia', cantiere.id],
+    () => api.get(`/cantieri/${cantiere.id}/economia`).then(r => r.data),
+    { staleTime: 30000 }
+  )
+
+  const fmt = v => `€ ${(v || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const valoreCantiere = economia?.budget_preventivo || 0
+  const totaleSpese = economia?.totale_speso || 0
+  const margine = valoreCantiere - totaleSpese
+  const percSpesa = valoreCantiere > 0 ? Math.min(100, (totaleSpese / valoreCantiere) * 100) : 0
+
   return (
     <div className="card space-y-4">
       <div className="flex items-center justify-between">
@@ -114,17 +126,59 @@ function InfoTab({ cantiere, editing, form, set }) {
           : <span className={`px-3 py-1 rounded-full text-sm font-medium ${STATO_STYLE[cantiere.stato]}`}>{STATO_LABEL[cantiere.stato]}</span>}
         <span className="text-2xl font-bold text-steelex-orange">{data.avanzamento}%</span>
       </div>
+
+      {/* Barra avanzamento */}
       {editing
         ? <div><label className="text-sm text-gray-500 mb-1 block">Avanzamento: {form.avanzamento}%</label>
             <input type="range" min="0" max="100" step="5" value={form.avanzamento} onChange={e => set('avanzamento', Number(e.target.value))} className="w-full accent-steelex-orange" /></div>
         : <div className="w-full bg-gray-200 rounded-full h-3"><div className="bg-steelex-orange h-3 rounded-full transition-all" style={{ width: `${cantiere.avanzamento}%` }} /></div>}
+
+      {/* Dati cantiere */}
       <div className="grid grid-cols-2 gap-3">
         <InfoField icon="👷" label="Cliente" value={data.cliente || ''} editing={editing} onChange={v => set('cliente', v)} />
         <InfoField icon={<MapPin size={14} />} label="Città" value={data.citta || ''} editing={editing} onChange={v => set('citta', v)} />
         <InfoField icon={<Calendar size={14} />} label="Inizio" type="date" value={data.data_inizio || ''} editing={editing} onChange={v => set('data_inizio', v)} />
         <InfoField icon={<Calendar size={14} />} label="Fine Prevista" type="date" value={data.data_fine_prevista || ''} editing={editing} onChange={v => set('data_fine_prevista', v)} />
-        <InfoField icon={<Euro size={14} />} label="Budget" type="number" value={data.budget || 0} editing={editing} onChange={v => set('budget', Number(v))} display={`€${(data.budget || 0).toLocaleString('it-IT')}`} />
       </div>
+
+      {/* Riepilogo economico (solo lettura, dati live da economia) */}
+      {!editing && (
+        <div className="border-t border-gray-100 pt-3 space-y-3">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Economia</p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-orange-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500 mb-0.5">Valore cantiere</p>
+              <p className="font-bold text-steelex-orange text-sm">{fmt(valoreCantiere)}</p>
+            </div>
+            <div className="bg-red-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500 mb-0.5">Spese</p>
+              <p className="font-bold text-red-600 text-sm">{fmt(totaleSpese)}</p>
+            </div>
+            <div className={`rounded-xl p-3 text-center ${margine >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+              <p className="text-xs text-gray-500 mb-0.5">Margine</p>
+              <p className={`font-bold text-sm ${margine >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(margine)}</p>
+            </div>
+          </div>
+          {valoreCantiere > 0 && (
+            <div>
+              <div className="flex justify-between text-xs text-gray-400 mb-1">
+                <span>Spese / Valore</span>
+                <span>{percSpesa.toFixed(0)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className={`h-2 rounded-full transition-all ${percSpesa > 90 ? 'bg-red-500' : percSpesa > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                  style={{ width: `${percSpesa}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {valoreCantiere === 0 && (
+            <p className="text-xs text-gray-400 text-center py-1">Nessun preventivo accettato — vai su Economia per crearne uno</p>
+          )}
+        </div>
+      )}
+
       {(editing || cantiere.note) && (
         <div>
           <label className="text-xs text-gray-500 mb-1 block">Note</label>
