@@ -653,8 +653,81 @@ Risposta:"""
                     "totale_costo": tot_v, "totale_cliente": tot_v,
                 })
 
+        elif ext == ".pdf":
+            # Estrai testo con PyMuPDF, poi Claude interpreta tutto
+            import fitz as _fitz
+            doc_pdf = _fitz.open(stream=contenuto, filetype="pdf")
+            testo_pdf = "\n".join(page.get_text() for page in doc_pdf)
+            doc_pdf.close()
+
+            if not testo_pdf.strip():
+                raise HTTPException(400, "Il PDF non contiene testo estraibile (potrebbe essere una scansione).")
+
+            if not settings.ANTHROPIC_API_KEY:
+                raise HTTPException(503, "Anthropic API key non configurata")
+
+            import anthropic as _ant, json as _json2
+            claude_pdf = _ant.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            prompt_pdf = f"""Hai ricevuto il testo di un preventivo/computo metrico edile (estratto da PDF).
+Il tuo compito è estrarre tutte le voci di lavoro/fornitura presenti nel documento.
+
+Per ogni voce restituisci:
+- descrizione: testo della voce (max 200 caratteri)
+- um: unità di misura (mc, mq, ml, cad, kg, ore, corp, ecc.)
+- quantita: numero (float, default 1.0)
+- prezzo_cliente: prezzo unitario concordato col cliente (float, 0 se non presente)
+- totale_cliente: totale voce (float, 0 se non calcolabile)
+- categoria: categoria edile tra [Materiali, Manodopera, Nolo, Servizi, Sicurezza, Struttura, Finiture, Impianti, Ponteggi, Altro]
+- sospetta: true se la riga sembra un subtotale, intestazione di capitolo, voce alternativa o doppione; false altrimenti
+
+IGNORA: intestazioni, totali generali, dati del cliente/fornitore, note legali, pagine di presentazione.
+
+Testo del documento:
+---
+{testo_pdf[:12000]}
+---
+
+Rispondi SOLO con un JSON array. Esempio:
+[{{"descrizione":"Fornitura e posa pannelli LSF","um":"mq","quantita":120.0,"prezzo_cliente":85.50,"totale_cliente":10260.0,"categoria":"Struttura","sospetta":false}}]
+Risposta:"""
+            try:
+                msg_pdf = claude_pdf.messages.create(
+                    model="claude-haiku-4-5", max_tokens=4000,
+                    messages=[{"role": "user", "content": prompt_pdf}]
+                )
+                raw_pdf = msg_pdf.content[0].text.strip()
+                m_pdf = _re.search(r'\[.*\]', raw_pdf, _re.DOTALL)
+                if not m_pdf:
+                    raise HTTPException(400, "Claude non ha trovato voci nel documento.")
+                parsed = _json2.loads(m_pdf.group())
+                for i, v in enumerate(parsed):
+                    if not isinstance(v, dict) or not v.get("descrizione"):
+                        continue
+                    qt  = float(v.get("quantita") or 1.0)
+                    pr  = float(v.get("prezzo_cliente") or 0.0)
+                    tot = float(v.get("totale_cliente") or 0.0)
+                    if tot == 0 and pr > 0:
+                        tot = round(qt * pr, 2)
+                    voci.append({
+                        "id": len(voci) + 1,
+                        "descrizione":    str(v["descrizione"])[:200],
+                        "categoria":      str(v.get("categoria") or "Altro"),
+                        "um":             str(v.get("um") or "cad"),
+                        "quantita":       round(qt, 4),
+                        "prezzo_costo":   round(pr, 2),
+                        "ricarico_perc":  0.0,
+                        "prezzo_cliente": round(pr, 2),
+                        "totale_costo":   round(tot, 2),
+                        "totale_cliente": round(tot, 2),
+                        "sospetta":       bool(v.get("sospetta", False)),
+                    })
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(400, f"Errore analisi PDF: {e}")
+
         else:
-            raise HTTPException(400, "Formato non supportato. Carica un file .xlsx, .xls o .csv")
+            raise HTTPException(400, "Formato non supportato. Carica un file .xlsx, .xls, .csv o .pdf")
 
     except HTTPException:
         raise

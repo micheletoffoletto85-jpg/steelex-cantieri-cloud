@@ -401,10 +401,10 @@ function ComputoSection({ cantiereId, canWrite }) {
             <Plus size={16} /> Nuovo Computo
           </button>
           <label className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 cursor-pointer flex-shrink-0 ${importando?'opacity-50 pointer-events-none':''}`}
-            title="Importa computo da Excel — Claude pre-analizza le righe">
+            title="Importa computo da Excel o PDF — Claude pre-analizza le righe">
             {importando ? <Loader2 size={13} className="animate-spin"/> : <Sparkles size={13}/>}
-            {importando ? 'Lettura...' : 'Importa Excel'}
-            <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+            {importando ? 'Lettura...' : 'Importa Excel / PDF'}
+            <input type="file" accept=".xlsx,.xls,.csv,.pdf" className="hidden"
               disabled={importando} onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
           </label>
           <a href="/api/v1/cantieri/template-computo"
@@ -553,7 +553,7 @@ function ComputoSection({ cantiereId, canWrite }) {
                 <label className={`text-xs cursor-pointer flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 font-medium transition-colors ${importando?'opacity-50 pointer-events-none':''} border-purple-300 text-purple-700 hover:bg-purple-50`}>
                   {importando ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12}/>}
                   {importando ? 'Lettura...' : 'Importa da file'}
-                  <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                  <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf" className="hidden"
                     disabled={importando} onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
                 </label>
                 <button onClick={aggiungiVoce} className="text-xs text-steelex-orange hover:underline flex items-center gap-1 font-medium"><Plus size={12}/> Aggiungi riga</button>
@@ -566,8 +566,8 @@ function ComputoSection({ cantiereId, canWrite }) {
                 <div className="flex justify-center gap-3">
                   <button onClick={aggiungiVoce} className="btn-primary text-sm py-1.5 px-4 flex items-center gap-1"><Plus size={14}/> Aggiungi riga</button>
                   <label className="btn-secondary text-sm py-1.5 px-4 flex items-center gap-1 cursor-pointer">
-                    <Sparkles size={14}/> Importa da Excel
-                    <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                    <Sparkles size={14}/> Importa Excel / PDF
+                    <input type="file" accept=".xlsx,.xls,.csv,.pdf" className="hidden"
                       onChange={e => e.target.files[0] && importaComputoAI(e.target.files[0])} />
                   </label>
                 </div>
