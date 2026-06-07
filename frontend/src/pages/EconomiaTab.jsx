@@ -356,61 +356,89 @@ function ComputoSection({ cantiereId, canWrite }) {
     return isNaN(n) ? null : n
   }
 
-  const elaboraIncolla = () => {
-    if (!pasteText.trim()) return
-    const righe = pasteText.trim().split('\n').map(r => r.split('\t').map(c => c.trim()))
-    // Trova riga intestazione (contiene parole chiave)
-    const KW = ['descri','voce','lavora','u.m.','unità','quant','prezzo','totale','importo']
+  const [pasteDebug, setPasteDebug] = useState(null) // {intestazione, colonneRilevate, primaRiga}
+
+  const elaboraIncolla = (testo) => {
+    const src = testo ?? pasteText
+    if (!src.trim()) return
+    const righe = src.trim().split('\n').map(r => r.split('\t').map(c => c.trim()))
+
+    // ── Rileva intestazione ──────────────────────────────────────────
+    const KW = ['descri','voce','lavora','u.m.','unità','quant','prezzo','costo','totale','importo','articol']
     let dataStart = 0
-    let colDesc=-1, colUm=-1, colQt=-1, colPrezzo=-1, colTot=-1
-    for (let i = 0; i < Math.min(5, righe.length); i++) {
+    let colDesc=-1, colUm=-1, colQt=-1, colPrezzo=-1, colTot=-1, colCodice=-1
+    let intestazione = null
+
+    for (let i = 0; i < Math.min(8, righe.length); i++) {
       const joined = righe[i].join(' ').toLowerCase()
       if (KW.some(k => joined.includes(k))) {
+        intestazione = righe[i]
         righe[i].forEach((h, ci) => {
-          const hl = h.toLowerCase()
-          if (/descri|voce|lavora|oggetto/.test(hl) && colDesc < 0) colDesc = ci
-          else if (/u\.m\.|unità|misura/.test(hl) && colUm < 0) colUm = ci
-          else if (/quant|qta|q\.t/.test(hl) && colQt < 0) colQt = ci
-          else if (/prezzo|p\.u\.|unitario|costo/.test(hl) && colPrezzo < 0) colPrezzo = ci
-          else if (/totale|importo/.test(hl) && colTot < 0) colTot = ci
+          const hl = h.toLowerCase().replace(/[^a-z0-9.]/g,'')
+          if (/codice|cod|art/.test(hl) && colCodice < 0) colCodice = ci
+          if (/descri|voce|lavora|oggetto|lavoraz/.test(hl) && colDesc < 0) colDesc = ci
+          if (/um|unita|misura/.test(hl) && colUm < 0) colUm = ci
+          if (/quant|qta|qt/.test(hl) && colQt < 0) colQt = ci
+          if (/prezzo|pu|unitario|costounit/.test(hl) && colPrezzo < 0) colPrezzo = ci
+          if (/totale|importo|tot/.test(hl) && colTot < 0) colTot = ci
         })
         dataStart = i + 1
         break
       }
     }
-    // Fallback posizionale se non trova intestazione
-    if (colDesc < 0) { colDesc=0; colUm=1; colQt=2; colPrezzo=3; colTot=4 }
 
+    // ── Fallback: analisi prima riga dati per capire la struttura ──
+    if (colDesc < 0) {
+      // Trova colonna più lunga (testo) = descrizione; ultime colonne numeriche = prezzo/totale
+      const primaRiga = righe[dataStart] || righe[0] || []
+      const numCols = primaRiga.length
+      // Colonna con testo più lungo = descrizione
+      let maxLen = 0
+      primaRiga.forEach((c, ci) => { if (c.length > maxLen) { maxLen = c.length; colDesc = ci } })
+      // Ultime due colonne numeriche = prezzo, totale
+      const numIdx = []
+      primaRiga.forEach((c, ci) => { if (parseNum(c) !== null) numIdx.push(ci) })
+      if (numIdx.length >= 2) { colPrezzo = numIdx[numIdx.length-2]; colTot = numIdx[numIdx.length-1] }
+      else if (numIdx.length === 1) { colTot = numIdx[0] }
+      if (numIdx.length >= 3) colQt = numIdx[0]
+    }
+
+    // ── Debug info ──────────────────────────────────────────────────
+    const primaRigaDati = righe[dataStart] || []
+    setPasteDebug({
+      intestazione: intestazione ? intestazione.join(' | ') : '(non trovata)',
+      colonne: `desc:${colDesc} um:${colUm} qt:${colQt} prezzo:${colPrezzo} tot:${colTot}`,
+      primaRiga: primaRigaDati.join(' | '),
+      valoriParsati: `qt="${primaRigaDati[colQt]}"→${parseNum(primaRigaDati[colQt])} pr="${primaRigaDati[colPrezzo]}"→${parseNum(primaRigaDati[colPrezzo])} tot="${primaRigaDati[colTot]}"→${parseNum(primaRigaDati[colTot])}`
+    })
+
+    // ── Costruisci voci ──────────────────────────────────────────────
     const vv = []
     for (let i = dataStart; i < righe.length; i++) {
       const r = righe[i]
       if (!r.length || r.every(c => !c)) continue
-      const desc = colDesc >= 0 ? r[colDesc] || '' : r[0] || ''
-      if (!desc) continue
-      const qt  = parseNum(colQt >= 0 ? r[colQt] : null) ?? 1
+      const desc = (colDesc >= 0 ? r[colDesc] : r[0]) || ''
+      if (!desc || desc.length < 2) continue
+      const qt  = parseNum(colQt  >= 0 ? r[colQt]    : null) ?? 1
       const pr  = parseNum(colPrezzo >= 0 ? r[colPrezzo] : null) ?? 0
-      const tot = parseNum(colTot >= 0 ? r[colTot] : null) ?? (qt * pr)
+      const tot = parseNum(colTot >= 0 ? r[colTot]   : null) ?? (qt * pr)
       const um  = (colUm >= 0 ? r[colUm] : '') || 'cad'
       vv.push({
         id: Date.now() + i,
         descrizione: desc.slice(0, 200),
-        categoria: 'Altro',
-        um,
-        quantita: qt,
-        prezzo_costo: pr,
-        ricarico_perc: 0,
-        prezzo_cliente: pr,
-        totale_costo: tot,
-        totale_cliente: tot,
+        categoria: 'Altro', um,
+        quantita: qt, prezzo_costo: pr, ricarico_perc: 0,
+        prezzo_cliente: pr, totale_costo: tot, totale_cliente: tot,
         sospetta: false,
       })
     }
-    if (!vv.length) { toast.error('Nessuna riga trovata — controlla che il testo sia copiato da Excel'); return }
+
+    if (!vv.length) { toast.error('Nessuna riga trovata'); return }
     setVociImportate(vv)
     setRigheSelezionate(new Set(vv.map(v => v.id)))
     setShowPaste(false)
     setPasteText('')
-    toast.success(`${vv.length} righe incollate — deseleziona quelle che non vuoi`)
+    toast.success(`${vv.length} righe incollate`)
   }
 
   const _normalizzaVoce = (v, i) => {
@@ -500,7 +528,7 @@ function ComputoSection({ cantiereId, canWrite }) {
                 placeholder="Incolla qui il contenuto copiato da Excel (Ctrl+V)..."
                 value={pasteText}
                 onChange={e => setPasteText(e.target.value)}
-                onPaste={e => { setTimeout(() => elaboraIncolla(), 50) }}
+                onPaste={e => { const t = e.clipboardData.getData('text'); setPasteText(t); setTimeout(() => elaboraIncolla(t), 50) }}
               />
               <div className="flex gap-2">
                 <button onClick={() => setShowPaste(false)} className="btn-secondary flex-1 text-sm">Annulla</button>
@@ -517,6 +545,17 @@ function ComputoSection({ cantiereId, canWrite }) {
       {/* Import con selezione righe */}
       {vociImportate && (
         <div className="card border-2 border-purple-300 space-y-3">
+          {pasteDebug && (
+            <details className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-xs text-gray-500">
+              <summary className="cursor-pointer font-medium text-gray-600">Debug colonne rilevate</summary>
+              <div className="mt-1 space-y-0.5 font-mono">
+                <p>Intestazione: {pasteDebug.intestazione}</p>
+                <p>Colonne: {pasteDebug.colonne}</p>
+                <p>Prima riga: {pasteDebug.primaRiga}</p>
+                <p>Parsing: {pasteDebug.valoriParsati}</p>
+              </div>
+            </details>
+          )}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 flex-wrap">
               <Sparkles size={16} className="text-purple-600" />
