@@ -73,7 +73,8 @@ async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(
     diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id).first()
     if not diario:
         raise HTTPException(status_code=404, detail="Diario non trovato")
-    ext = os.path.splitext(file.filename or "foto.jpg")[1] or ".jpg"
+    _ct_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/gif": ".gif"}
+    ext = os.path.splitext(file.filename or "")[1].lower() or _ct_map.get((file.content_type or "").split(";")[0].strip(), "") or ".jpg"
     url, _ = salva_file(await file.read(), f"foto/{cantiere_id}", ext)
     urls = list(diario.foto_urls or [])
     urls.append(url)

@@ -21,6 +21,21 @@ router = APIRouter(prefix="/cantieri", tags=["Documenti"])
 ESTENSIONI_CONSENTITE = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".webp", ".heic", ".heif", ".dxf", ".dwg"}
 RUOLI_VALIDI = {"admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "artigiano", "fornitore", "cliente"}
 
+# Mappa content-type → estensione di fallback (per upload da mobile senza filename)
+_CT_TO_EXT = {
+    "image/jpeg": ".jpg", "image/jpg": ".jpg",
+    "image/png": ".png", "image/gif": ".gif",
+    "image/webp": ".webp", "image/heic": ".heic", "image/heif": ".heif",
+    "application/pdf": ".pdf",
+}
+
+def _risolvi_ext(file: UploadFile, default: str = ".jpg") -> str:
+    """Ricava l'estensione dal filename; se assente, usa il content-type; poi il default."""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if not ext and file.content_type:
+        ext = _CT_TO_EXT.get(file.content_type.lower().split(";")[0].strip(), "")
+    return ext or default
+
 # ─── AUTORIZZAZIONI ───────────────────────────────────────────────────────────
 
 def _get_cantiere_con_accesso(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
@@ -129,9 +144,9 @@ async def carica_documento(
     _get_cantiere_con_accesso(cantiere_id, db, user)
     if not _can_write(user):
         raise HTTPException(status_code=403, detail="Non autorizzato al caricamento")
-    ext = os.path.splitext(file.filename or "")[1].lower()
+    ext = _risolvi_ext(file)
     if ext not in ESTENSIONI_CONSENTITE:
-        raise HTTPException(status_code=400, detail=f"Tipo file non consentito: {ext}")
+        raise HTTPException(status_code=400, detail=f"Tipo file non consentito: {ext or '(sconosciuto)'}")
     contenuto = await file.read()
     if len(contenuto) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File troppo grande (max 50MB)")
@@ -267,7 +282,7 @@ async def upload_foto_pin(
     # Fornitore può caricare solo su pin assegnati a lui
     if user.ruolo == RuoloUtente.fornitore and pin.get("assegnato_a") != "fornitore":
         raise HTTPException(status_code=403, detail="Pin non assegnato a te")
-    ext = os.path.splitext(file.filename or "foto.jpg")[1].lower() or ".jpg"
+    ext = _risolvi_ext(file, default=".jpg")
     contenuto = await file.read()
     url, _ = salva_file(contenuto, f"pin-foto/{cantiere_id}", ext)
     pin.setdefault("foto_urls", []).append(url)

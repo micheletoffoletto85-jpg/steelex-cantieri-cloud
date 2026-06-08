@@ -58,7 +58,8 @@ async def upload(cantiere_id: int, file: UploadFile = File(...),
                  db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
     if user.ruolo == "cliente": raise HTTPException(403, "Sola lettura")
-    ext = os.path.splitext(file.filename or "")[1].lower().lstrip(".") or "bin"
+    _ct_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/gif": ".gif", "application/pdf": ".pdf"}
+    ext = (os.path.splitext(file.filename or "")[1].lower() or _ct_map.get((file.content_type or "").split(";")[0].strip(), "")).lstrip(".") or "bin"
     url, _ = salva_file(await file.read(), f"archivio/{cantiere_id}", f".{ext}")
     doc = ArchivioDocs(
         cantiere_id=cantiere_id,
