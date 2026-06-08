@@ -32,13 +32,18 @@ def lista_cantieri(
     if user.ruolo == RuoloUtente.admin:
         pass  # vede tutto
     elif user.ruolo in _RUOLI_STAFF:
-        pass  # vedono tutti i cantieri (assegnati o no)
+        pass  # vedono tutti i cantieri
     else:
         # artigiano, fornitore, cliente: solo cantieri a cui sono assegnati
         q = q.filter(Cantiere.artigiani.any(Utente.id == user.id))
     if stato:
         q = q.filter(Cantiere.stato == stato)
-    return q.order_by(Cantiere.creato_il.desc()).all()
+    cantieri = q.order_by(Cantiere.creato_il.desc()).all()
+    # Ricalcola avanzamento live dalle fasi (il campo DB può essere obsoleto)
+    for c in cantieri:
+        if c.fasi:
+            c.avanzamento = round(sum(f.percentuale for f in c.fasi) / len(c.fasi), 1)
+    return cantieri
 
 @router.post("", response_model=CantiereOut, status_code=201)
 def crea_cantiere(data: CantiereCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
@@ -58,6 +63,8 @@ def get_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utente =
     if not cantiere:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
     _check_accesso(cantiere, user)
+    if cantiere.fasi:
+        cantiere.avanzamento = round(sum(f.percentuale for f in cantiere.fasi) / len(cantiere.fasi), 1)
     return cantiere
 
 @router.put("/{cantiere_id}", response_model=CantiereOut)
