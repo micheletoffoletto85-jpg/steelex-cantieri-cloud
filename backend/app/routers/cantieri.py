@@ -10,17 +10,21 @@ from app.auth import get_current_user
 
 router = APIRouter(prefix="/cantieri", tags=["Cantieri"])
 
-_RUOLI_STAFF = (RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori)
+# Solo staff STEELEX interno può creare/vedere tutti i cantieri
+_RUOLI_STEELEX = (RuoloUtente.admin, RuoloUtente.capo_cantiere)
+# Ruoli esterni: vedono SOLO i cantieri dove sono esplicitamente assegnati
+_RUOLI_ESTERNI = (RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori,
+                  RuoloUtente.artigiano, RuoloUtente.fornitore, RuoloUtente.cliente)
 
 def _check_accesso(cantiere: Cantiere, user: Utente):
     if user.ruolo == RuoloUtente.admin:
         return
-    if user.ruolo in _RUOLI_STAFF:
+    if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
         return
-    # artigiano, fornitore, cliente: solo se assegnati al cantiere
+    # tutti gli altri ruoli: solo se assegnati nella tabella cantiere_artigiani
     if user.id in [u.id for u in cantiere.artigiani]:
         return
-    raise HTTPException(status_code=403, detail="Accesso negato")
+    raise HTTPException(status_code=403, detail="Accesso negato al cantiere")
 
 @router.get("", response_model=List[CantiereOut])
 def lista_cantieri(
@@ -31,10 +35,11 @@ def lista_cantieri(
     q = db.query(Cantiere)
     if user.ruolo == RuoloUtente.admin:
         pass  # vede tutto
-    elif user.ruolo in _RUOLI_STAFF:
-        pass  # vedono tutti i cantieri
+    elif user.ruolo == RuoloUtente.capo_cantiere:
+        q = q.filter(Cantiere.responsabile_id == user.id)  # solo i suoi cantieri
     else:
-        # artigiano, fornitore, cliente: solo cantieri a cui sono assegnati
+        # capo_cantiere_sub, direzione_lavori, artigiano, fornitore, cliente:
+        # solo cantieri dove sono stati esplicitamente assegnati
         q = q.filter(Cantiere.artigiani.any(Utente.id == user.id))
     if stato:
         q = q.filter(Cantiere.stato == stato)
@@ -47,7 +52,7 @@ def lista_cantieri(
 
 @router.post("", response_model=CantiereOut, status_code=201)
 def crea_cantiere(data: CantiereCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in [RuoloUtente.admin, *_RUOLI_STAFF]:
+    if user.ruolo not in _RUOLI_STEELEX:
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = Cantiere(**data.model_dump())
     if not cantiere.responsabile_id:
