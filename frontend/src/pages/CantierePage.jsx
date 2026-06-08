@@ -109,7 +109,7 @@ export default function CantierePage() {
 /* ─── TAB INFO ─── */
 function InfoTab({ cantiere, editing, form, set, utente }) {
   const data = editing ? form : cantiere
-  const isStaff = ['admin', 'capo_cantiere'].includes(utente?.ruolo)
+  const isStaff = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const { data: economia } = useQuery(
     ['economia', cantiere.id],
     () => api.get(`/cantieri/${cantiere.id}/economia`).then(r => r.data),
@@ -507,7 +507,7 @@ function MappeTab({ cantiereId }) {
   const [uploadingFoto, setUploadingFoto] = useState(false)
   const imgContainerRef = useRef(null)
 
-  const canWrite   = ['admin','capo_cantiere'].includes(utente?.ruolo)
+  const canWrite   = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const canContrib = ['admin','capo_cantiere','fornitore'].includes(utente?.ruolo)
 
   // Lista utenti per assegnazione pin (solo admin/capo_cantiere)
@@ -1301,7 +1301,7 @@ function DiarioTab({ cantiereId }) {
 /* ─── TAB TEAM ─── */
 function TeamTab({ cantiereId, utente }) {
   const qc = useQueryClient()
-  const isAdmin = utente?.ruolo === 'admin' || utente?.ruolo === 'capo_cantiere'
+  const isAdmin = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
 
   const { data: assegnati = [], isLoading } = useQuery(
     ['artigiani', cantiereId],
@@ -1394,7 +1394,7 @@ const TIPO_ICONA = { pdf: '📄', dwg: '📐', dxf: '📐', jpg: '🖼', jpeg: '
 
 function RaccoltaDocumentiTab({ cantiereId, utente }) {
   const qc = useQueryClient()
-  const isStaff = ['admin', 'capo_cantiere'].includes(utente?.ruolo)
+  const isStaff = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const [cerca, setCerca] = useState('')
   const [catFiltro, setCatFiltro] = useState('')
   const [uploading, setUploading] = useState(false)

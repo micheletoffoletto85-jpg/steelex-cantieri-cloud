@@ -8,6 +8,7 @@ class UtenteBase(BaseModel):
     cognome: str
     email: str
     ruolo: RuoloUtente = RuoloUtente.capo_cantiere
+    tipo_professione: Optional[str] = None
 
 class UtenteCreate(UtenteBase):
     password: str
@@ -18,6 +19,7 @@ class UtenteUpdate(BaseModel):
     ruolo: Optional[RuoloUtente] = None
     attivo: Optional[bool] = None
     password: Optional[str] = None
+    tipo_professione: Optional[str] = None
 
 class UtenteOut(UtenteBase):
     id: int

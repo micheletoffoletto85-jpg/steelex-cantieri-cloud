@@ -10,12 +10,14 @@ from app.auth import get_current_user
 
 router = APIRouter(prefix="/cantieri", tags=["Cantieri"])
 
+_RUOLI_STAFF = (RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori)
+
 def _check_accesso(cantiere: Cantiere, user: Utente):
     if user.ruolo == RuoloUtente.admin:
         return
-    if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
+    if user.ruolo in _RUOLI_STAFF:
         return
-    # tutti gli altri (artigiano, fornitore, cliente): solo se assegnati
+    # artigiano, fornitore, cliente: solo se assegnati al cantiere
     if user.id in [u.id for u in cantiere.artigiani]:
         return
     raise HTTPException(status_code=403, detail="Accesso negato")
@@ -29,8 +31,8 @@ def lista_cantieri(
     q = db.query(Cantiere)
     if user.ruolo == RuoloUtente.admin:
         pass  # vede tutto
-    elif user.ruolo == RuoloUtente.capo_cantiere:
-        q = q.filter(Cantiere.responsabile_id == user.id)
+    elif user.ruolo in _RUOLI_STAFF:
+        pass  # vedono tutti i cantieri (assegnati o no)
     else:
         # artigiano, fornitore, cliente: solo cantieri a cui sono assegnati
         q = q.filter(Cantiere.artigiani.any(Utente.id == user.id))
@@ -40,7 +42,7 @@ def lista_cantieri(
 
 @router.post("", response_model=CantiereOut, status_code=201)
 def crea_cantiere(data: CantiereCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in [RuoloUtente.admin, RuoloUtente.capo_cantiere]:
+    if user.ruolo not in [RuoloUtente.admin, *_RUOLI_STAFF]:
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = Cantiere(**data.model_dump())
     if not cantiere.responsabile_id:
@@ -95,7 +97,7 @@ class UtenteBase(BaseModel):
 @router.get("/utenti/artigiani", response_model=List[UtenteBase])
 def lista_utenti_assegnabili(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     """Tutti gli utenti artigiani + capo cantiere assegnabili"""
-    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     return db.query(Utente).filter(
         Utente.attivo == True,
@@ -107,7 +109,7 @@ class AssegnaBody(BaseModel):
 
 @router.get("/{cantiere_id}/artigiani", response_model=List[UtenteBase])
 def lista_artigiani(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
@@ -116,7 +118,7 @@ def lista_artigiani(cantiere_id: int, db: Session = Depends(get_db), user: Utent
 
 @router.post("/{cantiere_id}/artigiani", status_code=201)
 def assegna_artigiano(cantiere_id: int, body: AssegnaBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
@@ -131,7 +133,7 @@ def assegna_artigiano(cantiere_id: int, body: AssegnaBody, db: Session = Depends
 
 @router.delete("/{cantiere_id}/artigiani/{utente_id}", status_code=204)
 def rimuovi_artigiano(cantiere_id: int, utente_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:

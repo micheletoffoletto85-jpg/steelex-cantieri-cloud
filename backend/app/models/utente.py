@@ -6,10 +6,21 @@ from app.database import Base
 
 class RuoloUtente(str, enum.Enum):
     admin = "admin"
-    capo_cantiere = "capo_cantiere"
+    capo_cantiere = "capo_cantiere"          # interno STEELEX — vede tutto
+    capo_cantiere_sub = "capo_cantiere_sub"  # subappaltato — no economia
+    direzione_lavori = "direzione_lavori"    # DL esterno — no economia
     artigiano = "artigiano"
     fornitore = "fornitore"
     cliente = "cliente"
+
+# Professioni disponibili per ruolo fornitore/artigiano
+PROFESSIONI = [
+    "Muratore", "Carpentiere in legno", "Carpentiere metallico",
+    "Elettricista", "Idraulico / Termoidraulico", "Installatore serramenti",
+    "Tinteggiatore / Decoratore", "Piastrellista", "Pavimentatore",
+    "Saldatore", "Ponteggiatore", "Trasportatore", "Noleggio attrezzature",
+    "Geometra", "Ingegnere / Architetto", "Altro",
+]
 
 class Utente(Base):
     __tablename__ = "utenti"
@@ -20,6 +31,7 @@ class Utente(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     ruolo = Column(Enum(RuoloUtente, native_enum=False), default=RuoloUtente.capo_cantiere)
+    tipo_professione = Column(String, nullable=True)
     attivo = Column(Boolean, default=True)
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
     aggiornato_il = Column(DateTime(timezone=True), onupdate=func.now())

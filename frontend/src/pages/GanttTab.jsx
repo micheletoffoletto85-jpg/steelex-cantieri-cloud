@@ -29,7 +29,7 @@ const fmtDFull = d => d ? dayjs(d).format('DD/MM/YYYY') : '—'
 export default function GanttTab({ cantiereId }) {
   const { utente } = useAuth()
   const qc = useQueryClient()
-  const canWrite = ['admin','capo_cantiere'].includes(utente?.ruolo)
+  const canWrite = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
   const [vista, setVista] = useState(() => window.innerWidth < 640 ? 'lista' : 'gantt')
@@ -314,6 +314,7 @@ export default function GanttTab({ cantiereId }) {
             onEdit={apriModifica}
             onDelete={id => richiediElimina(id)}
             onUpdate={(id, data) => updateMutation.mutate({id, data})}
+            onToggleCliente={(id, val) => updateMutation.mutate({ id, data: { visibile_cliente: val } })}
             tooltipFase={tooltipFase} setTooltipFase={setTooltipFase} />
         </>
       ) : (
@@ -328,7 +329,7 @@ export default function GanttTab({ cantiereId }) {
 }
 
 /* ─── DIAGRAMMA DI GANTT ─── */
-function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, tooltipFase, setTooltipFase }) {
+function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onToggleCliente, tooltipFase, setTooltipFase }) {
   const oggi = dayjs()
 
   // Calcola range date totale
@@ -375,6 +376,15 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, toolt
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {canWrite && (
+              <button
+                onClick={() => onToggleCliente(tooltipFase.id, !tooltipFase.visibile_cliente)}
+                title={tooltipFase.visibile_cliente ? 'Visibile al cliente — nascondi' : 'Nascosto al cliente — condividi'}
+                className={`p-1 rounded transition-colors ${tooltipFase.visibile_cliente ? 'text-blue-300 hover:text-blue-100' : 'text-gray-500 hover:text-blue-300'}`}
+              >
+                {tooltipFase.visibile_cliente ? <Eye size={15} /> : <EyeOff size={15} />}
+              </button>
+            )}
             {canWrite && <button onClick={() => { onEdit(tooltipFase); setTooltipFase(null) }} className="text-xs bg-steelex-orange px-2 py-1 rounded-lg font-medium">Modifica</button>}
             <button onClick={() => setTooltipFase(null)} className="text-gray-400 hover:text-white"><X size={16} /></button>
           </div>

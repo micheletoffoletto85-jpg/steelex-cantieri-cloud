@@ -15,14 +15,14 @@ from sqlalchemy import text
 Base.metadata.create_all(bind=engine)
 
 # Migra colonne nuove su tabelle esistenti (idempotente)
+# Ogni statement usa connessione separata: in PostgreSQL un errore in transazione
+# blocca tutti i comandi successivi (InFailedSqlTransaction).
 def _migra():
     migrazioni = [
-        # Diario: nuovi campi AI
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS fonte VARCHAR(20) DEFAULT 'manuale'",
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS testo_originale TEXT",
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS lingua_originale VARCHAR(10)",
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS voci_estratte JSONB DEFAULT '[]'",
-        # Tabella assegnazione artigiani ai cantieri
         """CREATE TABLE IF NOT EXISTS cantiere_artigiani (
             cantiere_id INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
             utente_id   INTEGER NOT NULL REFERENCES utenti(id)   ON DELETE CASCADE,
@@ -55,14 +55,18 @@ def _migra():
             creato_il    TIMESTAMPTZ DEFAULT NOW(),
             caricato_il  TIMESTAMPTZ
         )""",
+        # Nuovi ruoli estesi
+        "ALTER TABLE utenti ADD COLUMN IF NOT EXISTS tipo_professione VARCHAR(50)",
+        # Imposta visibile_cliente = FALSE dove è NULL (righe precedenti alla migration)
+        "UPDATE fasi_lavoro SET visibile_cliente = FALSE WHERE visibile_cliente IS NULL",
     ]
-    with engine.connect() as conn:
-        for sql in migrazioni:
-            try:
+    for sql in migrazioni:
+        try:
+            with engine.connect() as conn:
                 conn.execute(text(sql))
-            except Exception:
-                pass  # colonna già presente o altro errore non bloccante
-        conn.commit()
+                conn.commit()
+        except Exception:
+            pass  # colonna/tabella già presente
 
 _migra()
 

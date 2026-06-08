@@ -29,24 +29,37 @@ router = APIRouter(prefix="/cantieri", tags=["Economico"])
 
 # ─── AUTORIZZAZIONI ───────────────────────────────────────────────────────────
 
+_RUOLI_STAFF = (
+    RuoloUtente.admin,
+    RuoloUtente.capo_cantiere,
+    RuoloUtente.capo_cantiere_sub,
+    RuoloUtente.direzione_lavori,
+)
+
 def _check(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
     c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not c:
         raise HTTPException(404, "Cantiere non trovato")
     if user.ruolo == RuoloUtente.admin:
         return c
-    if user.ruolo == RuoloUtente.capo_cantiere and c.responsabile_id == user.id:
+    if user.ruolo in _RUOLI_STAFF:
         return c
     if user.ruolo == RuoloUtente.fornitore:
         return c
-    # cliente (e artigiano): accesso solo se assegnato al cantiere
+    # cliente / artigiano: accesso solo se assegnato al cantiere
     if user.id in [u.id for u in c.artigiani]:
         return c
     raise HTTPException(403, "Accesso negato")
 
 def _solo_staff(user: Utente):
+    """Operazioni di scrittura Gantt/SAL/fasi — tutti i ruoli cantiere eccetto cliente."""
+    if user.ruolo not in _RUOLI_STAFF:
+        raise HTTPException(403, "Accesso riservato allo staff di cantiere")
+
+def _solo_economia(user: Utente):
+    """Modulo economico (preventivi, spese, SAL) — solo admin e capo cantiere interno."""
     if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
-        raise HTTPException(403, "Solo admin e capo cantiere")
+        raise HTTPException(403, "Modulo economico riservato ad admin e capo cantiere STEELEX")
 
 def _blocca_cliente(user: Utente):
     if user.ruolo == RuoloUtente.cliente:
@@ -164,7 +177,7 @@ def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Uten
 
 @router.post("/{cantiere_id}/preventivi", response_model=PreventivoOut, status_code=201)
 def crea_preventivo(cantiere_id: int, body: PreventivoCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     try:
         prev = PreventivoCantiere(
             cantiere_id=cantiere_id,
@@ -184,7 +197,7 @@ def crea_preventivo(cantiere_id: int, body: PreventivoCreate, db: Session = Depe
 
 @router.put("/{cantiere_id}/preventivi/{prev_id}", response_model=PreventivoOut)
 def aggiorna_preventivo(cantiere_id: int, prev_id: int, body: PreventivoUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     prev = db.query(PreventivoCantiere).filter(PreventivoCantiere.id == prev_id, PreventivoCantiere.cantiere_id == cantiere_id).first()
     if not prev: raise HTTPException(404, "Non trovato")
     upd = body.model_dump(exclude_none=True)
@@ -199,7 +212,7 @@ def aggiorna_preventivo(cantiere_id: int, prev_id: int, body: PreventivoUpdate, 
 
 @router.post("/{cantiere_id}/preventivi/{prev_id}/pdf", response_model=PreventivoOut)
 async def upload_pdf_preventivo(cantiere_id: int, prev_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     prev = db.query(PreventivoCantiere).filter(PreventivoCantiere.id == prev_id, PreventivoCantiere.cantiere_id == cantiere_id).first()
     if not prev: raise HTTPException(404, "Non trovato")
     ext = os.path.splitext(file.filename or ".pdf")[1].lower() or ".pdf"
@@ -209,7 +222,7 @@ async def upload_pdf_preventivo(cantiere_id: int, prev_id: int, file: UploadFile
 
 @router.delete("/{cantiere_id}/preventivi/{prev_id}", status_code=204)
 def elimina_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     prev = db.query(PreventivoCantiere).filter(PreventivoCantiere.id == prev_id, PreventivoCantiere.cantiere_id == cantiere_id).first()
     if not prev: raise HTTPException(404, "Non trovato")
     db.delete(prev); db.commit()
@@ -246,7 +259,7 @@ def lista_spese(cantiere_id: int, db: Session = Depends(get_db), user: Utente = 
 
 @router.post("/{cantiere_id}/spese", response_model=SpesaOut, status_code=201)
 def registra_spesa(cantiere_id: int, body: SpesaCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     try:
         s = Spesa(cantiere_id=cantiere_id, creato_da=user.id, **body.model_dump())
         db.add(s); db.commit(); db.refresh(s)
@@ -256,7 +269,7 @@ def registra_spesa(cantiere_id: int, body: SpesaCreate, db: Session = Depends(ge
 
 @router.put("/{cantiere_id}/spese/{spesa_id}", response_model=SpesaOut)
 def aggiorna_spesa(cantiere_id: int, spesa_id: int, body: SpesaUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     s = db.query(Spesa).filter(Spesa.id == spesa_id, Spesa.cantiere_id == cantiere_id).first()
     if not s: raise HTTPException(404, "Non trovata")
     for k, v in body.model_dump(exclude_none=True).items(): setattr(s, k, v)
@@ -265,7 +278,7 @@ def aggiorna_spesa(cantiere_id: int, spesa_id: int, body: SpesaUpdate, db: Sessi
 
 @router.post("/{cantiere_id}/spese/{spesa_id}/allegato", response_model=SpesaOut)
 async def upload_allegato_spesa(cantiere_id: int, spesa_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     s = db.query(Spesa).filter(Spesa.id == spesa_id, Spesa.cantiere_id == cantiere_id).first()
     if not s: raise HTTPException(404, "Non trovata")
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -278,7 +291,7 @@ async def upload_allegato_spesa(cantiere_id: int, spesa_id: int, file: UploadFil
 
 @router.delete("/{cantiere_id}/spese/{spesa_id}", status_code=204)
 def elimina_spesa(cantiere_id: int, spesa_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     s = db.query(Spesa).filter(Spesa.id == spesa_id, Spesa.cantiere_id == cantiere_id).first()
     if not s: raise HTTPException(404, "Non trovata")
     db.delete(s); db.commit()
@@ -308,7 +321,7 @@ def lista_sal(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
 
 @router.post("/{cantiere_id}/sal", response_model=SALOut, status_code=201)
 def crea_sal(cantiere_id: int, body: SALCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     ultimo = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).order_by(SAL.numero.desc()).first()
     sal = SAL(cantiere_id=cantiere_id, numero=(ultimo.numero + 1 if ultimo else 1), **body.model_dump())
     db.add(sal); db.commit(); db.refresh(sal)
@@ -316,7 +329,7 @@ def crea_sal(cantiere_id: int, body: SALCreate, db: Session = Depends(get_db), u
 
 @router.put("/{cantiere_id}/sal/{sal_id}", response_model=SALOut)
 def aggiorna_sal(cantiere_id: int, sal_id: int, body: SALUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     sal = db.query(SAL).filter(SAL.id == sal_id, SAL.cantiere_id == cantiere_id).first()
     if not sal: raise HTTPException(404, "Non trovato")
     for k, v in body.model_dump(exclude_none=True).items(): setattr(sal, k, v)
@@ -325,7 +338,7 @@ def aggiorna_sal(cantiere_id: int, sal_id: int, body: SALUpdate, db: Session = D
 
 @router.delete("/{cantiere_id}/sal/{sal_id}", status_code=204)
 def elimina_sal(cantiere_id: int, sal_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_staff(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     sal = db.query(SAL).filter(SAL.id == sal_id, SAL.cantiere_id == cantiere_id).first()
     if not sal: raise HTTPException(404, "Non trovato")
     db.delete(sal); db.commit()
@@ -510,7 +523,7 @@ async def import_computo_ai(
     """
     from app.config import settings
     _check(cantiere_id, db, user)
-    _solo_staff(user)
+    _solo_economia(user)
 
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(503, "Anthropic API key non configurata")
@@ -1019,7 +1032,7 @@ async def import_spesa_da_foto(
     import base64
     from app.config import settings
     _check(cantiere_id, db, user)
-    _solo_staff(user)
+    _solo_economia(user)
 
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(503, "Anthropic API key non configurata")
@@ -1403,7 +1416,7 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
     from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
 
     cantiere = _check(cantiere_id, db, user)
-    _solo_staff(user)
+    _solo_economia(user)
     prev = db.query(PreventivoCantiere).filter(
         PreventivoCantiere.id == prev_id,
         PreventivoCantiere.cantiere_id == cantiere_id
