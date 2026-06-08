@@ -32,7 +32,7 @@ CATEGORIE = ["progetto", "strutturale", "contratti", "autorizzazioni", "relazion
 def _check(cantiere_id, db, user):
     c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not c: raise HTTPException(404, "Cantiere non trovato")
-    if user.ruolo not in ("admin", "capo_cantiere", "artigiano", "fornitore", "cliente"):
+    if user.ruolo not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "artigiano", "fornitore", "cliente"):
         raise HTTPException(403)
     return c
 
@@ -76,7 +76,7 @@ async def upload(cantiere_id: int, file: UploadFile = File(...),
 def elimina(cantiere_id: int, doc_id: int,
             db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
-    if user.ruolo not in ("admin", "capo_cantiere"): raise HTTPException(403)
+    if user.ruolo not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"): raise HTTPException(403)
     d = db.query(ArchivioDocs).filter(ArchivioDocs.id == doc_id, ArchivioDocs.cantiere_id == cantiere_id).first()
     if not d: raise HTTPException(404)
     db.delete(d); db.commit()

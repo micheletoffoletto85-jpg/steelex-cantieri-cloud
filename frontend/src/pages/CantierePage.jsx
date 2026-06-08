@@ -509,7 +509,7 @@ function MappeTab({ cantiereId }) {
   const imgContainerRef = useRef(null)
 
   const canWrite   = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
-  const canContrib = ['admin','capo_cantiere','fornitore'].includes(utente?.ruolo)
+  const canContrib = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)
 
   // Lista utenti per assegnazione pin (solo admin/capo_cantiere)
   const { data: utenti = [] } = useQuery(
@@ -1330,7 +1330,7 @@ function TeamTab({ cantiereId, utente }) {
   const assegnatiIds = assegnati.map(a => a.id)
   const nonAssegnati = disponibili.filter(d => !assegnatiIds.includes(d.id))
 
-  const RUOLO_LABEL = { admin: 'Admin', capo_cantiere: 'Capo cantiere', artigiano: 'Artigiano', fornitore: 'Fornitore', cliente: 'Cliente' }
+  const RUOLO_LABEL = { admin: 'Admin', capo_cantiere: 'Capo cantiere', capo_cantiere_sub: 'CC Sub', direzione_lavori: 'Dir. Lavori', artigiano: 'Artigiano', fornitore: 'Fornitore', cliente: 'Cliente' }
 
   if (isLoading) return <div className="p-4 text-gray-500">Caricamento...</div>
 

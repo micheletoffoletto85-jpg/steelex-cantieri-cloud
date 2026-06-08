@@ -19,7 +19,7 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/cantieri", tags=["Documenti"])
 
 ESTENSIONI_CONSENTITE = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".webp", ".heic", ".heif", ".dxf", ".dwg"}
-RUOLI_VALIDI = {"admin", "capo_cantiere", "fornitore", "cliente"}
+RUOLI_VALIDI = {"admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "artigiano", "fornitore", "cliente"}
 
 # ─── AUTORIZZAZIONI ───────────────────────────────────────────────────────────
 
@@ -31,17 +31,20 @@ def _get_cantiere_con_accesso(cantiere_id: int, db: Session, user: Utente) -> Ca
         return cantiere
     if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
         return cantiere
+    # capo_cantiere_sub, direzione_lavori, artigiano, fornitore, cliente: solo se assegnati
+    if user.id in [u.id for u in cantiere.artigiani]:
+        return cantiere
     if user.ruolo in (RuoloUtente.fornitore, RuoloUtente.cliente):
         return cantiere
-    raise HTTPException(status_code=403, detail="Accesso negato")
+    raise HTTPException(status_code=403, detail="Accesso negato al cantiere")
 
 def _can_write(user: Utente) -> bool:
     """Può caricare documenti e aggiungere pin."""
-    return user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere)
+    return user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori)
 
 def _can_contribute(user: Utente) -> bool:
     """Può aggiungere report e foto ai pin (anche fornitore)."""
-    return user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.fornitore)
+    return user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori, RuoloUtente.fornitore)
 
 def _pin_visibile(pin: dict, user: Utente) -> bool:
     """Controlla se il pin è visibile per questo utente."""
@@ -59,7 +62,7 @@ def _pin_visibile(pin: dict, user: Utente) -> bool:
     return False
 
 def _filtra_pin(pins: list, user: Utente) -> list:
-    if user.ruolo == RuoloUtente.admin or user.ruolo == RuoloUtente.capo_cantiere:
+    if user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori):
         return pins
     return [p for p in pins if _pin_visibile(p, user)]
 
@@ -214,7 +217,7 @@ def aggiorna_stato_pin(
             from app.models.utente import Utente as UtenteModel
             cantiere = db.query(CantiereModel).filter(CantiereModel.id == cantiere_id).first()
             destinatari = db.query(UtenteModel).filter(
-                UtenteModel.ruolo.in_(["admin", "capo_cantiere"]),
+                UtenteModel.ruolo.in_(["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"]),
                 UtenteModel.attivo == True
             ).all()
             invia_notifica(db, [u.id for u in destinatari],
@@ -306,7 +309,7 @@ def aggiungi_report_pin(
         try:
             from app.models.utente import Utente as UtenteModel
             destinatari = db.query(UtenteModel).filter(
-                UtenteModel.ruolo.in_(["admin", "capo_cantiere"]),
+                UtenteModel.ruolo.in_(["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"]),
                 UtenteModel.attivo == True
             ).all()
             invia_notifica(db, [u.id for u in destinatari],

@@ -18,14 +18,14 @@ def _check(cantiere_id: int, db: Session, user: Utente):
         raise HTTPException(404, "Cantiere non trovato")
     if user.ruolo == "admin":
         return c
-    if user.ruolo in ("capo_cantiere", "artigiano", "fornitore"):
+    if user.ruolo in ("capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "artigiano", "fornitore"):
         return c
     if user.ruolo == "cliente" and c.cliente_email == user.email:
         return c
     raise HTTPException(403, "Non autorizzato")
 
 def _solo_staff(user: Utente):
-    if user.ruolo not in ("admin", "capo_cantiere"):
+    if user.ruolo not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"):
         raise HTTPException(403, "Solo admin/capo cantiere")
 
 # ─── SCHEMA ─────────────────────────────────────────────────────────────────
