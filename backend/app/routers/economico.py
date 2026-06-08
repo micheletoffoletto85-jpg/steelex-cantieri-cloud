@@ -458,6 +458,13 @@ def aggiorna_fase(cantiere_id: int, fase_id: int, body: FaseUpdate, db: Session 
     elif fase.percentuale > 0:
         fase.stato = "in_corso"
     db.commit(); db.refresh(fase)
+    # Ricalcola avanzamento del cantiere come media delle fasi
+    tutte_fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).all()
+    if tutte_fasi:
+        cantiere_obj = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+        if cantiere_obj:
+            cantiere_obj.avanzamento = round(sum(f.percentuale for f in tutte_fasi) / len(tutte_fasi), 1)
+            db.commit()
     return fase
 
 @router.delete("/{cantiere_id}/fasi/{fase_id}", status_code=204)
