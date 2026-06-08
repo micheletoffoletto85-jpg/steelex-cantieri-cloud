@@ -351,21 +351,31 @@ def preview_documento(
         raise HTTPException(status_code=404, detail="Documento non trovato")
     tipo = (doc.tipo or "").lower()
 
-    if doc.url.startswith("http") and tipo in ("jpg", "jpeg", "png", "gif", "webp"):
+    # Mappa tipo → content-type HTTP
+    _MIME = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png", "gif": "image/gif",
+        "webp": "image/webp", "heic": "image/heic", "heif": "image/heif",
+        "pdf": "application/pdf",
+    }
+
+    if tipo in ("jpg", "jpeg", "png", "gif", "webp", "heic", "heif"):
         try:
-            import urllib.request
-            with urllib.request.urlopen(doc.url, timeout=10) as resp:
-                data = resp.read()
-            ct = "image/jpeg" if tipo in ("jpg", "jpeg") else f"image/{tipo}"
-            return Response(content=data, media_type=ct)
+            # leggi_file gestisce sia R2 (chiave relativa) che filesystem (percorso assoluto)
+            chiave = _chiave_da_url(doc.url)
+            contenuto, ct = leggi_file(chiave)
+            # Forza content-type corretto (leggi_file potrebbe restituire octet-stream)
+            ct = _MIME.get(tipo, ct)
+            return Response(content=contenuto, media_type=ct)
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Errore lettura file R2: {e}")
+            raise HTTPException(status_code=404, detail=f"Immagine non trovata: {e}")
 
     if tipo == "pdf":
         try:
-            contenuto, _ = leggi_file(_chiave_da_url(doc.url))
+            chiave = _chiave_da_url(doc.url)
+            contenuto, _ = leggi_file(chiave)
         except Exception as e:
-            raise HTTPException(status_code=404, detail=f"File non trovato: {e}")
+            raise HTTPException(status_code=404, detail=f"PDF non trovato: {e}")
         cache_path = os.path.join(settings.UPLOAD_DIR, "cache", f"preview_{doc.id}.png")
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         if not os.path.exists(cache_path):
@@ -381,14 +391,7 @@ def preview_documento(
         with open(cache_path, "rb") as f:
             return Response(content=f.read(), media_type="image/png")
 
-    if tipo in ("jpg", "jpeg", "png", "gif", "webp", "heic", "heif"):
-        try:
-            contenuto, ct = leggi_file(_chiave_da_url(doc.url))
-            return Response(content=contenuto, media_type=ct)
-        except Exception as e:
-            raise HTTPException(status_code=404, detail=f"File non trovato: {e}")
-
-    raise HTTPException(status_code=415, detail="Tipo non supportato per anteprima")
+    raise HTTPException(status_code=415, detail=f"Tipo non supportato per anteprima: {tipo}")
 
 # ─── HELPER ──────────────────────────────────────────────────────────────────
 
