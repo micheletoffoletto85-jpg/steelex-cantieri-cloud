@@ -51,6 +51,7 @@ export default function CantierePage() {
           <button onClick={() => navigate('/cantieri')} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft size={20} /></button>
           <h1 className="text-xl font-bold truncate">{cantiere.nome}</h1>
         </div>
+        <AggiornnamentiTab cantiereId={id} />
         <ClienteView cantiere={cantiere} />
       </div>
     )
