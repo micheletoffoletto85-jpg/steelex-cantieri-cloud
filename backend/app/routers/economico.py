@@ -159,7 +159,7 @@ def _ricalcola(prev, voci, iva_perc, acconto_perc):
 
 @router.get("/{cantiere_id}/preventivi", response_model=List[PreventivoOut])
 def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _blocca_cliente(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     records = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).order_by(PreventivoCantiere.creato_il.desc()).all()
     # Ricalcola al volo i computi salvati con vecchio codice (totale=0 ma voci presenti)
     changed = False
@@ -254,7 +254,7 @@ class SpesaUpdate(BaseModel):
 
 @router.get("/{cantiere_id}/spese", response_model=List[SpesaOut])
 def lista_spese(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _blocca_cliente(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     return db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).order_by(Spesa.creato_il.desc()).all()
 
 @router.post("/{cantiere_id}/spese", response_model=SpesaOut, status_code=201)
@@ -316,7 +316,7 @@ class SALUpdate(BaseModel):
 
 @router.get("/{cantiere_id}/sal", response_model=List[SALOut])
 def lista_sal(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _blocca_cliente(user)
+    _check(cantiere_id, db, user); _solo_economia(user)
     return db.query(SAL).filter(SAL.cantiere_id == cantiere_id).order_by(SAL.numero).all()
 
 @router.post("/{cantiere_id}/sal", response_model=SALOut, status_code=201)
@@ -1272,7 +1272,7 @@ def export_excel(cantiere_id: int, db: Session = Depends(get_db), user: Utente =
     from openpyxl.utils import get_column_letter
 
     cantiere = _check(cantiere_id, db, user)
-    _blocca_cliente(user)
+    _solo_economia(user)
 
     spese = db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).order_by(Spesa.data).all()
     sal_list = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).order_by(SAL.numero).all()
