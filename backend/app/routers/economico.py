@@ -37,19 +37,19 @@ _RUOLI_STAFF = (
 )
 
 def _check(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
+    """Verifica accesso al cantiere (NON implica accesso all'economia)."""
     c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not c:
         raise HTTPException(404, "Cantiere non trovato")
     if user.ruolo == RuoloUtente.admin:
         return c
-    if user.ruolo in _RUOLI_STAFF:
+    if user.ruolo == RuoloUtente.capo_cantiere and c.responsabile_id == user.id:
         return c
-    if user.ruolo == RuoloUtente.fornitore:
-        return c
-    # cliente / artigiano: accesso solo se assegnato al cantiere
+    # capo_cantiere_sub, direzione_lavori, artigiano, fornitore, cliente:
+    # accesso solo se assegnati al cantiere
     if user.id in [u.id for u in c.artigiani]:
         return c
-    raise HTTPException(403, "Accesso negato")
+    raise HTTPException(403, "Accesso negato al cantiere")
 
 def _solo_staff(user: Utente):
     """Operazioni di scrittura Gantt/SAL/fasi — tutti i ruoli cantiere eccetto cliente."""
@@ -81,7 +81,7 @@ class RiepilogoOut(BaseModel):
 @router.get("/{cantiere_id}/economia", response_model=RiepilogoOut)
 def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
-    _blocca_cliente(user)
+    _solo_economia(user)  # solo admin e capo_cantiere STEELEX
 
     preventivi = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).all()
     spese = db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).all()

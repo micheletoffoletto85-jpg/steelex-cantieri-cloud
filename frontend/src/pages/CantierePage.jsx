@@ -111,10 +111,11 @@ export default function CantierePage() {
 function InfoTab({ cantiere, editing, form, set, utente }) {
   const data = editing ? form : cantiere
   const isStaff = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
+  const puoVedereEconomia = ['admin','capo_cantiere'].includes(utente?.ruolo)
   const { data: economia } = useQuery(
     ['economia', cantiere.id],
     () => api.get(`/cantieri/${cantiere.id}/economia`).then(r => r.data),
-    { staleTime: 30000, enabled: isStaff }
+    { staleTime: 30000, enabled: puoVedereEconomia }
   )
 
   const fmt = v => `€ ${(v || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -148,8 +149,8 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
         <InfoField icon={<Calendar size={14} />} label="Fine Prevista" type="date" value={data.data_fine_prevista || ''} editing={editing} onChange={v => set('data_fine_prevista', v)} />
       </div>
 
-      {/* Riepilogo economico — solo admin e capo cantiere */}
-      {!editing && isStaff && (
+      {/* Riepilogo economico — solo admin e capo cantiere STEELEX */}
+      {!editing && puoVedereEconomia && (
         <div className="border-t border-gray-100 pt-3 space-y-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Economia</p>
           <div className="grid grid-cols-3 gap-2">
