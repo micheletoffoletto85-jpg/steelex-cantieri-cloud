@@ -55,6 +55,9 @@ def _migra():
             creato_il    TIMESTAMPTZ DEFAULT NOW(),
             caricato_il  TIMESTAMPTZ
         )""",
+        # Nuovi valori per l'enum ruoloutente (PostgreSQL native enum)
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'capo_cantiere_sub'",
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'direzione_lavori'",
         # Nuovi ruoli estesi
         "ALTER TABLE utenti ADD COLUMN IF NOT EXISTS tipo_professione VARCHAR(50)",
         # Imposta visibile_cliente = FALSE dove è NULL (righe precedenti alla migration)
