@@ -55,7 +55,10 @@ def _migra():
             creato_il    TIMESTAMPTZ DEFAULT NOW(),
             caricato_il  TIMESTAMPTZ
         )""",
-        # Nuovi valori per l'enum ruoloutente (PostgreSQL native enum)
+        # Tutti i valori enum ruoloutente (idempotente — IF NOT EXISTS)
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'artigiano'",
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'fornitore'",
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'cliente'",
         "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'capo_cantiere_sub'",
         "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'direzione_lavori'",
         # Nuovi ruoli estesi

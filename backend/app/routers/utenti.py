@@ -17,7 +17,7 @@ def crea_utente(data: UtenteCreate, db: Session = Depends(get_db), _=Depends(req
     if db.query(Utente).filter(Utente.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email già registrata")
     try:
-        utente = Utente(**data.model_dump(exclude={"password"}), password_hash=hash_password(data.password))
+        utente = Utente(**data.model_dump(mode='json', exclude={"password"}), password_hash=hash_password(data.password))
         db.add(utente)
         db.commit()
         db.refresh(utente)
@@ -31,13 +31,18 @@ def aggiorna_utente(utente_id: int, data: UtenteUpdate, db: Session = Depends(ge
     utente = db.query(Utente).filter(Utente.id == utente_id).first()
     if not utente:
         raise HTTPException(status_code=404, detail="Utente non trovato")
-    update_data = data.model_dump(exclude_none=True)
+    # mode='json' garantisce stringhe pure (non oggetti enum) — compatibile col tipo nativo PostgreSQL
+    update_data = data.model_dump(mode='json', exclude_none=True)
     if "password" in update_data:
         utente.password_hash = hash_password(update_data.pop("password"))
-    for k, v in update_data.items():
-        setattr(utente, k, v)
-    db.commit()
-    db.refresh(utente)
+    try:
+        for k, v in update_data.items():
+            setattr(utente, k, v)
+        db.commit()
+        db.refresh(utente)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore aggiornamento DB: {e}")
     return utente
 
 @router.delete("/{utente_id}", status_code=204)
