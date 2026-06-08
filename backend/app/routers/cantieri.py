@@ -109,7 +109,7 @@ class UtenteBase(BaseModel):
 @router.get("/utenti/artigiani", response_model=List[UtenteBase])
 def lista_utenti_assegnabili(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     """Tutti gli utenti artigiani + capo cantiere assegnabili"""
-    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STEELEX):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     return db.query(Utente).filter(
         Utente.attivo == True,
@@ -121,7 +121,7 @@ class AssegnaBody(BaseModel):
 
 @router.get("/{cantiere_id}/artigiani", response_model=List[UtenteBase])
 def lista_artigiani(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STEELEX):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
@@ -130,7 +130,7 @@ def lista_artigiani(cantiere_id: int, db: Session = Depends(get_db), user: Utent
 
 @router.post("/{cantiere_id}/artigiani", status_code=201)
 def assegna_artigiano(cantiere_id: int, body: AssegnaBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STEELEX):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
@@ -145,7 +145,7 @@ def assegna_artigiano(cantiere_id: int, body: AssegnaBody, db: Session = Depends
 
 @router.delete("/{cantiere_id}/artigiani/{utente_id}", status_code=204)
 def rimuovi_artigiano(cantiere_id: int, utente_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STAFF):
+    if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STEELEX):
         raise HTTPException(status_code=403, detail="Non autorizzato")
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
