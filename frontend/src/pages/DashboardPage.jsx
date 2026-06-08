@@ -26,8 +26,8 @@ const STATO_FASE = {
 }
 
 function ClienteDashboard({ utente, cantieri }) {
-  // Per il cliente di solito c'è 1 cantiere — prende il primo attivo
   const cantiere = cantieri.find(c => c.stato === 'in_corso') || cantieri[0]
+  const oggi = dayjs()
 
   const { data, isLoading } = useQuery(
     ['aggiornamenti-cliente', cantiere?.id],
@@ -35,9 +35,35 @@ function ClienteDashboard({ utente, cantieri }) {
     { enabled: !!cantiere, staleTime: 0 }
   )
 
+  // Fasi "calde": in corso, in ritardo, o che iniziano/finiscono entro 21 giorni
+  const fasiCalde = (data?.fasi || []).filter(f => {
+    if (['in_corso', 'in_ritardo'].includes(f.stato)) return true
+    if (f.data_inizio && dayjs(f.data_inizio).diff(oggi, 'day') <= 21 && dayjs(f.data_inizio).isAfter(oggi)) return true
+    if (f.data_fine_prevista && dayjs(f.data_fine_prevista).diff(oggi, 'day') <= 14 && f.percentuale < 100) return true
+    return false
+  })
+
+  // Prossimi appuntamenti: fasi future ordinate per data (mix Gantt + appuntamenti)
+  const prossimi = (data?.fasi || [])
+    .filter(f => f.data_inizio && dayjs(f.data_inizio).isAfter(oggi) && f.percentuale < 100)
+    .sort((a, b) => dayjs(a.data_inizio).diff(dayjs(b.data_inizio)))
+    .slice(0, 5)
+
+  // Aggiunge anche le appuntamenti dall'endpoint (fasi con data_fine vicina)
+  const scadenze = (data?.fasi || [])
+    .filter(f => f.data_fine_prevista && dayjs(f.data_fine_prevista).isAfter(oggi) && f.percentuale < 100)
+    .filter(f => !prossimi.find(p => p.id === f.id))
+    .sort((a, b) => dayjs(a.data_fine_prevista).diff(dayjs(b.data_fine_prevista)))
+    .slice(0, 3)
+
+  const eventiCalendario = [
+    ...prossimi.map(f => ({ id: `i-${f.id}`, nome: f.nome, data: f.data_inizio, colore: f.colore, tipo: 'inizio' })),
+    ...scadenze.map(f => ({ id: `f-${f.id}`, nome: `Fine: ${f.nome}`, data: f.data_fine_prevista, colore: f.colore, tipo: 'fine' })),
+  ].sort((a, b) => dayjs(a.data).diff(dayjs(b.data))).slice(0, 5)
+
   return (
     <div className="space-y-5">
-      {/* Header benvenuto */}
+      {/* Header */}
       <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
@@ -48,11 +74,7 @@ function ClienteDashboard({ utente, cantieri }) {
           <p className="text-sm tracking-widest text-gray-400 uppercase mb-1">Benvenuto</p>
           <h1 className="text-2xl font-bold text-white">{utente?.nome}</h1>
           <div className="mt-3 h-0.5 w-16 bg-steelex-orange rounded" />
-          {cantiere && (
-            <p className="text-gray-400 text-sm mt-3">
-              Stai seguendo: <span className="text-white font-medium">{cantiere.nome}</span>
-            </p>
-          )}
+          {cantiere && <p className="text-gray-400 text-sm mt-3">Stai seguendo: <span className="text-white font-medium">{cantiere.nome}</span></p>}
         </div>
       </div>
 
@@ -66,22 +88,7 @@ function ClienteDashboard({ utente, cantieri }) {
 
       {cantiere && (
         <>
-          {/* Avanzamento globale */}
-          {data && (
-            <div className="bg-steelex-dark rounded-2xl p-5 text-white">
-              <p className="text-xs tracking-widest text-gray-400 uppercase mb-1">Avanzamento cantiere</p>
-              <div className="flex items-end justify-between mb-3">
-                <p className="text-4xl font-bold text-steelex-orange">{data.avanzamento_globale}%</p>
-                <Link to={`/cantieri/${cantiere.id}`} className="text-xs text-steelex-orange underline mb-1">Vedi dettagli →</Link>
-              </div>
-              <div className="w-full bg-white/10 rounded-full h-2.5">
-                <div className="bg-steelex-orange h-2.5 rounded-full transition-all duration-1000"
-                  style={{ width: `${Math.min(100, data.avanzamento_globale)}%` }} />
-              </div>
-            </div>
-          )}
-
-          {/* Fasi condivise */}
+          {/* Avanzamento + fasi calde nella stessa card */}
           {isLoading && (
             <div className="flex items-center justify-center py-8 text-gray-400 gap-3">
               <div className="w-6 h-6 border-2 border-steelex-orange border-t-transparent rounded-full animate-spin" />
@@ -89,84 +96,82 @@ function ClienteDashboard({ utente, cantieri }) {
             </div>
           )}
 
-          {data && data.fasi.length === 0 && data.totale_fasi > 0 && (
-            <div className="card text-center py-6 border-2 border-dashed border-orange-200">
-              <p className="text-sm text-gray-500">Nessun aggiornamento condiviso ancora.</p>
-              <p className="text-xs text-gray-400 mt-1">Il responsabile pubblicherà gli aggiornamenti qui.</p>
-            </div>
-          )}
+          {data && (
+            <div className="card space-y-4">
+              {/* Barra avanzamento */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Avanzamento lavori</p>
+                  <span className="text-2xl font-bold text-steelex-orange">{data.avanzamento_globale}%</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-3">
+                  <div className="bg-steelex-orange h-3 rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.min(100, data.avanzamento_globale)}%` }} />
+                </div>
+              </div>
 
-          {data && data.fasi.length > 0 && (
-            <div className="card space-y-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                Cronoprogramma — {data.fasi_condivise} fase{data.fasi_condivise !== 1 ? 'i' : ''} condivise
-              </p>
-              {data.fasi.map(f => {
-                const stato = STATO_FASE[f.stato] || STATO_FASE.pianificata
-                const Icona = stato.icon
-                return (
-                  <div key={f.id} className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
+              {/* Fasi in corso / prossime scadenze */}
+              {fasiCalde.length > 0 && (
+                <div className="space-y-2 pt-1 border-t border-gray-100">
+                  <p className="text-xs text-gray-400 font-medium">In questo momento</p>
+                  {fasiCalde.slice(0, 3).map(f => {
+                    const stato = STATO_FASE[f.stato] || STATO_FASE.pianificata
+                    const Icona = stato.icon
+                    return (
+                      <div key={f.id} className="flex items-center gap-2">
                         <Icona size={13} className={stato.cls + ' flex-shrink-0'} />
-                        <span className="text-sm font-medium text-gray-800 truncate">{f.nome}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-sm font-medium text-gray-800 truncate">{f.nome}</span>
+                            <span className="text-xs font-bold text-steelex-orange flex-shrink-0">{f.percentuale}%</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-1 mt-0.5">
+                            <div className="h-1 rounded-full" style={{ width: `${f.percentuale}%`, backgroundColor: f.colore || '#FF6B00' }} />
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className={`text-xs font-medium ${stato.cls}`}>{stato.label}</span>
-                        <span className="text-xs font-bold text-steelex-orange w-8 text-right">{f.percentuale}%</span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-full h-1.5">
-                      <div className="h-1.5 rounded-full transition-all duration-700"
-                        style={{ width: `${Math.min(100, f.percentuale)}%`, backgroundColor: f.colore || '#FF6B00' }} />
-                    </div>
-                    {(f.data_inizio || f.data_fine_prevista) && (
-                      <p className="text-[10px] text-gray-400">
-                        {f.data_inizio && dayjs(f.data_inizio).format('D MMM')}
-                        {f.data_inizio && f.data_fine_prevista && ' → '}
-                        {f.data_fine_prevista && dayjs(f.data_fine_prevista).format('D MMM YYYY')}
-                      </p>
-                    )}
-                  </div>
-                )
-              })}
+                    )
+                  })}
+                </div>
+              )}
+
+              {fasiCalde.length === 0 && data.totale_fasi > 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">Nessuna fase attiva al momento — il responsabile aggiornerà presto.</p>
+              )}
             </div>
           )}
 
-          {/* Prossimi appuntamenti */}
-          {data && data.appuntamenti?.length > 0 && (
+          {/* Prossimi appuntamenti — mini calendario */}
+          {data && eventiCalendario.length > 0 && (
             <div className="card space-y-3">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-2">
-                <Calendar size={13} /> Prossimi aggiornamenti
+                <Calendar size={13} /> Prossimi appuntamenti
               </p>
-              {data.appuntamenti.map(a => (
-                <div key={a.id} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
-                  <div className="flex-shrink-0 w-10 h-10 rounded-xl flex flex-col items-center justify-center text-center"
-                    style={{ backgroundColor: (a.colore || '#FF6B00') + '20', border: `1.5px solid ${(a.colore || '#FF6B00')}40` }}>
-                    <span className="text-[10px] font-bold leading-tight" style={{ color: a.colore || '#FF6B00' }}>{dayjs(a.data).format('D')}</span>
-                    <span className="text-[9px] uppercase" style={{ color: a.colore || '#FF6B00' }}>{dayjs(a.data).format('MMM')}</span>
+              {eventiCalendario.map(a => (
+                <div key={a.id} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
+                  <div className="flex-shrink-0 w-11 h-11 rounded-xl flex flex-col items-center justify-center text-center"
+                    style={{ backgroundColor: (a.colore || '#FF6B00') + '18', border: `1.5px solid ${(a.colore || '#FF6B00')}35` }}>
+                    <span className="text-sm font-bold leading-tight" style={{ color: a.colore || '#FF6B00' }}>{dayjs(a.data).format('D')}</span>
+                    <span className="text-[9px] uppercase font-medium" style={{ color: a.colore || '#FF6B00' }}>{dayjs(a.data).format('MMM')}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{a.nome}</p>
                     <p className="text-xs text-gray-400">{dayjs(a.data).fromNow()}</p>
                   </div>
-                  <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
+                  {a.tipo === 'fine' && <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0">scadenza</span>}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Note dal cantiere */}
+          {/* Ultime note dal cantiere */}
           {data && data.note_condivise?.length > 0 && (
             <div className="card space-y-3">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Ultime note dal cantiere</p>
               {data.note_condivise.slice(0, 3).map(n => (
                 <div key={n.id} className="border-l-2 border-steelex-orange pl-3 py-1 space-y-0.5">
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-400">
-                      {dayjs(n.data).format('D MMMM YYYY')}
-                      {n.meteo && <span className="ml-1">{n.meteo}</span>}
-                    </p>
+                    <p className="text-xs text-gray-400">{dayjs(n.data).format('D MMMM YYYY')}{n.meteo && <span className="ml-1">{n.meteo}</span>}</p>
                     {n.fonte === 'voce' && <Mic size={10} className="text-red-400" />}
                   </div>
                   <p className="text-sm text-gray-700 leading-relaxed">{n.testo}</p>
@@ -175,10 +180,10 @@ function ClienteDashboard({ utente, cantieri }) {
             </div>
           )}
 
-          {/* Link al dettaglio */}
+          {/* CTA cantiere */}
           <Link to={`/cantieri/${cantiere.id}`}
             className="block w-full text-center py-3 rounded-xl border-2 border-steelex-orange text-steelex-orange font-semibold text-sm hover:bg-orange-50 transition-colors">
-            Vai al cantiere completo →
+            Cronoprogramma completo →
           </Link>
         </>
       )}
