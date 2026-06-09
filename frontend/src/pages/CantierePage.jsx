@@ -498,6 +498,7 @@ function MappeTab({ cantiereId }) {
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
   const [lightboxUrl, setLightboxUrl] = useState(null) // foto aperta a schermo intero
+  const [confirmPending, setConfirmPending] = useState(null) // { messaggio, onConfirm }
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [editPinMode, setEditPinMode] = useState(false)
   const [editPinForm, setEditPinForm] = useState(null)
@@ -532,6 +533,16 @@ function MappeTab({ cantiereId }) {
   const RUOLO_LABEL_SHORT = {
     admin: 'Admin', capo_cantiere: 'Capo Cantiere', capo_cantiere_sub: 'Vice Capo',
     direzione_lavori: 'Dir. Lavori', artigiano: 'Artigiano', fornitore: 'Fornitore', cliente: 'Cliente',
+  }
+  // Verifica se una chip key riguarda il cliente (per conferma condivisione)
+  const isClienteKey = (key) => {
+    if (key === 'cliente') return true
+    if (key.startsWith('user_')) {
+      const uid = parseInt(key.replace('user_', ''))
+      const u = teamAttivo.find(u => u.id === uid)
+      return u?.ruolo === 'cliente'
+    }
+    return false
   }
   // Costruisce la lista chip: { key, label } dove key è il valore salvato in visibilita
   const chipVisibilita = (() => {
@@ -887,7 +898,14 @@ function MappeTab({ cantiereId }) {
                         <div className="flex gap-1.5 flex-wrap">
                           {chipVisibilita.map(({ key, label }) => (
                             <button key={key} type="button"
-                              onClick={() => setEditPinForm(f => ({ ...f, visibilita: f.visibilita?.includes(key) ? f.visibilita.filter(x=>x!==key) : [...(f.visibilita||[]), key] }))}
+                              onClick={() => {
+                                const staAggiungendo = !(editPinForm.visibilita?.includes(key))
+                                if (staAggiungendo && isClienteKey(key)) {
+                                  setConfirmPending({ messaggio: `Stai rendendo questo pin visibile a "${label}". Confermi?`, onConfirm: () => setEditPinForm(f => ({ ...f, visibilita: [...(f.visibilita||[]), key] })) })
+                                } else {
+                                  setEditPinForm(f => ({ ...f, visibilita: f.visibilita?.includes(key) ? f.visibilita.filter(x=>x!==key) : [...(f.visibilita||[]), key] }))
+                                }
+                              }}
                               className={`text-xs px-2 py-1 rounded-lg border transition-colors ${editPinForm.visibilita?.includes(key) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
                               {label}
                             </button>
@@ -1055,7 +1073,14 @@ function MappeTab({ cantiereId }) {
               <div className="flex gap-2 flex-wrap">
                 {chipVisibilita.map(({ key, label }) => (
                   <button key={key} type="button"
-                    onClick={() => setPinForm(f => ({ ...f, visibilita: f.visibilita.includes(key) ? f.visibilita.filter(x=>x!==key) : [...f.visibilita, key] }))}
+                    onClick={() => {
+                      const staAggiungendo = !pinForm.visibilita.includes(key)
+                      if (staAggiungendo && isClienteKey(key)) {
+                        setConfirmPending({ messaggio: `Stai rendendo questo pin visibile a "${label}". Confermi?`, onConfirm: () => setPinForm(f => ({ ...f, visibilita: [...f.visibilita, key] })) })
+                      } else {
+                        setPinForm(f => ({ ...f, visibilita: f.visibilita.includes(key) ? f.visibilita.filter(x=>x!==key) : [...f.visibilita, key] }))
+                      }
+                    }}
                     className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinForm.visibilita.includes(key) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
                     {label}
                   </button>
@@ -1082,6 +1107,27 @@ function MappeTab({ cantiereId }) {
             <div className="flex gap-2">
               <button onClick={() => { setModalPin(null); setFotePinModal([]) }} className="btn-secondary flex-1">Annulla</button>
               <button onClick={salvaPin} disabled={!pinForm.nota.trim()} className="btn-primary flex-1">Aggiungi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Conferma condivisione cliente ── */}
+      {confirmPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} className="text-steelex-orange" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 text-base">Condivisione con cliente</h3>
+                <p className="text-sm text-gray-500 mt-1">{confirmPending.messaggio}</p>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setConfirmPending(null)} className="btn-secondary flex-1">Annulla</button>
+              <button onClick={() => { confirmPending.onConfirm(); setConfirmPending(null) }} className="btn-primary flex-1">Sì, condividi</button>
             </div>
           </div>
         </div>
@@ -1180,6 +1226,7 @@ function DiarioTab({ cantiereId }) {
   const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0 })
   const [uploadingFor, setUploadingFor] = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [confirmDiario, setConfirmDiario] = useState(null) // { id, attivita } da confermare
   const [editId, setEditId] = useState(null)       // id nota in modifica
   const [editTesto, setEditTesto] = useState('')    // testo in modifica
   // Stato registrazione vocale
@@ -1424,7 +1471,13 @@ function DiarioTab({ cantiereId }) {
               {/* Spunta condividi cliente */}
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input type="checkbox" checked={!!d.condividi_cliente}
-                onChange={e => updateMutation.mutate({ id: d.id, attivita: d.attivita, condividi_cliente: e.target.checked })}
+                onChange={e => {
+                  if (e.target.checked) {
+                    setConfirmDiario({ id: d.id, attivita: d.attivita })
+                  } else {
+                    updateMutation.mutate({ id: d.id, attivita: d.attivita, condividi_cliente: false })
+                  }
+                }}
                 className="w-3.5 h-3.5 accent-steelex-orange" />
               <span className="text-xs text-gray-400">Condividi con cliente</span>
             </label>
@@ -1436,6 +1489,27 @@ function DiarioTab({ cantiereId }) {
             </label>
           </div>
         ))}
+
+      {/* ── Conferma condivisione diario con cliente ── */}
+      {confirmDiario && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} className="text-steelex-orange" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 text-base">Condivisione con cliente</h3>
+                <p className="text-sm text-gray-500 mt-1">Stai per rendere visibile questa nota del diario al cliente. Confermi?</p>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setConfirmDiario(null)} className="btn-secondary flex-1">Annulla</button>
+              <button onClick={() => { updateMutation.mutate({ id: confirmDiario.id, attivita: confirmDiario.attivita, condividi_cliente: true }); setConfirmDiario(null) }} className="btn-primary flex-1">Sì, condividi</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Lightbox foto diario ── */}
       {lightboxUrl && (
