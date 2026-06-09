@@ -509,6 +509,7 @@ function MappeTab({ cantiereId }) {
   const [uploadingFoto, setUploadingFoto] = useState(false)
   const imgContainerRef = useRef(null)
   const uploadInputRef = useRef(null)
+  const uploadCartellaRef = useRef(null)
 
   const canWrite   = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const canContrib = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)
@@ -729,32 +730,39 @@ function MappeTab({ cantiereId }) {
       {/* Upload multiplo */}
       {canWrite && (
         <div className="space-y-2">
-          {/* Input file nascosto con ref — unico modo affidabile per multi-selezione */}
-          <input
-            ref={uploadInputRef}
-            type="file"
-            className="hidden"
-            accept="image/*,.pdf,.dxf,.dwg"
-            multiple
+          {/* Input file multiplo */}
+          <input ref={uploadInputRef} type="file" className="hidden" accept="image/*,.pdf,.dxf,.dwg" multiple
             onChange={e => { if (e.target.files?.length) { uploadMultiMutation.mutate(e.target.files); e.target.value = '' } }}
-            disabled={uploadMultiMutation.isLoading}
-          />
-          <button
-            type="button"
-            onClick={() => uploadInputRef.current?.click()}
-            disabled={uploadMultiMutation.isLoading}
-            className={`w-full card flex items-center gap-3 hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors text-left ${uploadMultiMutation.isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          >
-            <Upload size={20} className="text-steelex-orange flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm text-gray-800">
-                {uploadMultiMutation.isLoading ? `Caricamento ${uploadProgress?.corrente}/${uploadProgress?.totale}…` : 'Carica mappe o documenti'}
-              </p>
-              <p className="text-xs text-gray-400 truncate">
-                {uploadMultiMutation.isLoading ? uploadProgress?.nomeFile : 'JPG, PNG, PDF, DXF — max 50MB — seleziona anche più file insieme'}
-              </p>
+            disabled={uploadMultiMutation.isLoading} />
+          {/* Input cartella */}
+          <input ref={uploadCartellaRef} type="file" className="hidden" webkitdirectory="true" multiple
+            onChange={e => { if (e.target.files?.length) { uploadMultiMutation.mutate(e.target.files); e.target.value = '' } }}
+            disabled={uploadMultiMutation.isLoading} />
+
+          {uploadMultiMutation.isLoading ? (
+            <div className="card flex items-center gap-3 border-2 border-steelex-orange/40 opacity-80">
+              <Upload size={20} className="text-steelex-orange flex-shrink-0 animate-bounce" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm text-gray-800">Caricamento {uploadProgress?.corrente}/{uploadProgress?.totale}…</p>
+                <p className="text-xs text-gray-400 truncate">{uploadProgress?.nomeFile}</p>
+              </div>
             </div>
-          </button>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => uploadInputRef.current?.click()}
+                className="card flex flex-col items-center gap-2 py-4 hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors cursor-pointer">
+                <Upload size={20} className="text-steelex-orange" />
+                <span className="text-xs font-medium text-gray-700">Seleziona file</span>
+                <span className="text-xs text-gray-400 text-center">Tieni Ctrl per più file</span>
+              </button>
+              <button type="button" onClick={() => uploadCartellaRef.current?.click()}
+                className="card flex flex-col items-center gap-2 py-4 hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors cursor-pointer">
+                <FolderOpen size={20} className="text-steelex-orange" />
+                <span className="text-xs font-medium text-gray-700">Seleziona cartella</span>
+                <span className="text-xs text-gray-400 text-center">Carica tutto il contenuto</span>
+              </button>
+            </div>
+          )}
           {/* Barra progresso */}
           {uploadMultiMutation.isLoading && uploadProgress && (
             <div className="w-full bg-gray-200 rounded-full h-1.5">
