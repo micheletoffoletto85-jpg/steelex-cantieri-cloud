@@ -543,32 +543,17 @@ function MappeTab({ cantiereId }) {
     }
   }, [docSelezionato])
 
-  const [uploadProgress, setUploadProgress] = useState(null) // { totale, corrente, nomeFile }
-
-  const uploadMultiMutation = useMutation(
-    async (files) => {
-      const fileArray = Array.from(files)
-      const risultati = []
-      for (let i = 0; i < fileArray.length; i++) {
-        const file = fileArray[i]
-        setUploadProgress({ totale: fileArray.length, corrente: i + 1, nomeFile: file.name })
-        try {
-          const fd = new FormData()
-          fd.append('file', file)
-          const r = await api.post(`/cantieri/${cantiereId}/documenti`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-          risultati.push({ ok: true, doc: r.data })
-        } catch (e) {
-          risultati.push({ ok: false, nome: file.name, errore: e.response?.data?.detail || 'Errore' })
-        }
-      }
-      return risultati
+  const uploadMutation = useMutation(
+    async (file) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return api.post(`/cantieri/${cantiereId}/documenti`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     },
     {
       onSuccess: (risultati) => {
-        setUploadProgress(null)
         qc.invalidateQueries(['documenti', cantiereId])
-        const ok = risultati.filter(r => r.ok)
-        const fail = risultati.filter(r => !r.ok)
+        const ok = [{ ok: true, doc: risultati.data }]
+        const fail = []
         if (ok.length > 0) {
           // Seleziona l'ultimo caricato
           setDocSelezionato(ok[ok.length - 1].doc)
@@ -576,7 +561,7 @@ function MappeTab({ cantiereId }) {
         }
         fail.forEach(f => toast.error(`${f.nome}: ${f.errore}`))
       },
-      onError: () => { setUploadProgress(null); toast.error('Errore upload') }
+      onError: (err) => toast.error(err.response?.data?.detail || 'Errore upload')
     }
   )
   const deleteMutation = useMutation(
@@ -727,52 +712,18 @@ function MappeTab({ cantiereId }) {
 
   return (
     <div className="space-y-3">
-      {/* Upload multiplo */}
+      {/* Upload singolo */}
       {canWrite && (
-        <div className="space-y-2">
-          {/* Input file multiplo */}
-          <input ref={uploadInputRef} type="file" className="hidden" accept="image/*,.pdf,.dxf,.dwg" multiple
-            onChange={e => { if (e.target.files?.length) { uploadMultiMutation.mutate(e.target.files); e.target.value = '' } }}
-            disabled={uploadMultiMutation.isLoading} />
-          {/* Input cartella */}
-          <input ref={uploadCartellaRef} type="file" className="hidden" webkitdirectory="true" multiple
-            onChange={e => { if (e.target.files?.length) { uploadMultiMutation.mutate(e.target.files); e.target.value = '' } }}
-            disabled={uploadMultiMutation.isLoading} />
-
-          {uploadMultiMutation.isLoading ? (
-            <div className="card flex items-center gap-3 border-2 border-steelex-orange/40 opacity-80">
-              <Upload size={20} className="text-steelex-orange flex-shrink-0 animate-bounce" />
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm text-gray-800">Caricamento {uploadProgress?.corrente}/{uploadProgress?.totale}…</p>
-                <p className="text-xs text-gray-400 truncate">{uploadProgress?.nomeFile}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => uploadInputRef.current?.click()}
-                className="card flex flex-col items-center gap-2 py-4 hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors cursor-pointer">
-                <Upload size={20} className="text-steelex-orange" />
-                <span className="text-xs font-medium text-gray-700">Seleziona file</span>
-                <span className="text-xs text-gray-400 text-center">Tieni Ctrl per più file</span>
-              </button>
-              <button type="button" onClick={() => uploadCartellaRef.current?.click()}
-                className="card flex flex-col items-center gap-2 py-4 hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors cursor-pointer">
-                <FolderOpen size={20} className="text-steelex-orange" />
-                <span className="text-xs font-medium text-gray-700">Seleziona cartella</span>
-                <span className="text-xs text-gray-400 text-center">Carica tutto il contenuto</span>
-              </button>
-            </div>
-          )}
-          {/* Barra progresso */}
-          {uploadMultiMutation.isLoading && uploadProgress && (
-            <div className="w-full bg-gray-200 rounded-full h-1.5">
-              <div
-                className="bg-steelex-orange h-1.5 rounded-full transition-all duration-300"
-                style={{ width: `${(uploadProgress.corrente / uploadProgress.totale) * 100}%` }}
-              />
-            </div>
-          )}
-        </div>
+        <label className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors ${uploadMutation.isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
+          <Upload size={20} className="text-steelex-orange flex-shrink-0" />
+          <div>
+            <p className="font-medium text-sm text-gray-800">{uploadMutation.isLoading ? 'Caricamento...' : 'Carica mappa o documento'}</p>
+            <p className="text-xs text-gray-400">JPG, PNG, PDF, DXF — max 50MB</p>
+          </div>
+          <input type="file" className="hidden" accept="image/*,.pdf,.dxf,.dwg"
+            onChange={e => { if (e.target.files[0]) uploadMutation.mutate(e.target.files[0]) }}
+            disabled={uploadMutation.isLoading} />
+        </label>
       )}
 
       {/* Lista documenti */}
@@ -1742,17 +1693,13 @@ function DocRow({ doc, apiUrl, isStaff, onElimina, selezionato, onToggleSel }) {
           className="w-4 h-4 accent-steelex-orange flex-shrink-0 cursor-pointer" />
       )}
       <span className="text-xl flex-shrink-0">{icona}</span>
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-gray-800 text-sm truncate">{doc.nome}</p>
+      <a href={fileUrl} target="_blank" rel="noreferrer" className="flex-1 min-w-0 hover:text-steelex-orange transition-colors">
+        <p className="font-medium text-gray-800 text-sm truncate hover:text-steelex-orange">{doc.nome}</p>
         <div className="flex items-center gap-2 mt-0.5">
           {cat && <span className={`text-xs px-1.5 py-0.5 rounded-full ${cat.bg}`}>{cat.label}</span>}
           {doc.descrizione && <span className="text-xs text-gray-400 truncate">{doc.descrizione}</span>}
           <span className="text-xs text-gray-300 ml-auto flex-shrink-0">{new Date(doc.caricato_il).toLocaleDateString('it-IT')}</span>
         </div>
-      </div>
-      <a href={fileUrl} target="_blank" rel="noreferrer"
-        className="p-1.5 text-gray-400 hover:text-blue-600 flex-shrink-0" title="Apri">
-        <Download size={14} />
       </a>
       {isStaff && (
         <button onClick={onElimina} className="p-1.5 text-gray-200 hover:text-red-500 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
