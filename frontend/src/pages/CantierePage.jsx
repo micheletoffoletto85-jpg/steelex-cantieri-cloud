@@ -497,6 +497,7 @@ function MappeTab({ cantiereId }) {
   const [modalPin, setModalPin] = useState(null)
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
+  const [lightboxUrl, setLightboxUrl] = useState(null) // foto aperta a schermo intero
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [editPinMode, setEditPinMode] = useState(false)
   const [editPinForm, setEditPinForm] = useState(null)
@@ -907,7 +908,8 @@ function MappeTab({ cantiereId }) {
                     {pinSelezionato.foto_urls?.length > 0 && (
                       <div className="flex gap-2 flex-wrap">
                         {pinSelezionato.foto_urls.map((url, i) => (
-                          <img key={i} src={url} className="w-20 h-20 object-cover rounded-lg border" alt={`foto ${i+1}`} />
+                          <img key={i} src={url} onClick={() => setLightboxUrl(url)}
+                            className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
                         ))}
                       </div>
                     )}
@@ -1084,6 +1086,27 @@ function MappeTab({ cantiereId }) {
           </div>
         </div>
       )}
+
+      {/* ── Lightbox foto ── */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition-colors"
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Foto ingrandita"
+            className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -1156,6 +1179,7 @@ function DiarioTab({ cantiereId }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0 })
   const [uploadingFor, setUploadingFor] = useState(null)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
   const [editId, setEditId] = useState(null)       // id nota in modifica
   const [editTesto, setEditTesto] = useState('')    // testo in modifica
   // Stato registrazione vocale
@@ -1391,7 +1415,8 @@ function DiarioTab({ cantiereId }) {
             {d.foto_urls?.length > 0 && (
               <div className="flex gap-2 flex-wrap">
                 {d.foto_urls.map((url, i) => (
-                  <img key={i} src={url} className="w-20 h-20 object-cover rounded-lg border" alt={`foto ${i+1}`} />
+                  <img key={i} src={url} onClick={() => setLightboxUrl(url)}
+                    className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
                 ))}
               </div>
             )}
@@ -1411,6 +1436,27 @@ function DiarioTab({ cantiereId }) {
             </label>
           </div>
         ))}
+
+      {/* ── Lightbox foto diario ── */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition-colors"
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Foto ingrandita"
+            className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
