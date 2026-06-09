@@ -524,13 +524,24 @@ function MappeTab({ cantiereId }) {
   )
   const teamAttivo = utenti.filter(u => u.attivo)
   const fornitori = utenti.filter(u => u.ruolo === 'fornitore' && u.attivo)
-  // Ruoli presenti nel team (per visibilità dinamica)
-  const ruoliTeam = ['admin', ...new Set(teamAttivo.map(u => u.ruolo)), 'cliente']
-  const RUOLO_LABEL = {
+  // Chip visibilità: ogni membro ha il suo chip con nome
+  // Ruoli "unici" (admin, capo_cantiere, direzione_lavori) → chip ruolo
+  // Ruoli "multipli" (artigiano, fornitore, cliente) → chip per persona
+  const RUOLI_UNICI = new Set(['admin', 'capo_cantiere', 'capo_cantiere_sub', 'direzione_lavori'])
+  const RUOLO_LABEL_SHORT = {
     admin: 'Admin', capo_cantiere: 'Capo Cantiere', capo_cantiere_sub: 'Vice Capo',
-    direzione_lavori: 'Dir. Lavori', artigiano: 'Artigiano',
-    fornitore: 'Fornitore', cliente: 'Cliente',
+    direzione_lavori: 'Dir. Lavori', artigiano: 'Artigiano', fornitore: 'Fornitore', cliente: 'Cliente',
   }
+  // Costruisce la lista chip: { key, label } dove key è il valore salvato in visibilita
+  const chipVisibilita = (() => {
+    const chips = []
+    const ruoliUnici = [...new Set(teamAttivo.filter(u => RUOLI_UNICI.has(u.ruolo)).map(u => u.ruolo))]
+    ruoliUnici.forEach(r => chips.push({ key: r, label: RUOLO_LABEL_SHORT[r] }))
+    teamAttivo.filter(u => !RUOLI_UNICI.has(u.ruolo)).forEach(u =>
+      chips.push({ key: `user_${u.id}`, label: `${u.nome} ${u.cognome}` })
+    )
+    return chips
+  })()
 
   const { data: docs = [], isLoading } = useQuery(
     ['documenti', cantiereId],
@@ -869,14 +880,15 @@ function MappeTab({ cantiereId }) {
                           )}
                         </select>
                       </div>
-                      {/* Visibilità — dinamica sul team */}
+                      {/* Visibilità — per membro specifico */}
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>
                         <div className="flex gap-1.5 flex-wrap">
-                          {ruoliTeam.map(r => (
-                            <button key={r} type="button" onClick={() => setEditPinForm(f => ({ ...f, visibilita: f.visibilita?.includes(r) ? f.visibilita.filter(x=>x!==r) : [...(f.visibilita||[]), r] }))}
-                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${editPinForm.visibilita?.includes(r) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
-                              {RUOLO_LABEL[r] || r}
+                          {chipVisibilita.map(({ key, label }) => (
+                            <button key={key} type="button"
+                              onClick={() => setEditPinForm(f => ({ ...f, visibilita: f.visibilita?.includes(key) ? f.visibilita.filter(x=>x!==key) : [...(f.visibilita||[]), key] }))}
+                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${editPinForm.visibilita?.includes(key) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
+                              {label}
                             </button>
                           ))}
                         </div>
@@ -1035,15 +1047,15 @@ function MappeTab({ cantiereId }) {
                 )}
               </select>
             </div>
-            {/* Visibilità — dinamica sul team */}
+            {/* Visibilità — per membro specifico */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>
               <div className="flex gap-2 flex-wrap">
-                {ruoliTeam.map(r => (
-                  <button key={r} type="button" onClick={() => setPinForm(f => ({
-                    ...f, visibilita: f.visibilita.includes(r) ? f.visibilita.filter(x=>x!==r) : [...f.visibilita, r]
-                  }))} className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinForm.visibilita.includes(r) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
-                    {RUOLO_LABEL[r] || r}
+                {chipVisibilita.map(({ key, label }) => (
+                  <button key={key} type="button"
+                    onClick={() => setPinForm(f => ({ ...f, visibilita: f.visibilita.includes(key) ? f.visibilita.filter(x=>x!==key) : [...f.visibilita, key] }))}
+                    className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinForm.visibilita.includes(key) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
+                    {label}
                   </button>
                 ))}
               </div>
