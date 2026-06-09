@@ -159,6 +159,56 @@ async def carica_documento(
     db.add(doc); db.commit(); db.refresh(doc)
     return doc
 
+@router.post("/{cantiere_id}/documenti/multi", status_code=201)
+async def carica_documenti_multipli(
+    cantiere_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Carica più file contemporaneamente. Restituisce lista di risultati per ogni file."""
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_write(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato al caricamento")
+
+    MAX_FILES = 20
+    if len(files) > MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Massimo {MAX_FILES} file per volta")
+
+    risultati = []
+    for file in files:
+        esito = {"nome": file.filename, "ok": False, "errore": None, "doc": None}
+        try:
+            ext = _risolvi_ext(file)
+            if ext not in ESTENSIONI_CONSENTITE:
+                esito["errore"] = f"Tipo file non consentito: {ext or '(sconosciuto)'}"
+                risultati.append(esito)
+                continue
+            contenuto = await file.read()
+            if len(contenuto) > 50 * 1024 * 1024:
+                esito["errore"] = "File troppo grande (max 50MB)"
+                risultati.append(esito)
+                continue
+            url, chiave = salva_file(contenuto, f"documenti/{cantiere_id}", ext)
+            doc = Documento(
+                cantiere_id=cantiere_id, nome=file.filename or chiave,
+                tipo=ext.lstrip("."), url=url, dimensione=len(contenuto),
+                caricato_da=user.id, pin_dati=[],
+            )
+            db.add(doc)
+            db.commit()
+            db.refresh(doc)
+            esito["ok"] = True
+            esito["doc"] = {"id": doc.id, "nome": doc.nome, "tipo": doc.tipo, "url": doc.url, "dimensione": doc.dimensione}
+        except Exception as e:
+            db.rollback()
+            esito["errore"] = str(e)
+        risultati.append(esito)
+
+    caricati = sum(1 for r in risultati if r["ok"])
+    return {"totale": len(files), "caricati": caricati, "falliti": len(files) - caricati, "risultati": risultati}
+
+
 @router.delete("/{cantiere_id}/documenti/{doc_id}", status_code=204)
 def elimina_documento(
     cantiere_id: int, doc_id: int,

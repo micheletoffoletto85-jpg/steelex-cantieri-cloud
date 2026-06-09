@@ -541,10 +541,41 @@ function MappeTab({ cantiereId }) {
     }
   }, [docSelezionato])
 
-  const uploadMutation = useMutation(
-    async (file) => { const fd = new FormData(); fd.append('file', file); return api.post(`/cantieri/${cantiereId}/documenti`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }) },
-    { onSuccess: r => { qc.invalidateQueries(['documenti', cantiereId]); setDocSelezionato(r.data); toast.success('Mappa caricata!') },
-      onError: err => toast.error(err.response?.data?.detail || 'Errore upload') }
+  const [uploadProgress, setUploadProgress] = useState(null) // { totale, corrente, nomeFile }
+
+  const uploadMultiMutation = useMutation(
+    async (files) => {
+      const fileArray = Array.from(files)
+      const risultati = []
+      for (let i = 0; i < fileArray.length; i++) {
+        const file = fileArray[i]
+        setUploadProgress({ totale: fileArray.length, corrente: i + 1, nomeFile: file.name })
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          const r = await api.post(`/cantieri/${cantiereId}/documenti`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+          risultati.push({ ok: true, doc: r.data })
+        } catch (e) {
+          risultati.push({ ok: false, nome: file.name, errore: e.response?.data?.detail || 'Errore' })
+        }
+      }
+      return risultati
+    },
+    {
+      onSuccess: (risultati) => {
+        setUploadProgress(null)
+        qc.invalidateQueries(['documenti', cantiereId])
+        const ok = risultati.filter(r => r.ok)
+        const fail = risultati.filter(r => !r.ok)
+        if (ok.length > 0) {
+          // Seleziona l'ultimo caricato
+          setDocSelezionato(ok[ok.length - 1].doc)
+          toast.success(`${ok.length} file caricati!`)
+        }
+        fail.forEach(f => toast.error(`${f.nome}: ${f.errore}`))
+      },
+      onError: () => { setUploadProgress(null); toast.error('Errore upload') }
+    }
   )
   const deleteMutation = useMutation(
     (docId) => api.delete(`/cantieri/${cantiereId}/documenti/${docId}`),
@@ -694,17 +725,33 @@ function MappeTab({ cantiereId }) {
 
   return (
     <div className="space-y-3">
-      {/* Upload */}
+      {/* Upload multiplo */}
       {canWrite && (
-        <label className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
-          <Upload size={20} className="text-steelex-orange flex-shrink-0" />
-          <div>
-            <p className="font-medium text-sm text-gray-800">{uploading ? 'Caricamento...' : 'Carica mappa o documento'}</p>
-            <p className="text-xs text-gray-400">JPG, PNG, PDF — max 50MB</p>
-          </div>
-          <input type="file" className="hidden" accept="image/*,.pdf"
-            onChange={e => { if (e.target.files[0]) { setUploading(true); uploadMutation.mutate(e.target.files[0], { onSettled: () => setUploading(false) }) } }} disabled={uploading} />
-        </label>
+        <div className="space-y-2">
+          <label className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors ${uploadMultiMutation.isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
+            <Upload size={20} className="text-steelex-orange flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm text-gray-800">
+                {uploadMultiMutation.isLoading ? `Caricamento ${uploadProgress?.corrente}/${uploadProgress?.totale}…` : 'Carica mappe o documenti'}
+              </p>
+              <p className="text-xs text-gray-400 truncate">
+                {uploadMultiMutation.isLoading ? uploadProgress?.nomeFile : 'JPG, PNG, PDF, DXF — max 50MB — puoi selezionare più file'}
+              </p>
+            </div>
+            <input type="file" className="hidden" accept="image/*,.pdf,.dxf,.dwg" multiple
+              onChange={e => { if (e.target.files?.length) uploadMultiMutation.mutate(e.target.files) }}
+              disabled={uploadMultiMutation.isLoading} />
+          </label>
+          {/* Barra progresso */}
+          {uploadMultiMutation.isLoading && uploadProgress && (
+            <div className="w-full bg-gray-200 rounded-full h-1.5">
+              <div
+                className="bg-steelex-orange h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${(uploadProgress.corrente / uploadProgress.totale) * 100}%` }}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {/* Lista documenti */}
