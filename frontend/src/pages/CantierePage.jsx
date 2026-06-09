@@ -1468,11 +1468,35 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
   const [cerca, setCerca] = useState('')
   const [catFiltro, setCatFiltro] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(null) // { corrente, totale, nomeFile }
   const [formUpload, setFormUpload] = useState({ nome: '', categoria: 'varie', descrizione: '' })
-  const [fileInAttesa, setFileInAttesa] = useState(null)
+  const [fileInAttesa, setFileInAttesa] = useState(null) // singolo file con form dettagli
   const fileRef = useRef()
+  const cartellaRef = useRef()
 
   const apiUrl = import.meta.env.VITE_API_URL || ''
+
+  const caricaMultipli = async (files) => {
+    const lista = Array.from(files).filter(f => f.size <= 50 * 1024 * 1024)
+    if (!lista.length) return
+    setUploading(true)
+    let caricati = 0
+    for (let i = 0; i < lista.length; i++) {
+      const f = lista[i]
+      setUploadProgress({ corrente: i + 1, totale: lista.length, nomeFile: f.name })
+      try {
+        const fd = new FormData()
+        fd.append('file', f)
+        const params = new URLSearchParams({ nome: f.name.replace(/\.[^.]+$/, ''), categoria: 'varie', descrizione: '' })
+        await api.post(`/cantieri/${cantiereId}/archivio?${params}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        caricati++
+      } catch { toast.error(`Errore: ${f.name}`) }
+    }
+    setUploading(false)
+    setUploadProgress(null)
+    qc.invalidateQueries(['archivio', cantiereId])
+    if (caricati > 0) toast.success(`${caricati} file caricati!`)
+  }
 
   const { data: docs = [], isLoading } = useQuery(
     ['archivio', cantiereId, catFiltro, cerca],
@@ -1533,14 +1557,47 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
           {Object.entries(CATEGORIE_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         {utente?.ruolo !== 'cliente' && (
-          <label className="btn-primary flex items-center gap-1 text-sm px-3 py-2 cursor-pointer">
-            <Upload size={14} /> Carica
+          <>
+            {/* Input singolo file (con form dettagli) */}
             <input ref={fileRef} type="file" className="hidden"
               accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.doc,.zip"
               onChange={selezioneFile} />
-          </label>
+            {/* Input multiplo */}
+            <input type="file" className="hidden" id="upload-multi-input" multiple
+              accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.doc,.zip"
+              onChange={e => { if (e.target.files?.length > 1) { caricaMultipli(e.target.files); e.target.value='' } else if (e.target.files?.length === 1) { selezioneFile(e) } }}
+              disabled={uploading} />
+            {/* Input cartella */}
+            <input ref={cartellaRef} type="file" className="hidden" webkitdirectory="true" multiple
+              onChange={e => { if (e.target.files?.length) { caricaMultipli(e.target.files); e.target.value='' } }}
+              disabled={uploading} />
+            <button type="button" disabled={uploading}
+              onClick={() => document.getElementById('upload-multi-input')?.click()}
+              className="btn-primary flex items-center gap-1 text-sm px-3 py-2">
+              <Upload size={14} /> {uploading ? `${uploadProgress?.corrente}/${uploadProgress?.totale}` : 'Carica'}
+            </button>
+            <button type="button" disabled={uploading}
+              onClick={() => cartellaRef.current?.click()}
+              className="btn-secondary flex items-center gap-1 text-sm px-3 py-2">
+              <FolderOpen size={14} /> Cartella
+            </button>
+          </>
         )}
       </div>
+
+      {/* Barra progresso upload multiplo */}
+      {uploading && uploadProgress && (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-gray-500">
+            <span className="truncate max-w-[80%]">{uploadProgress.nomeFile}</span>
+            <span>{uploadProgress.corrente}/{uploadProgress.totale}</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-1.5">
+            <div className="bg-steelex-orange h-1.5 rounded-full transition-all duration-300"
+              style={{ width: `${(uploadProgress.corrente / uploadProgress.totale) * 100}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Form upload dopo selezione file */}
       {fileInAttesa && (
