@@ -1462,41 +1462,30 @@ const CATEGORIE_DOC = {
 
 const TIPO_ICONA = { pdf: '📄', dwg: '📐', dxf: '📐', jpg: '🖼', jpeg: '🖼', png: '🖼', xlsx: '📊', xls: '📊', docx: '📝', doc: '📝', zip: '🗜' }
 
+// File di sistema da ignorare nell'upload cartella
+const FILE_SISTEMA = new Set(['desktop.ini', 'thumbs.db', '.ds_store', '.localized', 'picasa.ini', 'folder.jpg', 'albumartsmall.jpg'])
+function isFileSistema(nome) {
+  const n = nome.toLowerCase()
+  return n.startsWith('.') || n.startsWith('__macosx') || FILE_SISTEMA.has(n)
+}
+
 function RaccoltaDocumentiTab({ cantiereId, utente }) {
   const qc = useQueryClient()
   const isStaff = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const [cerca, setCerca] = useState('')
   const [catFiltro, setCatFiltro] = useState('')
   const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(null) // { corrente, totale, nomeFile }
+  const [uploadProgress, setUploadProgress] = useState(null)
   const [formUpload, setFormUpload] = useState({ nome: '', categoria: 'varie', descrizione: '' })
-  const [fileInAttesa, setFileInAttesa] = useState(null) // singolo file con form dettagli
+  const [fileInAttesa, setFileInAttesa] = useState(null)       // singolo file → form dettagli
+  const [filesMulti, setFilesMulti] = useState(null)           // array file → panel categoria
+  const [catMulti, setCatMulti] = useState('varie')
+  const [selezionati, setSelezionati] = useState(new Set())    // ID selezionati per delete multiplo
   const fileRef = useRef()
   const cartellaRef = useRef()
+  const multiRef = useRef()
 
   const apiUrl = import.meta.env.VITE_API_URL || ''
-
-  const caricaMultipli = async (files) => {
-    const lista = Array.from(files).filter(f => f.size <= 50 * 1024 * 1024)
-    if (!lista.length) return
-    setUploading(true)
-    let caricati = 0
-    for (let i = 0; i < lista.length; i++) {
-      const f = lista[i]
-      setUploadProgress({ corrente: i + 1, totale: lista.length, nomeFile: f.name })
-      try {
-        const fd = new FormData()
-        fd.append('file', f)
-        const params = new URLSearchParams({ nome: f.name.replace(/\.[^.]+$/, ''), categoria: 'varie', descrizione: '' })
-        await api.post(`/cantieri/${cantiereId}/archivio?${params}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-        caricati++
-      } catch { toast.error(`Errore: ${f.name}`) }
-    }
-    setUploading(false)
-    setUploadProgress(null)
-    qc.invalidateQueries(['archivio', cantiereId])
-    if (caricati > 0) toast.success(`${caricati} file caricati!`)
-  }
 
   const { data: docs = [], isLoading } = useQuery(
     ['archivio', cantiereId, catFiltro, cerca],
@@ -1511,7 +1500,7 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
 
   const elimina = useMutation(
     (id) => api.delete(`/cantieri/${cantiereId}/archivio/${id}`),
-    { onSuccess: () => { qc.invalidateQueries(['archivio', cantiereId]); toast.success('Eliminato') } }
+    { onSuccess: () => { qc.invalidateQueries(['archivio', cantiereId]) } }
   )
 
   const selezioneFile = (e) => {
@@ -1520,12 +1509,51 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
     setFormUpload(p => ({ ...p, nome: f.name.replace(/\.[^.]+$/, '') }))
   }
 
+  const onSelezioneMulti = (e) => {
+    const tutti = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!tutti.length) return
+    if (tutti.length === 1) { setFileInAttesa(tutti[0]); setFormUpload(p => ({ ...p, nome: tutti[0].name.replace(/\.[^.]+$/, '') })); return }
+    const puliti = tutti.filter(f => !isFileSistema(f.name) && f.size > 0 && f.size <= 50 * 1024 * 1024)
+    if (!puliti.length) { toast.error('Nessun file valido trovato'); return }
+    setFilesMulti(puliti)
+    setCatMulti('varie')
+  }
+
+  const onSelezioneCartella = (e) => {
+    const tutti = Array.from(e.target.files || [])
+    e.target.value = ''
+    const puliti = tutti.filter(f => !isFileSistema(f.name) && f.size > 0 && f.size <= 50 * 1024 * 1024)
+    if (!puliti.length) { toast.error('Nessun file valido trovato nella cartella'); return }
+    setFilesMulti(puliti)
+    setCatMulti('varie')
+  }
+
+  const caricaMultipli = async () => {
+    if (!filesMulti?.length) return
+    setFilesMulti(null)
+    setUploading(true)
+    let caricati = 0
+    for (let i = 0; i < filesMulti.length; i++) {
+      const f = filesMulti[i]
+      setUploadProgress({ corrente: i + 1, totale: filesMulti.length, nomeFile: f.name })
+      try {
+        const fd = new FormData(); fd.append('file', f)
+        const params = new URLSearchParams({ nome: f.name.replace(/\.[^.]+$/, ''), categoria: catMulti, descrizione: '' })
+        await api.post(`/cantieri/${cantiereId}/archivio?${params}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        caricati++
+      } catch { toast.error(`Errore: ${f.name}`) }
+    }
+    setUploading(false); setUploadProgress(null)
+    qc.invalidateQueries(['archivio', cantiereId])
+    if (caricati > 0) toast.success(`${caricati} file caricati!`)
+  }
+
   const carica = async () => {
     if (!fileInAttesa) return
     setUploading(true)
     try {
-      const fd = new FormData()
-      fd.append('file', fileInAttesa)
+      const fd = new FormData(); fd.append('file', fileInAttesa)
       const params = new URLSearchParams({ nome: formUpload.nome || fileInAttesa.name, categoria: formUpload.categoria, descrizione: formUpload.descrizione })
       await api.post(`/cantieri/${cantiereId}/archivio?${params}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       qc.invalidateQueries(['archivio', cantiereId])
@@ -1534,6 +1562,19 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
       toast.success('Documento caricato!')
     } catch { toast.error('Errore upload') } finally { setUploading(false) }
   }
+
+  const eliminaSelezionati = async () => {
+    if (!selezionati.size) return
+    if (!confirm(`Eliminare ${selezionati.size} document${selezionati.size > 1 ? 'i' : 'o'}?`)) return
+    for (const id of selezionati) { try { await api.delete(`/cantieri/${cantiereId}/archivio/${id}`) } catch {} }
+    setSelezionati(new Set())
+    qc.invalidateQueries(['archivio', cantiereId])
+    toast.success('Eliminati')
+  }
+
+  const toggleSel = (id) => setSelezionati(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  const tuttiSelezionati = docs.length > 0 && docs.every(d => selezionati.has(d.id))
+  const toggleTutti = () => setSelezionati(tuttiSelezionati ? new Set() : new Set(docs.map(d => d.id)))
 
   const docPerCategoria = Object.keys(CATEGORIE_DOC).reduce((acc, cat) => {
     const lista = docs.filter(d => d.categoria === cat)
@@ -1545,7 +1586,7 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
 
   return (
     <div className="space-y-3">
-      {/* Barra ricerca + filtro categoria */}
+      {/* Barra ricerca + filtro + pulsanti upload */}
       <div className="flex gap-2 flex-wrap">
         <div className="flex-1 min-w-[200px] relative">
           <FileText size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1556,28 +1597,21 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
           <option value="">Tutte le sezioni</option>
           {Object.entries(CATEGORIE_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
-        {utente?.ruolo !== 'cliente' && (
+        {isStaff && (
           <>
-            {/* Input singolo file (con form dettagli) */}
             <input ref={fileRef} type="file" className="hidden"
               accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.doc,.zip"
               onChange={selezioneFile} />
-            {/* Input multiplo */}
-            <input type="file" className="hidden" id="upload-multi-input" multiple
+            <input ref={multiRef} type="file" className="hidden" multiple
               accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.doc,.zip"
-              onChange={e => { if (e.target.files?.length > 1) { caricaMultipli(e.target.files); e.target.value='' } else if (e.target.files?.length === 1) { selezioneFile(e) } }}
-              disabled={uploading} />
-            {/* Input cartella */}
+              onChange={onSelezioneMulti} disabled={uploading} />
             <input ref={cartellaRef} type="file" className="hidden" webkitdirectory="true" multiple
-              onChange={e => { if (e.target.files?.length) { caricaMultipli(e.target.files); e.target.value='' } }}
-              disabled={uploading} />
-            <button type="button" disabled={uploading}
-              onClick={() => document.getElementById('upload-multi-input')?.click()}
+              onChange={onSelezioneCartella} disabled={uploading} />
+            <button type="button" disabled={uploading} onClick={() => multiRef.current?.click()}
               className="btn-primary flex items-center gap-1 text-sm px-3 py-2">
               <Upload size={14} /> {uploading ? `${uploadProgress?.corrente}/${uploadProgress?.totale}` : 'Carica'}
             </button>
-            <button type="button" disabled={uploading}
-              onClick={() => cartellaRef.current?.click()}
+            <button type="button" disabled={uploading} onClick={() => cartellaRef.current?.click()}
               className="btn-secondary flex items-center gap-1 text-sm px-3 py-2">
               <FolderOpen size={14} /> Cartella
             </button>
@@ -1585,7 +1619,7 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
         )}
       </div>
 
-      {/* Barra progresso upload multiplo */}
+      {/* Barra progresso */}
       {uploading && uploadProgress && (
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-gray-500">
@@ -1599,18 +1633,39 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
         </div>
       )}
 
-      {/* Form upload dopo selezione file */}
+      {/* Panel conferma upload multiplo — scegli sezione */}
+      {filesMulti && (
+        <div className="card border border-steelex-orange/40 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="font-semibold text-sm text-gray-700">📂 {filesMulti.length} file selezionati</p>
+            <button onClick={() => setFilesMulti(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {filesMulti.map((f, i) => <p key={i} className="text-xs text-gray-500 truncate">• {f.name}</p>)}
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Sezione per tutti i file</label>
+            <select className="input-field w-full" value={catMulti} onChange={e => setCatMulti(e.target.value)}>
+              {Object.entries(CATEGORIE_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setFilesMulti(null)} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={caricaMultipli} className="btn-primary flex-1">Carica tutti</button>
+          </div>
+        </div>
+      )}
+
+      {/* Form upload singolo file */}
       {fileInAttesa && (
         <div className="card border border-steelex-orange/30 space-y-3">
           <p className="font-semibold text-sm text-gray-700">📎 {fileInAttesa.name}</p>
           <input className="input-field" placeholder="Nome documento"
             value={formUpload.nome} onChange={e => setFormUpload(p => ({ ...p, nome: e.target.value }))} />
-          <div className="flex gap-2">
-            <select className="input-field flex-1" value={formUpload.categoria}
-              onChange={e => setFormUpload(p => ({ ...p, categoria: e.target.value }))}>
-              {Object.entries(CATEGORIE_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </div>
+          <select className="input-field w-full" value={formUpload.categoria}
+            onChange={e => setFormUpload(p => ({ ...p, categoria: e.target.value }))}>
+            {Object.entries(CATEGORIE_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
           <input className="input-field" placeholder="Note (opzionale)"
             value={formUpload.descrizione} onChange={e => setFormUpload(p => ({ ...p, descrizione: e.target.value }))} />
           <div className="flex gap-2">
@@ -1622,16 +1677,33 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
         </div>
       )}
 
-      {/* Lista vuota */}
-      {docs.length === 0 && !fileInAttesa && (
-        <div className="card text-center py-10 text-gray-400">
-          <FolderOpen size={32} className="mx-auto mb-2 opacity-30" />
-          <p>{cerca || catFiltro ? 'Nessun documento trovato' : 'Archivio vuoto'}</p>
-          {utente?.ruolo !== 'cliente' && !cerca && !catFiltro && <p className="text-xs mt-1">Carica disegni, contratti, relazioni e qualsiasi documento di cantiere</p>}
+      {/* Barra selezione multipla */}
+      {isStaff && docs.length > 0 && !fileInAttesa && !filesMulti && (
+        <div className="flex items-center gap-3 px-1">
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 select-none">
+            <input type="checkbox" checked={tuttiSelezionati} onChange={toggleTutti}
+              className="w-4 h-4 accent-steelex-orange" />
+            {tuttiSelezionati ? 'Deseleziona tutto' : 'Seleziona tutto'}
+          </label>
+          {selezionati.size > 0 && (
+            <button onClick={eliminaSelezionati}
+              className="ml-auto flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium">
+              <Trash2 size={13} /> Elimina {selezionati.size} selezionat{selezionati.size > 1 ? 'i' : 'o'}
+            </button>
+          )}
         </div>
       )}
 
-      {/* Documenti raggruppati per categoria (solo se non c'è filtro attivo) */}
+      {/* Lista vuota */}
+      {docs.length === 0 && !fileInAttesa && !filesMulti && (
+        <div className="card text-center py-10 text-gray-400">
+          <FolderOpen size={32} className="mx-auto mb-2 opacity-30" />
+          <p>{cerca || catFiltro ? 'Nessun documento trovato' : 'Archivio vuoto'}</p>
+          {isStaff && !cerca && !catFiltro && <p className="text-xs mt-1">Carica disegni, contratti, relazioni e qualsiasi documento di cantiere</p>}
+        </div>
+      )}
+
+      {/* Documenti raggruppati per categoria */}
       {!catFiltro && !cerca && Object.entries(docPerCategoria).map(([cat, lista]) => (
         <div key={cat}>
           <div className="flex items-center gap-2 mb-2 mt-1">
@@ -1639,26 +1711,36 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
             <span className="text-xs text-gray-400">{lista.length} file</span>
           </div>
           <div className="space-y-1.5">
-            {lista.map(doc => <DocRow key={doc.id} doc={doc} apiUrl={apiUrl} isStaff={isStaff} onElimina={() => { if (confirm('Eliminare?')) elimina.mutate(doc.id) }} />)}
+            {lista.map(doc => (
+              <DocRow key={doc.id} doc={doc} apiUrl={apiUrl} isStaff={isStaff}
+                selezionato={selezionati.has(doc.id)} onToggleSel={() => toggleSel(doc.id)}
+                onElimina={() => { if (confirm('Eliminare?')) elimina.mutate(doc.id) }} />
+            ))}
           </div>
         </div>
       ))}
 
-      {/* Lista piatta quando c'è ricerca/filtro */}
+      {/* Lista piatta con ricerca/filtro */}
       {(catFiltro || cerca) && docs.map(doc => (
-        <DocRow key={doc.id} doc={doc} apiUrl={apiUrl} isStaff={isStaff} onElimina={() => { if (confirm('Eliminare?')) elimina.mutate(doc.id) }} />
+        <DocRow key={doc.id} doc={doc} apiUrl={apiUrl} isStaff={isStaff}
+          selezionato={selezionati.has(doc.id)} onToggleSel={() => toggleSel(doc.id)}
+          onElimina={() => { if (confirm('Eliminare?')) elimina.mutate(doc.id) }} />
       ))}
     </div>
   )
 }
 
-function DocRow({ doc, apiUrl, isStaff, onElimina }) {
+function DocRow({ doc, apiUrl, isStaff, onElimina, selezionato, onToggleSel }) {
   const ext = doc.tipo_file || ''
   const icona = TIPO_ICONA[ext.toLowerCase()] || '📎'
   const cat = CATEGORIE_DOC[doc.categoria]
   const fileUrl = doc.file_url?.startsWith('http') ? doc.file_url : `${apiUrl}${doc.file_url}`
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5 bg-white rounded-xl border border-gray-100 hover:border-gray-200 transition-colors group">
+    <div className={`flex items-center gap-3 px-3 py-2.5 bg-white rounded-xl border transition-colors group ${selezionato ? 'border-steelex-orange bg-orange-50' : 'border-gray-100 hover:border-gray-200'}`}>
+      {isStaff && (
+        <input type="checkbox" checked={selezionato} onChange={onToggleSel}
+          className="w-4 h-4 accent-steelex-orange flex-shrink-0 cursor-pointer" />
+      )}
       <span className="text-xl flex-shrink-0">{icona}</span>
       <div className="flex-1 min-w-0">
         <p className="font-medium text-gray-800 text-sm truncate">{doc.nome}</p>
