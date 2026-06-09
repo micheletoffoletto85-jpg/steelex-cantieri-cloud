@@ -68,6 +68,9 @@ def _pin_visibile(pin: dict, user: Utente) -> bool:
     # Se il pin è assegnato a un utente specifico (per ID)
     if pin.get("assegnato_a_user_id") and str(pin["assegnato_a_user_id"]) == str(user.id):
         return True
+    # Visibilità per membro specifico (user_{id})
+    if f"user_{user.id}" in visibilita:
+        return True
     # Visibilità per ruolo
     if ruolo in visibilita:
         return True
@@ -121,6 +124,14 @@ class PinUpdate(BaseModel):
 
 class PinStatoUpdate(BaseModel):
     stato: str  # aperto, in_lavorazione, risolto
+
+class PinModifica(BaseModel):
+    tipo: Optional[str] = None
+    nota: Optional[str] = None
+    assegnato_a: Optional[str] = None
+    assegnato_a_user_id: Optional[int] = None
+    assegnato_a_nome: Optional[str] = None
+    visibilita: Optional[List[str]] = None
 
 class ReportCreate(BaseModel):
     testo: str
@@ -293,6 +304,32 @@ def aggiorna_stato_pin(
         except Exception:
             pass  # notifica fallita, non blocca la risposta
 
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
+    return doc
+
+@router.patch("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}", response_model=DocumentoOut)
+def modifica_pin(
+    cantiere_id: int, doc_id: int, pin_id: int, data: PinModifica,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    """Modifica contenuto e assegnazione di un pin esistente."""
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_write(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pins = list(doc.pin_dati or [])
+    pin = _get_pin(doc, pin_id)
+    if not pin:
+        raise HTTPException(status_code=404, detail="Pin non trovato")
+    if data.tipo is not None: pin["tipo"] = data.tipo
+    if data.nota is not None: pin["nota"] = data.nota
+    if data.assegnato_a is not None: pin["assegnato_a"] = data.assegnato_a
+    if data.assegnato_a_user_id is not None: pin["assegnato_a_user_id"] = data.assegnato_a_user_id
+    if data.assegnato_a_nome is not None: pin["assegnato_a_nome"] = data.assegnato_a_nome
+    if data.visibilita is not None: pin["visibilita"] = data.visibilita
+    _salva_pin_dati(doc, pins, db)
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc
 
