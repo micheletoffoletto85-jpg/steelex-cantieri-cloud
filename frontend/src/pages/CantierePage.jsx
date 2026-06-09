@@ -508,6 +508,7 @@ function MappeTab({ cantiereId }) {
   const [pinRecSecondi, setPinRecSecondi] = useState(0)
   const [uploadingFoto, setUploadingFoto] = useState(false)
   const imgContainerRef = useRef(null)
+  const uploadInputRef = useRef(null)
 
   const canWrite   = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const canContrib = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)
@@ -728,20 +729,32 @@ function MappeTab({ cantiereId }) {
       {/* Upload multiplo */}
       {canWrite && (
         <div className="space-y-2">
-          <label className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors ${uploadMultiMutation.isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
+          {/* Input file nascosto con ref — unico modo affidabile per multi-selezione */}
+          <input
+            ref={uploadInputRef}
+            type="file"
+            className="hidden"
+            accept="image/*,.pdf,.dxf,.dwg"
+            multiple
+            onChange={e => { if (e.target.files?.length) { uploadMultiMutation.mutate(e.target.files); e.target.value = '' } }}
+            disabled={uploadMultiMutation.isLoading}
+          />
+          <button
+            type="button"
+            onClick={() => uploadInputRef.current?.click()}
+            disabled={uploadMultiMutation.isLoading}
+            className={`w-full card flex items-center gap-3 hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors text-left ${uploadMultiMutation.isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          >
             <Upload size={20} className="text-steelex-orange flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm text-gray-800">
                 {uploadMultiMutation.isLoading ? `Caricamento ${uploadProgress?.corrente}/${uploadProgress?.totale}…` : 'Carica mappe o documenti'}
               </p>
               <p className="text-xs text-gray-400 truncate">
-                {uploadMultiMutation.isLoading ? uploadProgress?.nomeFile : 'JPG, PNG, PDF, DXF — max 50MB — puoi selezionare più file'}
+                {uploadMultiMutation.isLoading ? uploadProgress?.nomeFile : 'JPG, PNG, PDF, DXF — max 50MB — seleziona anche più file insieme'}
               </p>
             </div>
-            <input type="file" className="hidden" accept="image/*,.pdf,.dxf,.dwg" multiple
-              onChange={e => { if (e.target.files?.length) uploadMultiMutation.mutate(e.target.files) }}
-              disabled={uploadMultiMutation.isLoading} />
-          </label>
+          </button>
           {/* Barra progresso */}
           {uploadMultiMutation.isLoading && uploadProgress && (
             <div className="w-full bg-gray-200 rounded-full h-1.5">
