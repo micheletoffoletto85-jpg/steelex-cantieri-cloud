@@ -524,6 +524,13 @@ function MappeTab({ cantiereId }) {
   )
   const teamAttivo = utenti.filter(u => u.attivo)
   const fornitori = utenti.filter(u => u.ruolo === 'fornitore' && u.attivo)
+  // Ruoli presenti nel team (per visibilità dinamica)
+  const ruoliTeam = ['admin', ...new Set(teamAttivo.map(u => u.ruolo)), 'cliente']
+  const RUOLO_LABEL = {
+    admin: 'Admin', capo_cantiere: 'Capo Cantiere', capo_cantiere_sub: 'Vice Capo',
+    direzione_lavori: 'Dir. Lavori', artigiano: 'Artigiano',
+    fornitore: 'Fornitore', cliente: 'Cliente',
+  }
 
   const { data: docs = [], isLoading } = useQuery(
     ['documenti', cantiereId],
@@ -862,14 +869,14 @@ function MappeTab({ cantiereId }) {
                           )}
                         </select>
                       </div>
-                      {/* Visibilità */}
+                      {/* Visibilità — dinamica sul team */}
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>
                         <div className="flex gap-1.5 flex-wrap">
-                          {['admin','capo_cantiere','fornitore','cliente'].map(r => (
+                          {ruoliTeam.map(r => (
                             <button key={r} type="button" onClick={() => setEditPinForm(f => ({ ...f, visibilita: f.visibilita?.includes(r) ? f.visibilita.filter(x=>x!==r) : [...(f.visibilita||[]), r] }))}
                               className={`text-xs px-2 py-1 rounded-lg border transition-colors ${editPinForm.visibilita?.includes(r) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
-                              {ASSEGNATO_LABEL[r]}
+                              {RUOLO_LABEL[r] || r}
                             </button>
                           ))}
                         </div>
@@ -1028,15 +1035,15 @@ function MappeTab({ cantiereId }) {
                 )}
               </select>
             </div>
-            {/* Visibilità */}
+            {/* Visibilità — dinamica sul team */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>
               <div className="flex gap-2 flex-wrap">
-                {['admin','capo_cantiere','fornitore','cliente'].map(r => (
-                  <button key={r} onClick={() => setPinForm(f => ({
+                {ruoliTeam.map(r => (
+                  <button key={r} type="button" onClick={() => setPinForm(f => ({
                     ...f, visibilita: f.visibilita.includes(r) ? f.visibilita.filter(x=>x!==r) : [...f.visibilita, r]
                   }))} className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinForm.visibilita.includes(r) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
-                    {ASSEGNATO_LABEL[r]}
+                    {RUOLO_LABEL[r] || r}
                   </button>
                 ))}
               </div>
