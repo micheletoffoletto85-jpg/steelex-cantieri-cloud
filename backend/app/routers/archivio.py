@@ -8,8 +8,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 from app.database import Base, get_db
 from app.models.cantiere import Cantiere
-from app.models.utente import Utente
+from app.models.utente import Utente, RuoloUtente
 from app.auth import get_current_user
+from app.config import settings
 from app.storage import salva_file
 
 # Modello inline — tabella creata dalla migrazione in main.py
@@ -29,11 +30,16 @@ router = APIRouter(prefix="/cantieri", tags=["Archivio Documenti"])
 
 CATEGORIE = ["progetto", "strutturale", "contratti", "autorizzazioni", "relazioni", "foto", "varie"]
 
+_RUOLI_ACCESSO = {
+    RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub,
+    RuoloUtente.direzione_lavori, RuoloUtente.artigiano, RuoloUtente.fornitore, RuoloUtente.cliente,
+}
+
 def _check(cantiere_id, db, user):
     c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not c: raise HTTPException(404, "Cantiere non trovato")
-    if user.ruolo not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "artigiano", "fornitore", "cliente"):
-        raise HTTPException(403)
+    if user.ruolo not in _RUOLI_ACCESSO:
+        raise HTTPException(403, "Accesso negato")
     return c
 
 class DocOut(BaseModel):
@@ -57,10 +63,13 @@ async def upload(cantiere_id: int, file: UploadFile = File(...),
                  descrizione: str = Query(""),
                  db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
-    if user.ruolo == "cliente": raise HTTPException(403, "Sola lettura")
+    if user.ruolo == RuoloUtente.cliente: raise HTTPException(403, "Sola lettura")
     _ct_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/gif": ".gif", "application/pdf": ".pdf"}
     ext = (os.path.splitext(file.filename or "")[1].lower() or _ct_map.get((file.content_type or "").split(";")[0].strip(), "")).lstrip(".") or "bin"
-    url, _ = salva_file(await file.read(), f"archivio/{cantiere_id}", f".{ext}")
+    contenuto = await file.read()
+    if len(contenuto) > settings.MAX_FILE_SIZE:
+        raise HTTPException(413, f"File troppo grande (max {settings.MAX_FILE_SIZE // 1024 // 1024} MB)")
+    url, _ = salva_file(contenuto, f"archivio/{cantiere_id}", f".{ext}")
     doc = ArchivioDocs(
         cantiere_id=cantiere_id,
         nome=nome or file.filename or "documento",
@@ -77,7 +86,7 @@ async def upload(cantiere_id: int, file: UploadFile = File(...),
 def elimina(cantiere_id: int, doc_id: int,
             db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
-    if user.ruolo not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"): raise HTTPException(403)
+    if user.ruolo not in {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori}: raise HTTPException(403)
     d = db.query(ArchivioDocs).filter(ArchivioDocs.id == doc_id, ArchivioDocs.cantiere_id == cantiere_id).first()
     if not d: raise HTTPException(404)
     db.delete(d); db.commit()

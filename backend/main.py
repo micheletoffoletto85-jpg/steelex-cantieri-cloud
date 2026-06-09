@@ -1,7 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import os
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
@@ -9,6 +13,7 @@ from app.models import utente, cantiere, diario, documento, checklist, economico
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
+from app.routers import files as files_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -76,6 +81,8 @@ def _migra():
 
 _migra()
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="STEELEX Cantieri API",
     description="Piattaforma gestione cantieri STEELEX",
@@ -83,18 +90,22 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
-cors_origins = settings.CORS_ORIGINS.split(",")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=False,  # JWT in header, no cookie — no credentials needed
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,  # JWT in header, no cookie
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
-# Servi i file caricati
+# Crea cartella upload (usata solo in sviluppo — produzione usa R2)
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+# NOTA: NON montiamo più StaticFiles — i file sono serviti via endpoint autenticato /uploads/*
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(utenti.router, prefix="/api/v1")
@@ -108,6 +119,7 @@ app.include_router(economico_router.router, prefix="/api/v1")
 app.include_router(notifiche.router, prefix="/api/v1")
 app.include_router(raccolta_docs_router.router, prefix="/api/v1")
 app.include_router(archivio_router.router, prefix="/api/v1")
+app.include_router(files_router.router)
 
 @app.get("/")
 def root():
