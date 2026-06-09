@@ -67,6 +67,36 @@ def unsubscribe(
     return {"ok": True}
 
 
+# ─── HELPER: notifica basata su ruoli per un cantiere ─────────────────────────
+
+def notifica_cantiere(
+    db: Session,
+    cantiere_id: int,
+    ruoli: list[str],
+    titolo: str,
+    corpo: str,
+    escludi_id: int | None = None,
+    extra_user_ids: list[int] | None = None,
+):
+    """
+    Invia push notification agli utenti attivi con i ruoli indicati.
+    Esclude l'autore dell'azione (escludi_id) per non notificare chi ha appena agito.
+    extra_user_ids: utenti specifici da aggiungere (es. fornitore assegnato al pin).
+    """
+    from app.models.utente import Utente as UtenteModel
+    dest = db.query(UtenteModel).filter(
+        UtenteModel.ruolo.in_(ruoli),
+        UtenteModel.attivo == True,
+    ).all()
+    ids = {u.id for u in dest}
+    if extra_user_ids:
+        ids.update(extra_user_ids)
+    if escludi_id:
+        ids.discard(escludi_id)
+    if ids:
+        invia_notifica(db, list(ids), titolo, corpo, f"/cantieri/{cantiere_id}")
+
+
 # ─── HELPER: invia notifica a uno o più utenti ────────────────────────────────
 
 def invia_notifica(

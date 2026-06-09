@@ -7,6 +7,7 @@ from app.models.checklist import ChecklistItem
 from app.models.utente import Utente
 from app.schemas.checklist import ChecklistItemCreate, ChecklistItemUpdate, ChecklistItemOut
 from app.auth import get_current_user
+from app.routers.notifiche import notifica_cantiere
 
 router = APIRouter(prefix="/cantieri/{cantiere_id}/checklist", tags=["Checklist"])
 
@@ -20,6 +21,14 @@ def crea_item(cantiere_id: int, data: ChecklistItemCreate, db: Session = Depends
     db.add(item)
     db.commit()
     db.refresh(item)
+    try:
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "capo_cantiere"],
+            titolo="✅ Nuovo elemento checklist",
+            corpo=f"{user.nome} {user.cognome}: {(data.titolo or '')[:80]}",
+            escludi_id=user.id,
+        )
+    except Exception: pass
     return item
 
 @router.put("/{item_id}", response_model=ChecklistItemOut)
@@ -27,11 +36,20 @@ def aggiorna_item(cantiere_id: int, item_id: int, data: ChecklistItemUpdate, db:
     item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id, ChecklistItem.cantiere_id == cantiere_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item non trovato")
+    era_completato = item.completato
     for k, v in data.model_dump(exclude_none=True).items():
         setattr(item, k, v)
-    if data.completato is True and not item.completato_da:
+    if data.completato is True and not era_completato:
         item.completato_da = user.id
         item.completato_il = datetime.now(timezone.utc)
+        try:
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "capo_cantiere", "direzione_lavori"],
+                titolo="☑️ Attività completata",
+                corpo=f"{user.nome} {user.cognome}: {(item.titolo or '')[:80]}",
+                escludi_id=user.id,
+            )
+        except Exception: pass
     elif data.completato is False:
         item.completato_da = None
         item.completato_il = None

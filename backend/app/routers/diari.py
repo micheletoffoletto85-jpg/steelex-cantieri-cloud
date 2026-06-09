@@ -11,6 +11,7 @@ from app.schemas.diario import DiarioCreate, DiarioOut, DiarioUpdate, OreExtraOu
 from app.auth import get_current_user
 from app.config import settings
 from app.storage import salva_file
+from app.routers.notifiche import notifica_cantiere
 
 router = APIRouter(prefix="/cantieri/{cantiere_id}/diari", tags=["Diario Giornaliero"])
 
@@ -42,6 +43,14 @@ def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_
     db.add(diario)
     db.commit()
     db.refresh(diario)
+    try:
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"],
+            titolo="📋 Nuova nota diario",
+            corpo=f"{user.nome} {user.cognome}: {(data.attivita or '')[:80]}",
+            escludi_id=user.id,
+        )
+    except Exception: pass
     return _diario_out(diario)
 
 
@@ -81,6 +90,14 @@ async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(
     diario.foto_urls = urls
     db.commit()
     db.refresh(diario)
+    try:
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "capo_cantiere"],
+            titolo="📷 Nuova foto nel diario",
+            corpo=f"{user.nome} {user.cognome} ha aggiunto una foto al diario",
+            escludi_id=user.id,
+        )
+    except Exception: pass
     return _diario_out(diario)
 
 
@@ -215,6 +232,14 @@ Testo trascritto:
         db.add(diario)
         db.commit()
         db.refresh(diario)
+        try:
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"],
+                titolo="🎙️ Nuova nota vocale nel diario",
+                corpo=f"{user.nome} {user.cognome}: {(diario.attivita or '')[:80]}",
+                escludi_id=user.id,
+            )
+        except Exception: pass
         return _diario_out(diario)
 
     except Exception as e:

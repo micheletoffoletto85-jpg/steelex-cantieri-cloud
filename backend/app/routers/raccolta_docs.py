@@ -9,6 +9,7 @@ from app.models.cantiere import Cantiere
 from app.models.utente import Utente
 from app.auth import get_current_user
 from app.storage import salva_file
+from app.routers.notifiche import notifica_cantiere, invia_notifica
 
 router = APIRouter(prefix="/cantieri", tags=["Raccolta Documenti"])
 
@@ -96,6 +97,15 @@ def crea(cantiere_id: int, body: RichiestaCreate, db: Session = Depends(get_db),
         creato_da=user.id,
     )
     db.add(r); db.commit(); db.refresh(r)
+    # Notifica il fornitore/artigiano assegnato
+    try:
+        if r.assegnato_a:
+            invia_notifica(db, [r.assegnato_a],
+                titolo="📎 Nuovo documento richiesto",
+                corpo=f"{body.titolo}: ti è stato richiesto un documento",
+                url=f"/cantieri/{cantiere_id}",
+            )
+    except Exception: pass
     return _to_out(r)
 
 @router.post("/{cantiere_id}/raccolta-docs/{doc_id}/upload")
@@ -114,6 +124,14 @@ async def upload(cantiere_id: int, doc_id: int, file: UploadFile = File(...),
     r.stato = "caricato"
     r.caricato_il = datetime.utcnow()
     db.commit(); db.refresh(r)
+    try:
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "capo_cantiere"],
+            titolo="📤 Documento caricato dal fornitore",
+            corpo=f"{user.nome} {user.cognome} ha caricato: {r.titolo}",
+            escludi_id=user.id,
+        )
+    except Exception: pass
     return _to_out(r)
 
 @router.patch("/{cantiere_id}/raccolta-docs/{doc_id}")

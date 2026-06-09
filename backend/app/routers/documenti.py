@@ -1,7 +1,7 @@
 import os
 import tempfile
 from datetime import datetime
-from app.routers.notifiche import invia_notifica
+from app.routers.notifiche import invia_notifica, notifica_cantiere
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -168,6 +168,14 @@ async def carica_documento(
         caricato_da=user.id, pin_dati=[],
     )
     db.add(doc); db.commit(); db.refresh(doc)
+    try:
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "capo_cantiere", "direzione_lavori"],
+            titolo="🗺️ Nuovo documento caricato",
+            corpo=f"{user.nome} {user.cognome}: {file.filename or ''}",
+            escludi_id=user.id,
+        )
+    except Exception: pass
     return doc
 
 @router.post("/{cantiere_id}/documenti/multi", status_code=201)
@@ -265,6 +273,17 @@ def aggiungi_pin(
     pins = list(doc.pin_dati or [])
     pins.append(pin)
     _salva_pin_dati(doc, pins, db)
+    try:
+        # Notifica admin/capo cantiere
+        extra = [data.assegnato_a_user_id] if data.assegnato_a_user_id else []
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"],
+            titolo="📍 Nuovo pin aggiunto alla mappa",
+            corpo=f"{user.nome} {user.cognome}: {(data.nota or '')[:80]}",
+            escludi_id=user.id,
+            extra_user_ids=extra,
+        )
+    except Exception: pass
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc
 

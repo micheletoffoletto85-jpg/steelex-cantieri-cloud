@@ -22,6 +22,7 @@ from app.models.cantiere import Cantiere
 from app.models.utente import RuoloUtente, Utente
 from app.auth import get_current_user
 from app.storage import salva_file
+from app.routers.notifiche import notifica_cantiere
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/cantieri", tags=["Economico"])
@@ -190,6 +191,14 @@ def crea_preventivo(cantiere_id: int, body: PreventivoCreate, db: Session = Depe
         )
         _ricalcola(prev, body.voci, body.iva_perc, body.acconto_perc)
         db.add(prev); db.commit(); db.refresh(prev)
+        try:
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "direzione_lavori"],
+                titolo="💰 Nuovo preventivo creato",
+                corpo=f"{user.nome} {user.cognome}: preventivo n°{body.numero}",
+                escludi_id=user.id,
+            )
+        except Exception: pass
         return prev
     except Exception as e:
         db.rollback()
@@ -263,6 +272,14 @@ def registra_spesa(cantiere_id: int, body: SpesaCreate, db: Session = Depends(ge
     try:
         s = Spesa(cantiere_id=cantiere_id, creato_da=user.id, **body.model_dump())
         db.add(s); db.commit(); db.refresh(s)
+        try:
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "direzione_lavori"],
+                titolo="🧾 Nuova spesa registrata",
+                corpo=f"{user.nome} {user.cognome}: {getattr(body,'descrizione','')[:60]} — €{getattr(body,'importo','')}",
+                escludi_id=user.id,
+            )
+        except Exception: pass
         return s
     except Exception as e:
         db.rollback(); raise HTTPException(500, f"Errore: {e}")
@@ -325,6 +342,14 @@ def crea_sal(cantiere_id: int, body: SALCreate, db: Session = Depends(get_db), u
     ultimo = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).order_by(SAL.numero.desc()).first()
     sal = SAL(cantiere_id=cantiere_id, numero=(ultimo.numero + 1 if ultimo else 1), **body.model_dump())
     db.add(sal); db.commit(); db.refresh(sal)
+    try:
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "direzione_lavori"],
+            titolo="📊 Nuovo SAL emesso",
+            corpo=f"{user.nome} {user.cognome}: SAL n°{sal.numero} — {getattr(body,'titolo','')[:60]}",
+            escludi_id=user.id,
+        )
+    except Exception: pass
     return sal
 
 @router.put("/{cantiere_id}/sal/{sal_id}", response_model=SALOut)
