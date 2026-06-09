@@ -498,6 +498,8 @@ function MappeTab({ cantiereId }) {
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
   const [pinSelezionato, setPinSelezionato] = useState(null)
+  const [editPinMode, setEditPinMode] = useState(false)
+  const [editPinForm, setEditPinForm] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [reportTesto, setReportTesto] = useState('')
   const [pinRecStato, setPinRecStato] = useState('idle') // idle | recording | processing (per aggiornamenti)
@@ -514,12 +516,13 @@ function MappeTab({ cantiereId }) {
   const canWrite   = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const canContrib = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)
 
-  // Lista utenti per assegnazione pin (solo admin/capo_cantiere)
+  // Tutti i membri attivi del team (per assegnazione pin)
   const { data: utenti = [] } = useQuery(
     'utenti',
     () => api.get('/utenti').then(r => r.data),
     { enabled: canWrite, staleTime: 60000 }
   )
+  const teamAttivo = utenti.filter(u => u.attivo)
   const fornitori = utenti.filter(u => u.ruolo === 'fornitore' && u.attivo)
 
   const { data: docs = [], isLoading } = useQuery(
@@ -599,6 +602,19 @@ function MappeTab({ cantiereId }) {
     try {
       const r = await api.delete(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinId}`)
       setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId]); setPinSelezionato(null); toast.success('Pin eliminato')
+    } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
+  }
+
+  const salvaModificaPin = async () => {
+    if (!pinSelezionato || !editPinForm) return
+    try {
+      const r = await api.patch(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}`, editPinForm)
+      setDocSelezionato(r.data)
+      qc.invalidateQueries(['documenti', cantiereId])
+      const pinAggiornato = (r.data.pin_dati || []).find(p => p.id === pinSelezionato.id)
+      if (pinAggiornato) setPinSelezionato(pinAggiornato)
+      setEditPinMode(false); setEditPinForm(null)
+      toast.success('Pin aggiornato!')
     } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
   }
 
@@ -770,32 +786,98 @@ function MappeTab({ cantiereId }) {
               <div className="rounded-xl border-2 space-y-3 overflow-hidden" style={{ borderColor: TIPO_PIN[pinSelezionato.tipo]?.color }}>
                 {/* Header pin */}
                 <div className="p-3 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-wrap gap-1">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TIPO_PIN[pinSelezionato.tipo]?.bg}`}>{TIPO_PIN[pinSelezionato.tipo]?.label}</span>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATO_PIN[pinSelezionato.stato]?.bg || 'bg-gray-100 text-gray-600'}`}>{STATO_PIN[pinSelezionato.stato]?.label || pinSelezionato.stato}</span>
-                      {pinSelezionato.assegnato_a && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
-                          → {pinSelezionato.assegnato_a_nome || ASSEGNATO_LABEL[pinSelezionato.assegnato_a]}
-                        </span>
+                  {!editPinMode ? (
+                    <>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-wrap gap-1">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TIPO_PIN[pinSelezionato.tipo]?.bg}`}>{TIPO_PIN[pinSelezionato.tipo]?.label}</span>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATO_PIN[pinSelezionato.stato]?.bg || 'bg-gray-100 text-gray-600'}`}>{STATO_PIN[pinSelezionato.stato]?.label || pinSelezionato.stato}</span>
+                          {pinSelezionato.assegnato_a && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                              → {pinSelezionato.assegnato_a_nome || ASSEGNATO_LABEL[pinSelezionato.assegnato_a]}
+                            </span>
+                          )}
+                        </div>
+                        {canWrite && (
+                          <div className="flex gap-1 flex-shrink-0">
+                            <button onClick={() => { setEditPinForm({ tipo: pinSelezionato.tipo, nota: pinSelezionato.nota, assegnato_a: pinSelezionato.assegnato_a, assegnato_a_user_id: pinSelezionato.assegnato_a_user_id, assegnato_a_nome: pinSelezionato.assegnato_a_nome, visibilita: pinSelezionato.visibilita || [] }); setEditPinMode(true) }}
+                              className="text-gray-400 hover:text-steelex-orange p-1" title="Modifica"><Edit2 size={14} /></button>
+                            <button onClick={() => eliminaPin(pinSelezionato.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-800 font-medium">{pinSelezionato.nota}</p>
+                      {pinSelezionato.autore && <p className="text-xs text-gray-400">Creato da {pinSelezionato.autore}</p>}
+                      {canWrite && (
+                        <div className="flex gap-1 pt-1">
+                          {Object.entries(STATO_PIN).map(([k, v]) => (
+                            <button key={k} onClick={() => aggiornaStato(pinSelezionato.id, k)}
+                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinSelezionato.stato === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                              {v.label}
+                            </button>
+                          ))}
+                        </div>
                       )}
-                    </div>
-                    {canWrite && (
-                      <button onClick={() => eliminaPin(pinSelezionato.id)} className="text-red-400 hover:text-red-600 p-1 flex-shrink-0"><Trash2 size={15} /></button>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-800 font-medium">{pinSelezionato.nota}</p>
-                  {pinSelezionato.autore && <p className="text-xs text-gray-400">Creato da {pinSelezionato.autore}</p>}
-
-                  {/* Cambia stato */}
-                  {canWrite && (
-                    <div className="flex gap-1 pt-1">
-                      {Object.entries(STATO_PIN).map(([k, v]) => (
-                        <button key={k} onClick={() => aggiornaStato(pinSelezionato.id, k)}
-                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinSelezionato.stato === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                          {v.label}
-                        </button>
-                      ))}
+                    </>
+                  ) : (
+                    /* Form modifica pin */
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Modifica pin</p>
+                      {/* Tipo */}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {Object.entries(TIPO_PIN).map(([k, v]) => (
+                          <button key={k} type="button" onClick={() => setEditPinForm(f => ({ ...f, tipo: k }))}
+                            className={`py-2 rounded-lg text-xs font-medium border-2 transition-colors ${editPinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
+                            {v.label}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Nota */}
+                      <textarea className="input-field h-16 resize-none text-sm" value={editPinForm.nota}
+                        onChange={e => setEditPinForm(f => ({ ...f, nota: e.target.value }))} />
+                      {/* Assegnato a — tutto il team */}
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Assegnato a</label>
+                        <select className="input-field text-sm" value={editPinForm.assegnato_a_user_id || editPinForm.assegnato_a || ''}
+                          onChange={e => {
+                            const val = e.target.value
+                            const utente = teamAttivo.find(u => String(u.id) === val)
+                            if (utente) {
+                              setEditPinForm(f => ({ ...f, assegnato_a: utente.ruolo, assegnato_a_user_id: utente.id, assegnato_a_nome: `${utente.nome} ${utente.cognome}` }))
+                            } else {
+                              setEditPinForm(f => ({ ...f, assegnato_a: val, assegnato_a_user_id: null, assegnato_a_nome: null }))
+                            }
+                          }}>
+                          <optgroup label="Per ruolo">
+                            <option value="admin">Admin</option>
+                            <option value="capo_cantiere">Capo Cantiere</option>
+                            <option value="fornitore">Tutti i Fornitori</option>
+                          </optgroup>
+                          {teamAttivo.length > 0 && (
+                            <optgroup label="Membro specifico">
+                              {teamAttivo.map(u => (
+                                <option key={u.id} value={String(u.id)}>{u.nome} {u.cognome} ({u.ruolo.replace('_',' ')})</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      </div>
+                      {/* Visibilità */}
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {['admin','capo_cantiere','fornitore','cliente'].map(r => (
+                            <button key={r} type="button" onClick={() => setEditPinForm(f => ({ ...f, visibilita: f.visibilita?.includes(r) ? f.visibilita.filter(x=>x!==r) : [...(f.visibilita||[]), r] }))}
+                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${editPinForm.visibilita?.includes(r) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
+                              {ASSEGNATO_LABEL[r]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={() => { setEditPinMode(false); setEditPinForm(null) }} className="btn-secondary flex-1 text-sm py-1.5">Annulla</button>
+                        <button onClick={salvaModificaPin} className="btn-primary flex-1 text-sm py-1.5">Salva</button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -919,38 +1001,33 @@ function MappeTab({ cantiereId }) {
               </div>
             )}
             <textarea className="input-field h-20 resize-none" placeholder="Descrizione (o usa il microfono sopra)..." value={pinForm.nota} onChange={e => setPinForm(f => ({ ...f, nota: e.target.value }))} />
-            {/* Assegnato a — ruolo */}
+            {/* Assegnato a — tutto il team */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Assegnato a</label>
-              <select className="input-field" value={pinForm.assegnato_a} onChange={e => setPinForm(f => ({ ...f, assegnato_a: e.target.value, assegnato_a_user_id: null, assegnato_a_nome: null }))}>
-                <option value="capo_cantiere">Capo Cantiere</option>
-                <option value="fornitore">Fornitore / Artigiano</option>
-                <option value="admin">Admin</option>
+              <select className="input-field" value={pinForm.assegnato_a_user_id || pinForm.assegnato_a || ''}
+                onChange={e => {
+                  const val = e.target.value
+                  const membro = teamAttivo.find(u => String(u.id) === val)
+                  if (membro) {
+                    setPinForm(f => ({ ...f, assegnato_a: membro.ruolo, assegnato_a_user_id: membro.id, assegnato_a_nome: `${membro.nome} ${membro.cognome}` }))
+                  } else {
+                    setPinForm(f => ({ ...f, assegnato_a: val, assegnato_a_user_id: null, assegnato_a_nome: null }))
+                  }
+                }}>
+                <optgroup label="Per ruolo">
+                  <option value="admin">Admin</option>
+                  <option value="capo_cantiere">Capo Cantiere</option>
+                  <option value="fornitore">Tutti i Fornitori</option>
+                </optgroup>
+                {teamAttivo.length > 0 && (
+                  <optgroup label="Membro specifico">
+                    {teamAttivo.map(u => (
+                      <option key={u.id} value={String(u.id)}>{u.nome} {u.cognome} ({u.ruolo.replace('_',' ')})</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
-            {/* Se fornitore: selezione utente specifico */}
-            {pinForm.assegnato_a === 'fornitore' && (
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">
-                  Seleziona artigiano specifico <span className="text-gray-400">(opzionale)</span>
-                </label>
-                {fornitori.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">Nessun fornitore registrato — aggiungili in Utenti</p>
-                ) : (
-                  <select className="input-field" value={pinForm.assegnato_a_user_id || ''}
-                    onChange={e => {
-                      const id = e.target.value ? parseInt(e.target.value) : null
-                      const user = fornitori.find(u => u.id === id)
-                      setPinForm(f => ({ ...f, assegnato_a_user_id: id, assegnato_a_nome: user ? `${user.nome} ${user.cognome}` : null }))
-                    }}>
-                    <option value="">— Tutti i fornitori —</option>
-                    {fornitori.map(u => (
-                      <option key={u.id} value={u.id}>{u.nome} {u.cognome}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            )}
             {/* Visibilità */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Visibile a</label>
