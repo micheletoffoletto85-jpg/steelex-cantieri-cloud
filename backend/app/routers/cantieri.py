@@ -161,82 +161,204 @@ def rimuovi_artigiano(cantiere_id: int, utente_id: int, db: Session = Depends(ge
 
 @router.get("/{cantiere_id}/export")
 def export_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Esporta un cantiere completo come JSON (fasi, checklist). Solo admin."""
+    """Esporta un cantiere completo come JSON. Solo admin."""
     if user.ruolo != RuoloUtente.admin:
         raise HTTPException(403, "Solo admin può esportare")
     c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not c: raise HTTPException(404, "Cantiere non trovato")
 
     from app.models.checklist import ChecklistItem
-    from app.models.economico import FaseLavoro
+    from app.models.economico import (FaseLavoro, OrdineAcquisto, FatturaFornitore,
+                                       SAL, Spesa, PreventivoCantiere, BollaConsegna)
+    from app.models.artigiano import Artigiano, FeedbackArtigiano
+
+    def _d(v): return str(v) if v else None
 
     fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine).all()
     checklist = db.query(ChecklistItem).filter(ChecklistItem.cantiere_id == cantiere_id).all()
+    ordini = db.query(OrdineAcquisto).filter(OrdineAcquisto.cantiere_id == cantiere_id).all()
+    fatture = db.query(FatturaFornitore).filter(FatturaFornitore.cantiere_id == cantiere_id).all()
+    sals = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).all()
+    spese = db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).all()
+    preventivi = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).all()
+    bolle = db.query(BollaConsegna).filter(BollaConsegna.cantiere_id == cantiere_id).all()
+
+    # archivio documenti
+    try:
+        from sqlalchemy import text as _text
+        rows = db.execute(_text("SELECT nome, categoria, descrizione, file_url, tipo_file FROM archivio_docs WHERE cantiere_id = :cid"), {"cid": cantiere_id}).fetchall()
+        documenti = [{"nome": r[0], "categoria": r[1], "descrizione": r[2], "file_url": r[3], "tipo_file": r[4]} for r in rows]
+    except Exception:
+        documenti = []
+
+    # artigiani con feedback su questo cantiere
+    fb_rows = db.query(FeedbackArtigiano).filter(FeedbackArtigiano.cantiere_id == cantiere_id).all()
+    arti_ids = list({fb.artigiano_id for fb in fb_rows})
+    arti_list = db.query(Artigiano).filter(Artigiano.id.in_(arti_ids)).all() if arti_ids else []
+    artigiani_export = []
+    for a in arti_list:
+        feedbacks_a = [fb for fb in fb_rows if fb.artigiano_id == a.id]
+        artigiani_export.append({
+            "nome": a.nome, "cognome": a.cognome, "azienda": a.azienda,
+            "categoria": a.categoria, "telefono": a.telefono, "email": a.email,
+            "note": a.note, "attivo": a.attivo,
+            "feedback": [{"voto": fb.voto, "nota": fb.nota} for fb in feedbacks_a],
+        })
 
     return {
         "cantiere": {
             "nome": c.nome, "indirizzo": c.indirizzo, "cliente": c.cliente,
             "citta": c.citta, "provincia": c.provincia,
             "stato": c.stato.value if c.stato else "preventivo",
-            "data_inizio": str(c.data_inizio) if c.data_inizio else None,
-            "data_fine_prevista": str(c.data_fine_prevista) if c.data_fine_prevista else None,
+            "data_inizio": _d(c.data_inizio), "data_fine_prevista": _d(c.data_fine_prevista),
             "budget": c.budget, "note": c.note,
         },
-        "fasi": [
-            {"nome": f.nome, "categoria": f.categoria, "colore": f.colore,
-             "data_inizio": str(f.data_inizio) if f.data_inizio else None,
-             "data_fine_prevista": str(f.data_fine_prevista) if f.data_fine_prevista else None,
-             "percentuale": f.percentuale, "stato": f.stato, "note": f.note, "ordine": f.ordine}
-            for f in fasi
-        ],
-        "checklist": [
-            {"testo": i.testo, "completato": i.completato, "categoria": getattr(i, "categoria", None)}
-            for i in checklist
-        ],
+        "fasi": [{"nome": f.nome, "categoria": f.categoria, "colore": f.colore,
+                  "data_inizio": _d(f.data_inizio), "data_fine_prevista": _d(f.data_fine_prevista),
+                  "percentuale": f.percentuale, "stato": f.stato, "note": f.note, "ordine": f.ordine}
+                 for f in fasi],
+        "checklist": [{"testo": i.testo, "completato": i.completato} for i in checklist],
+        "ordini": [{"fornitore_nome": o.fornitore_nome, "descrizione": o.descrizione,
+                    "categoria": o.categoria.value if o.categoria else "materiali",
+                    "importo": o.importo, "iva_perc": o.iva_perc, "importo_totale": o.importo_totale,
+                    "stato": o.stato.value if o.stato else "bozza",
+                    "data_ordine": _d(o.data_ordine), "data_consegna_prevista": _d(o.data_consegna_prevista),
+                    "note": o.note} for o in ordini],
+        "fatture": [{"fornitore_nome": f.fornitore_nome, "numero_fattura": f.numero_fattura,
+                     "descrizione": f.descrizione, "importo_netto": f.importo_netto,
+                     "iva_perc": f.iva_perc, "importo_iva": f.importo_iva, "importo_totale": f.importo_totale,
+                     "data_fattura": _d(f.data_fattura), "data_scadenza": _d(f.data_scadenza),
+                     "stato": f.stato.value if f.stato else "ricevuta", "pdf_url": f.pdf_url}
+                    for f in fatture],
+        "sal": [{"numero": s.numero, "titolo": s.titolo, "percentuale": s.percentuale,
+                 "importo": s.importo, "data": _d(s.data),
+                 "stato": s.stato.value if s.stato else "bozza", "note": s.note} for s in sals],
+        "spese": [{"descrizione": s.descrizione, "fornitore": s.fornitore,
+                   "categoria": s.categoria.value if s.categoria else "materiali",
+                   "importo": s.importo, "data": _d(s.data), "note": s.note,
+                   "allegato_url": s.allegato_url, "allegato_tipo": s.allegato_tipo} for s in spese],
+        "preventivi": [{"numero": p.numero, "data": _d(p.data), "voci": p.voci,
+                        "subtotale": p.subtotale, "iva_perc": p.iva_perc, "totale": p.totale,
+                        "stato": p.stato.value if p.stato else "bozza", "note": p.note} for p in preventivi],
+        "bolle": [{"fornitore_nome": b.fornitore_nome, "numero_bolla": b.numero_bolla,
+                   "data": _d(b.data), "importo_stimato": b.importo_stimato,
+                   "descrizione": b.descrizione, "stato": b.stato.value if b.stato else "aperta"} for b in bolle],
+        "documenti": documenti,
+        "artigiani": artigiani_export,
     }
 
 
 @router.post("/import", status_code=201)
 def import_cantiere(body: dict, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Importa un cantiere da JSON esportato. Solo admin."""
+    """Importa un cantiere completo da JSON. Solo admin."""
     if user.ruolo != RuoloUtente.admin:
         raise HTTPException(403, "Solo admin può importare")
 
-    from app.models.economico import FaseLavoro
+    from app.models.economico import (FaseLavoro, OrdineAcquisto, FatturaFornitore,
+                                       SAL, Spesa, PreventivoCantiere, BollaConsegna,
+                                       StatoOrdine, StatoFattura, StatoSAL, CategoriaOrdine,
+                                       CategoriaSpesa, StatoPreventivo, StatoBolla)
     from app.models.checklist import ChecklistItem
+    from app.models.artigiano import Artigiano, FeedbackArtigiano
 
     cd = body.get("cantiere", {})
-    stato_val = cd.get("stato", "preventivo")
-    try:
-        stato_enum = StatoCantiere(stato_val)
-    except ValueError:
-        stato_enum = StatoCantiere.preventivo
+    try: stato_enum = StatoCantiere(cd.get("stato", "preventivo"))
+    except ValueError: stato_enum = StatoCantiere.preventivo
 
     c = Cantiere(
         nome=cd["nome"], indirizzo=cd.get("indirizzo"), cliente=cd.get("cliente") or "",
-        citta=cd.get("citta"), provincia=cd.get("provincia"),
-        stato=stato_enum,
+        citta=cd.get("citta"), provincia=cd.get("provincia"), stato=stato_enum,
         data_inizio=cd.get("data_inizio") or None,
         data_fine_prevista=cd.get("data_fine_prevista") or None,
-        budget=cd.get("budget") or 0.0,
-        note=cd.get("note"), responsabile_id=user.id,
+        budget=cd.get("budget") or 0.0, note=cd.get("note"), responsabile_id=user.id,
     )
     db.add(c); db.flush()
 
     for f in body.get("fasi", []):
-        db.add(FaseLavoro(
-            cantiere_id=c.id, nome=f["nome"], categoria=f.get("categoria"),
+        db.add(FaseLavoro(cantiere_id=c.id, nome=f["nome"], categoria=f.get("categoria"),
             colore=f.get("colore"), data_inizio=f.get("data_inizio") or None,
             data_fine_prevista=f.get("data_fine_prevista") or None,
             percentuale=f.get("percentuale", 0), stato=f.get("stato", "pianificata"),
-            note=f.get("note"), ordine=f.get("ordine", 0),
-        ))
+            note=f.get("note"), ordine=f.get("ordine", 0)))
 
     for i in body.get("checklist", []):
-        db.add(ChecklistItem(
-            cantiere_id=c.id, testo=i["testo"],
-            completato=i.get("completato", False),
-        ))
+        db.add(ChecklistItem(cantiere_id=c.id, testo=i["testo"], completato=i.get("completato", False)))
+
+    for o in body.get("ordini", []):
+        try: cat = CategoriaOrdine(o.get("categoria", "materiali"))
+        except ValueError: cat = CategoriaOrdine.materiali
+        try: stato = StatoOrdine(o.get("stato", "bozza"))
+        except ValueError: stato = StatoOrdine.bozza
+        db.add(OrdineAcquisto(cantiere_id=c.id, fornitore_nome=o["fornitore_nome"],
+            descrizione=o["descrizione"], categoria=cat, importo=o.get("importo", 0),
+            iva_perc=o.get("iva_perc", 22), importo_totale=o.get("importo_totale", 0),
+            stato=stato, data_ordine=o.get("data_ordine") or None,
+            data_consegna_prevista=o.get("data_consegna_prevista") or None,
+            note=o.get("note"), creato_da=user.id))
+
+    for f in body.get("fatture", []):
+        try: stato = StatoFattura(f.get("stato", "ricevuta"))
+        except ValueError: stato = StatoFattura.ricevuta
+        db.add(FatturaFornitore(cantiere_id=c.id, fornitore_nome=f["fornitore_nome"],
+            numero_fattura=f.get("numero_fattura"), descrizione=f.get("descrizione"),
+            importo_netto=f.get("importo_netto", 0), iva_perc=f.get("iva_perc", 22),
+            importo_iva=f.get("importo_iva", 0), importo_totale=f.get("importo_totale", 0),
+            data_fattura=f.get("data_fattura") or None, data_scadenza=f.get("data_scadenza") or None,
+            stato=stato, pdf_url=f.get("pdf_url")))
+
+    for s in body.get("sal", []):
+        try: stato = StatoSAL(s.get("stato", "bozza"))
+        except ValueError: stato = StatoSAL.bozza
+        db.add(SAL(cantiere_id=c.id, numero=s["numero"], titolo=s["titolo"],
+            percentuale=s.get("percentuale", 0), importo=s.get("importo", 0),
+            data=s.get("data") or None, stato=stato, note=s.get("note")))
+
+    for s in body.get("spese", []):
+        try: cat = CategoriaSpesa(s.get("categoria", "materiali"))
+        except ValueError: cat = CategoriaSpesa.materiali
+        db.add(Spesa(cantiere_id=c.id, descrizione=s["descrizione"], fornitore=s.get("fornitore"),
+            categoria=cat, importo=s.get("importo", 0), data=s.get("data") or None,
+            note=s.get("note"), allegato_url=s.get("allegato_url"), allegato_tipo=s.get("allegato_tipo"),
+            creato_da=user.id))
+
+    for p in body.get("preventivi", []):
+        try: stato = StatoPreventivo(p.get("stato", "bozza"))
+        except ValueError: stato = StatoPreventivo.bozza
+        db.add(PreventivoCantiere(cantiere_id=c.id, numero=p.get("numero"), data=p.get("data") or None,
+            voci=p.get("voci", []), subtotale=p.get("subtotale", 0), iva_perc=p.get("iva_perc", 22),
+            totale=p.get("totale", 0), stato=stato, note=p.get("note")))
+
+    for b in body.get("bolle", []):
+        try: stato = StatoBolla(b.get("stato", "aperta"))
+        except ValueError: stato = StatoBolla.aperta
+        db.add(BollaConsegna(cantiere_id=c.id, fornitore_nome=b["fornitore_nome"],
+            numero_bolla=b.get("numero_bolla"), data=b.get("data") or None,
+            importo_stimato=b.get("importo_stimato", 0), descrizione=b.get("descrizione"), stato=stato))
+
+    for d in body.get("documenti", []):
+        try:
+            from sqlalchemy import text as _text
+            db.execute(_text("""INSERT INTO archivio_docs (cantiere_id, nome, categoria, descrizione, file_url, tipo_file, caricato_da)
+                VALUES (:cid, :nome, :cat, :desc, :url, :tipo, :uid)"""),
+                {"cid": c.id, "nome": d["nome"], "cat": d.get("categoria","operativita"),
+                 "desc": d.get("descrizione"), "url": d.get("file_url",""), "tipo": d.get("tipo_file"), "uid": user.id})
+        except Exception:
+            pass
+
+    for a in body.get("artigiani", []):
+        # cerca artigiano esistente per nome+cognome+azienda, altrimenti crea
+        existing = db.query(Artigiano).filter(
+            Artigiano.nome == a["nome"], Artigiano.cognome == a["cognome"]
+        ).first()
+        if not existing:
+            existing = Artigiano(nome=a["nome"], cognome=a["cognome"], azienda=a.get("azienda"),
+                categoria=a.get("categoria","altro"), telefono=a.get("telefono"),
+                email=a.get("email"), note=a.get("note"), attivo=a.get("attivo", True),
+                creato_da=user.id)
+            db.add(existing); db.flush()
+        for fb in a.get("feedback", []):
+            db.add(FeedbackArtigiano(artigiano_id=existing.id, cantiere_id=c.id,
+                voto=fb["voto"], nota=fb.get("nota"), autore_id=user.id))
 
     db.commit()
     return {"id": c.id, "nome": c.nome, "messaggio": "Cantiere importato con successo"}
