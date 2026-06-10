@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage'
 import CantieriPage from './pages/CantieriPage'
 import CantierePage from './pages/CantierePage'
 import UtentiPage from './pages/UtentiPage'
+import ForniturePage from './pages/ForniturePage'
 import Layout from './components/Layout'
 import SplashScreen from './components/SplashScreen'
 
@@ -42,6 +43,7 @@ function AppContent() {
           <Route path="cantieri" element={<CantieriPage />} />
           <Route path="cantieri/:id" element={<CantierePage />} />
           <Route path="utenti" element={<UtentiPage />} />
+          <Route path="fornitori" element={<ForniturePage />} />
         </Route>
       </Routes>
     </>

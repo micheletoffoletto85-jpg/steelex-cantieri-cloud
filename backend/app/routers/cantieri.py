@@ -10,17 +10,19 @@ from app.auth import get_current_user
 
 router = APIRouter(prefix="/cantieri", tags=["Cantieri"])
 
-# Solo staff STEELEX interno può creare/vedere tutti i cantieri
-_RUOLI_STEELEX = (RuoloUtente.admin, RuoloUtente.capo_cantiere)
-# Ruoli esterni: vedono SOLO i cantieri dove sono esplicitamente assegnati
-_RUOLI_ESTERNI = (RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori,
-                  RuoloUtente.artigiano, RuoloUtente.fornitore, RuoloUtente.cliente)
+# Staff STEELEX interno: crea cantieri e vede tutti
+_RUOLI_STEELEX = (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione)
+# Ruoli con accesso esteso (assegnati al cantiere): leggono/scrivono ma non creano
+_RUOLI_STAFF_EXT = (RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori,
+                    RuoloUtente.architetto, RuoloUtente.responsabile_sicurezza)
+# Ruoli esterni puri: vedono SOLO i cantieri dove sono esplicitamente assegnati
+_RUOLI_ESTERNI = (RuoloUtente.artigiano, RuoloUtente.fornitore, RuoloUtente.cliente)
 
 def _check_accesso(cantiere: Cantiere, user: Utente):
     if user.ruolo == RuoloUtente.admin:
         return
-    if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
-        return
+    if user.ruolo in (RuoloUtente.capo_cantiere, RuoloUtente.amministrazione):
+        return  # vedono tutti i cantieri
     # tutti gli altri ruoli: solo se assegnati nella tabella cantiere_artigiani
     if user.id in [u.id for u in cantiere.artigiani]:
         return
@@ -33,10 +35,12 @@ def lista_cantieri(
     user: Utente = Depends(get_current_user),
 ):
     q = db.query(Cantiere)
-    if user.ruolo == RuoloUtente.admin:
+    if user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione):
         pass  # vede tutto
-    elif user.ruolo == RuoloUtente.capo_cantiere:
-        q = q.filter(Cantiere.responsabile_id == user.id)  # solo i suoi cantieri
+    elif user.ruolo in _RUOLI_STAFF_EXT:
+        # capo_cantiere_sub, direzione_lavori, architetto, responsabile_sicurezza:
+        # solo cantieri dove sono assegnati
+        q = q.filter(Cantiere.artigiani.any(Utente.id == user.id))
     else:
         # capo_cantiere_sub, direzione_lavori, artigiano, fornitore, cliente:
         # solo cantieri dove sono stati esplicitamente assegnati

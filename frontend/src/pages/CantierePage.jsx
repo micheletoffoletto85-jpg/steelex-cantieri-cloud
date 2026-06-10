@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
@@ -81,26 +81,45 @@ export default function CantierePage() {
       </div>
 
       {/* Tab bar — scroll orizzontale su mobile */}
-      <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {[['info','Info',null],['aggiornamenti','Aggiornamenti',Calendar],
-          ...(!['cliente'].includes(utente?.ruolo) ? [['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map]] : []),
-          ...(['admin','capo_cantiere'].includes(utente?.ruolo) ? [['economia','Economia',Euro]] : []),
+      {(() => {
+        const ruolo = utente?.ruolo
+        const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+        const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
+        const puoVedereEconomia = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+
+        const tabs = [
+          ['info','Info',null],
+          ['aggiornamenti','Aggiornamenti',Calendar],
+          ...(isStaffInterno || isStaffExt ? [['team','Team',Users]] : []),
+          ...(!['cliente','fornitore'].includes(ruolo) ? [
+            ['gantt','Gantt',BarChart2],
+            ['checklist','Checklist',CheckSquare],
+            ['diario','Diario',BookOpen],
+            ['mappe','Mappe',Map],
+          ] : []),
+          ...(puoVedereEconomia ? [['economia','Economia',Euro]] : []),
           ['documenti','Documenti',FolderOpen],
-        ].map(([key,label,Icon]) => (
-          <button key={key} onClick={() => setTab(key)}
-            className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {Icon && <Icon size={12} />}{label}
-          </button>
-        ))}
-      </div>
+        ]
+        return (
+          <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+            {tabs.map(([key,label,Icon]) => (
+              <button key={key} onClick={() => setTab(key)}
+                className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {Icon && <Icon size={12} />}{label}
+              </button>
+            ))}
+          </div>
+        )
+      })()}
 
       {tab === 'info'          && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
       {tab === 'aggiornamenti' && <AggiornnamentiTab cantiereId={id} />}
       {tab === 'team'          && <TeamTab cantiereId={id} utente={utente} />}
       {tab === 'gantt'         && <GanttTab cantiereId={id} />}
       {tab === 'checklist'     && <ChecklistTab cantiereId={id} />}
-      {tab === 'diario'        && <DiarioTab cantiereId={id} />}
+      {tab === 'diario'        && <DiarioTab cantiereId={id} utente={utente} />}
       {tab === 'mappe'         && <MappeTab cantiereId={id} />}
+
       {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
       {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
     </div>
@@ -1220,8 +1239,12 @@ function getSupportedMimeType() {
 }
 
 /* ─── TAB DIARIO ─── */
-function DiarioTab({ cantiereId }) {
+function DiarioTab({ cantiereId, utente }) {
   const qc = useQueryClient()
+  const ruolo = utente?.ruolo
+  const puoInserireNota = ['artigiano', 'fornitore', 'capo_cantiere_sub'].includes(ruolo)
+  const puoValidare = ['admin', 'capo_cantiere', 'amministrazione'].includes(ruolo)
+
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0 })
   const [uploadingFor, setUploadingFor] = useState(null)
@@ -1237,6 +1260,40 @@ function DiarioTab({ cantiereId }) {
   const timerRef = useRef(null)
 
   const { data: diari = [] } = useQuery(['diari', cantiereId], () => api.get(`/cantieri/${cantiereId}/diari`).then(r => r.data))
+  const validaDiario = useMutation(
+    (diarioId) => api.put(`/cantieri/${cantiereId}/diari/${diarioId}/valida`),
+    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Voce diario pubblicata!') } }
+  )
+  const diariBozza = diari.filter(d => d.stato_validazione === 'bozza')
+  const diariPubblicati = diari.filter(d => d.stato_validazione !== 'bozza')
+  const { data: noteArtigiani = [] } = useQuery(
+    ['note-campo', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/note-campo`).then(r => r.data),
+    { enabled: puoInserireNota || puoValidare }
+  )
+  const [testoNota, setTestoNota] = useState('')
+  const [inserendoSpesa, setInserendoSpesa] = useState(null)
+  const [spesaForm, setSpesaForm] = useState({ descrizione: '', importo: '', data: dayjs().format('YYYY-MM-DD') })
+
+  const creaNota = useMutation(
+    () => api.post(`/cantieri/${cantiereId}/note-campo`, { testo: testoNota }),
+    { onSuccess: () => { qc.invalidateQueries(['note-campo', cantiereId]); setTestoNota(''); toast.success('Nota inviata al capocantiere!') } }
+  )
+  const validaNota = useMutation(
+    ({ notaId, stato }) => api.put(`/cantieri/${cantiereId}/note-campo/${notaId}/valida`, { stato }),
+    { onSuccess: () => { qc.invalidateQueries(['note-campo', cantiereId]); toast.success('Nota aggiornata') } }
+  )
+  const spesaDaNota = useMutation(
+    ({ notaId, body }) => api.post(`/cantieri/${cantiereId}/note-campo/${notaId}/inserisci-spesa`, body),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries(['note-campo', cantiereId]); qc.invalidateQueries(['spese', cantiereId])
+        setInserendoSpesa(null); setSpesaForm({ descrizione: '', importo: '', data: dayjs().format('YYYY-MM-DD') })
+        toast.success('Spesa inserita in economia!')
+      },
+      onError: err => toast.error(err.response?.data?.detail || 'Errore'),
+    }
+  )
 
   const createMutation = useMutation(
     () => api.post(`/cantieri/${cantiereId}/diari`, { ...form, cantiere_id: Number(cantiereId), operai_presenti: Number(form.operai_presenti) }),
@@ -1333,8 +1390,90 @@ function DiarioTab({ cantiereId }) {
 
   const METEO = ['☀️ Sole', '⛅ Nuvoloso', '🌧️ Pioggia', '❄️ Neve', '💨 Vento']
 
+  const noteBozza = noteArtigiani.filter(n => n.stato === 'bozza')
+  const STATO_NOTA_STYLE = { bozza: 'bg-yellow-100 text-yellow-700', validata: 'bg-blue-100 text-blue-700', pubblicata: 'bg-green-100 text-green-700' }
+  const STATO_NOTA_LABEL = { bozza: 'In attesa', validata: 'Validata', pubblicata: 'Pubblicata' }
+
   return (
     <div className="space-y-3">
+
+      {/* ── PANNELLO NOTE ARTIGIANI / FORNITORI ─────────────────────────── */}
+
+      {/* Form inserimento nota (artigiani/fornitori/capo_sub) */}
+      {puoInserireNota && (
+        <div className="card border border-yellow-200 bg-yellow-50 space-y-2">
+          <p className="text-xs font-semibold text-yellow-800 flex items-center gap-1"><MessageSquare size={13} /> Invia nota al capocantiere</p>
+          <textarea className="input-field h-20 resize-none text-sm bg-white" placeholder="Descrivi il lavoro svolto, ore, materiali... (es. 5 ore stuccature pareti nord)"
+            value={testoNota} onChange={e => setTestoNota(e.target.value)} />
+          <button onClick={() => testoNota.trim() && creaNota.mutate()} disabled={!testoNota.trim() || creaNota.isLoading}
+            className="btn-primary w-full text-sm py-2">{creaNota.isLoading ? 'Invio...' : 'Invia nota'}</button>
+          {noteArtigiani.length > 0 && (
+            <div className="space-y-1 pt-1 border-t border-yellow-200">
+              <p className="text-xs text-yellow-700 font-medium">Le mie note:</p>
+              {noteArtigiani.map(n => (
+                <div key={n.id} className="flex items-center justify-between gap-2 text-xs text-gray-600 py-0.5">
+                  <span className="truncate flex-1">{n.testo.substring(0, 60)}{n.testo.length > 60 ? '…' : ''}</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium flex-shrink-0 ${STATO_NOTA_STYLE[n.stato]}`}>{STATO_NOTA_LABEL[n.stato]}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Note in attesa di validazione (capocantiere/admin) */}
+      {puoValidare && noteBozza.length > 0 && (
+        <div className="card border border-amber-300 bg-amber-50 space-y-2">
+          <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+            <AlertCircle size={15} /> {noteBozza.length} nota/e in attesa di validazione
+          </p>
+          {noteBozza.map(nota => (
+            <div key={nota.id} className="bg-white rounded-xl p-3 space-y-2 border border-amber-100">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500 font-medium">{nota.autore_nome} · {nota.creato_il ? dayjs(nota.creato_il).format('D MMM') : ''}</p>
+                {nota.spesa_inserita && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><CheckCheck size={9} /> Spesa ok</span>}
+              </div>
+              <p className="text-sm text-gray-800">{nota.testo}</p>
+              {/* Azioni validazione */}
+              <div className="flex gap-1.5">
+                <button onClick={() => validaNota.mutate({ notaId: nota.id, stato: 'validata' })}
+                  className="flex-1 py-1 text-xs font-medium rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center justify-center gap-1">
+                  <ThumbsUp size={11} /> Valida
+                </button>
+                <button onClick={() => validaNota.mutate({ notaId: nota.id, stato: 'pubblicata' })}
+                  className="flex-1 py-1 text-xs font-medium rounded-lg bg-green-50 text-green-700 hover:bg-green-100 flex items-center justify-center gap-1">
+                  <CheckCheck size={11} /> Pubblica
+                </button>
+              </div>
+              {/* Inserimento spesa */}
+              {!nota.spesa_inserita && (
+                inserendoSpesa === nota.id ? (
+                  <div className="space-y-1.5 pt-1 border-t border-gray-100">
+                    <input className="input-field text-xs" placeholder="Descrizione spesa" value={spesaForm.descrizione} onChange={e => setSpesaForm(f => ({...f, descrizione: e.target.value}))} />
+                    <div className="flex gap-1.5">
+                      <input className="input-field text-xs" type="number" placeholder="€" value={spesaForm.importo} onChange={e => setSpesaForm(f => ({...f, importo: e.target.value}))} />
+                      <input className="input-field text-xs" type="date" value={spesaForm.data} onChange={e => setSpesaForm(f => ({...f, data: e.target.value}))} />
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setInserendoSpesa(null)} className="flex-1 btn-secondary text-xs py-1">Annulla</button>
+                      <button onClick={() => spesaForm.descrizione && spesaForm.importo && spesaDaNota.mutate({ notaId: nota.id, body: { descrizione: spesaForm.descrizione, importo: Number(spesaForm.importo), data: spesaForm.data } })}
+                        disabled={!spesaForm.descrizione || !spesaForm.importo} className="flex-1 btn-primary text-xs py-1">→ Economia</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => { setInserendoSpesa(nota.id); setSpesaForm(f => ({...f, descrizione: nota.testo.substring(0, 80)})) }}
+                    className="w-full py-1 text-xs text-steelex-orange hover:bg-orange-50 rounded-lg border border-dashed border-steelex-orange/50 flex items-center justify-center gap-1">
+                    <Euro size={11} /> Inserisci in Economia
+                  </button>
+                )
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ──────────────────────────────────────────────────────────────────── */}
+
       {/* Header azioni */}
       <div className="flex gap-2">
         <button onClick={() => { setShowForm(!showForm); setRecStato('idle') }}
@@ -1388,9 +1527,32 @@ function DiarioTab({ cantiereId }) {
         </div>
       )}
 
-      {diari.length === 0
+      {/* Bozze da validare (solo capocantiere/admin) */}
+      {puoValidare && diariBozza.length > 0 && (
+        <div className="card border border-amber-300 bg-amber-50 space-y-2">
+          <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+            <AlertCircle size={15} /> {diariBozza.length} voce/i diario in attesa di validazione
+          </p>
+          {diariBozza.map(d => (
+            <div key={d.id} className="bg-white rounded-xl p-3 space-y-2 border border-amber-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-gray-700">{d.autore_nome} · {dayjs(d.data).format('D MMM')}</p>
+                  <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{d.attivita}</p>
+                </div>
+                <button onClick={() => validaDiario.mutate(d.id)}
+                  className="flex-shrink-0 ml-2 text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700">
+                  <CheckCheck size={12} className="inline mr-1" />Pubblica
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {diariPubblicati.length === 0 && diariBozza.length === 0
         ? <div className="card text-center py-8 text-gray-400"><BookOpen size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun diario</p><p className="text-xs mt-1">Premi "Voce" per registrare direttamente</p></div>
-        : diari.map(d => (
+        : diariPubblicati.map(d => (
           <div key={d.id} className="card space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -1618,13 +1780,10 @@ function TeamTab({ cantiereId, utente }) {
 
 /* ─── TAB ARCHIVIO DOCUMENTI ─── */
 const CATEGORIE_DOC = {
-  progetto:       { label: 'Progetto',       bg: 'bg-blue-100 text-blue-700' },
-  strutturale:    { label: 'Strutturale',    bg: 'bg-purple-100 text-purple-700' },
-  contratti:      { label: 'Contratti',      bg: 'bg-green-100 text-green-700' },
-  autorizzazioni: { label: 'Autorizzazioni', bg: 'bg-yellow-100 text-yellow-700' },
-  relazioni:      { label: 'Relazioni',      bg: 'bg-orange-100 text-orange-700' },
-  foto:           { label: 'Foto',           bg: 'bg-pink-100 text-pink-700' },
-  varie:          { label: 'Varie',          bg: 'bg-gray-100 text-gray-600' },
+  sicurezza:         { label: '🦺 Sicurezza',           bg: 'bg-red-100 text-red-700' },
+  relazioni_disegni: { label: '📐 Relazioni e Disegni', bg: 'bg-blue-100 text-blue-700' },
+  amministrazione:   { label: '📋 Amministrazione',     bg: 'bg-green-100 text-green-700' },
+  operativita:       { label: '⚙️ Operatività',         bg: 'bg-orange-100 text-orange-700' },
 }
 
 const TIPO_ICONA = { pdf: '📄', dwg: '📐', dxf: '📐', jpg: '🖼', jpeg: '🖼', png: '🖼', xlsx: '📊', xls: '📊', docx: '📝', doc: '📝', zip: '🗜' }
@@ -1643,10 +1802,10 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
   const [catFiltro, setCatFiltro] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(null)
-  const [formUpload, setFormUpload] = useState({ nome: '', categoria: 'varie', descrizione: '' })
+  const [formUpload, setFormUpload] = useState({ nome: '', categoria: 'operativita', descrizione: '' })
   const [fileInAttesa, setFileInAttesa] = useState(null)       // singolo file → form dettagli
   const [filesMulti, setFilesMulti] = useState(null)           // array file → panel categoria
-  const [catMulti, setCatMulti] = useState('varie')
+  const [catMulti, setCatMulti] = useState('operativita')
   const [selezionati, setSelezionati] = useState(new Set())    // ID selezionati per delete multiplo
   const fileRef = useRef()
   const cartellaRef = useRef()

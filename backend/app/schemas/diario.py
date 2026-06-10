@@ -30,6 +30,7 @@ class DiarioOut(DiarioBase):
     lingua_originale: Optional[str] = None
     voci_estratte: Optional[Any] = None
     condividi_cliente: bool = False
+    stato_validazione: Optional[str] = "pubblicata"
     autore_nome: Optional[str] = None   # calcolato nel router
 
     class Config:
