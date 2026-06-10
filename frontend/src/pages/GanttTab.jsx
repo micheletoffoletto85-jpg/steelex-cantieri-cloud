@@ -406,7 +406,15 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
   }, [minData, totalDays, zoomEff])
 
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
-  const LABEL_W = 180
+  const LABEL_W = 160
+
+  // Larghezza minima area gantt per leggibilità su mobile
+  const minGanttPx = useMemo(() => {
+    if (zoomEff === 'giorni')    return Math.max(totalDays * 22, 300)
+    if (zoomEff === 'settimane') return Math.max(Math.ceil(totalDays / 7) * 48, 300)
+    return Math.max(Math.ceil(totalDays / 30) * 80, 300)
+  }, [zoomEff, totalDays])
+  const minWidth = LABEL_W + 56 + minGanttPx
 
   // Griglia verticale nel body: settimane o mesi
   const gridLines = zoomEff === 'giorni' ? settimaneLabels : (zoomEff === 'settimane' ? settimaneLabels : mesiLabels)
@@ -530,8 +538,8 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
         <span className="ml-auto text-xs text-gray-400">{totalDays} giorni tot.</span>
       </div>
 
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: 500 }}>
+      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ minWidth }}>
 
           {/* ── RIGA 1: MESI — sfondo scuro, testo bianco ───────────────── */}
           {/* IMPORTANTE: w-14 spacer a destra = stesso della colonna % nel corpo */}
@@ -657,8 +665,9 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                         left:`${startPct}%`, width:`${width}%`,
                         background: f.colore||'#ccc',
                         opacity: f.stato==='sospesa' ? 0.55 : 1,
-                        cursor: canWrite ? 'grab' : 'default',
+                        cursor: canWrite ? (isDragging ? 'grabbing' : 'grab') : 'default',
                         zIndex: isDragging ? 20 : 5,
+                        touchAction: canWrite ? 'none' : 'auto',
                       }}
                       onMouseDown={canWrite ? e => { e.stopPropagation(); startDrag(e, f, 'move') } : undefined}
                       onTouchStart={canWrite ? e => { e.stopPropagation(); startDrag(e, f, 'move') } : undefined}>
@@ -668,7 +677,8 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
 
                       {/* Handle ridimensiona sinistra */}
                       {canWrite && (
-                        <div className="absolute left-0 top-0 bottom-0 w-2 rounded-l-md cursor-ew-resize z-10 hover:bg-white/20"
+                        <div className="absolute left-0 top-0 bottom-0 w-3 rounded-l-md cursor-ew-resize z-10 hover:bg-white/30 active:bg-white/40"
+                          style={{ touchAction: 'none' }}
                           onMouseDown={e => { e.stopPropagation(); startDrag(e, f, 'resize-l') }}
                           onTouchStart={e => { e.stopPropagation(); startDrag(e, f, 'resize-l') }} />
                       )}
@@ -683,7 +693,8 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
 
                       {/* Handle ridimensiona destra */}
                       {canWrite && (
-                        <div className="absolute right-0 top-0 bottom-0 w-2 rounded-r-md cursor-ew-resize z-10 hover:bg-white/20"
+                        <div className="absolute right-0 top-0 bottom-0 w-3 rounded-r-md cursor-ew-resize z-10 hover:bg-white/30 active:bg-white/40"
+                          style={{ touchAction: 'none' }}
                           onMouseDown={e => { e.stopPropagation(); startDrag(e, f, 'resize-r') }}
                           onTouchStart={e => { e.stopPropagation(); startDrag(e, f, 'resize-r') }} />
                       )}
