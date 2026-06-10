@@ -1260,6 +1260,12 @@ function DiarioTab({ cantiereId, utente }) {
   const timerRef = useRef(null)
 
   const { data: diari = [] } = useQuery(['diari', cantiereId], () => api.get(`/cantieri/${cantiereId}/diari`).then(r => r.data))
+  const validaDiario = useMutation(
+    (diarioId) => api.put(`/cantieri/${cantiereId}/diari/${diarioId}/valida`),
+    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Voce diario pubblicata!') } }
+  )
+  const diariBozza = diari.filter(d => d.stato_validazione === 'bozza')
+  const diariPubblicati = diari.filter(d => d.stato_validazione !== 'bozza')
   const { data: noteArtigiani = [] } = useQuery(
     ['note-campo', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/note-campo`).then(r => r.data),
@@ -1521,9 +1527,32 @@ function DiarioTab({ cantiereId, utente }) {
         </div>
       )}
 
-      {diari.length === 0
+      {/* Bozze da validare (solo capocantiere/admin) */}
+      {puoValidare && diariBozza.length > 0 && (
+        <div className="card border border-amber-300 bg-amber-50 space-y-2">
+          <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+            <AlertCircle size={15} /> {diariBozza.length} voce/i diario in attesa di validazione
+          </p>
+          {diariBozza.map(d => (
+            <div key={d.id} className="bg-white rounded-xl p-3 space-y-2 border border-amber-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-gray-700">{d.autore_nome} · {dayjs(d.data).format('D MMM')}</p>
+                  <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{d.attivita}</p>
+                </div>
+                <button onClick={() => validaDiario.mutate(d.id)}
+                  className="flex-shrink-0 ml-2 text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700">
+                  <CheckCheck size={12} className="inline mr-1" />Pubblica
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {diariPubblicati.length === 0 && diariBozza.length === 0
         ? <div className="card text-center py-8 text-gray-400"><BookOpen size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun diario</p><p className="text-xs mt-1">Premi "Voce" per registrare direttamente</p></div>
-        : diari.map(d => (
+        : diariPubblicati.map(d => (
           <div key={d.id} className="card space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -1751,13 +1780,10 @@ function TeamTab({ cantiereId, utente }) {
 
 /* ─── TAB ARCHIVIO DOCUMENTI ─── */
 const CATEGORIE_DOC = {
-  progetto:       { label: 'Progetto',       bg: 'bg-blue-100 text-blue-700' },
-  strutturale:    { label: 'Strutturale',    bg: 'bg-purple-100 text-purple-700' },
-  contratti:      { label: 'Contratti',      bg: 'bg-green-100 text-green-700' },
-  autorizzazioni: { label: 'Autorizzazioni', bg: 'bg-yellow-100 text-yellow-700' },
-  relazioni:      { label: 'Relazioni',      bg: 'bg-orange-100 text-orange-700' },
-  foto:           { label: 'Foto',           bg: 'bg-pink-100 text-pink-700' },
-  varie:          { label: 'Varie',          bg: 'bg-gray-100 text-gray-600' },
+  sicurezza:         { label: '🦺 Sicurezza',           bg: 'bg-red-100 text-red-700' },
+  relazioni_disegni: { label: '📐 Relazioni e Disegni', bg: 'bg-blue-100 text-blue-700' },
+  amministrazione:   { label: '📋 Amministrazione',     bg: 'bg-green-100 text-green-700' },
+  operativita:       { label: '⚙️ Operatività',         bg: 'bg-orange-100 text-orange-700' },
 }
 
 const TIPO_ICONA = { pdf: '📄', dwg: '📐', dxf: '📐', jpg: '🖼', jpeg: '🖼', png: '🖼', xlsx: '📊', xls: '📊', docx: '📝', doc: '📝', zip: '🗜' }
@@ -1776,10 +1802,10 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
   const [catFiltro, setCatFiltro] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(null)
-  const [formUpload, setFormUpload] = useState({ nome: '', categoria: 'varie', descrizione: '' })
+  const [formUpload, setFormUpload] = useState({ nome: '', categoria: 'operativita', descrizione: '' })
   const [fileInAttesa, setFileInAttesa] = useState(null)       // singolo file → form dettagli
   const [filesMulti, setFilesMulti] = useState(null)           // array file → panel categoria
-  const [catMulti, setCatMulti] = useState('varie')
+  const [catMulti, setCatMulti] = useState('operativita')
   const [selezionati, setSelezionati] = useState(new Set())    // ID selezionati per delete multiplo
   const fileRef = useRef()
   const cartellaRef = useRef()

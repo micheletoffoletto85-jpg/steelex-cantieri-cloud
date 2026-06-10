@@ -26,20 +26,30 @@ def _diario_out(d: DiarioGiornaliero) -> dict:
     return out
 
 
+_RUOLI_BOZZA = {"artigiano", "fornitore"}
+_RUOLI_VALIDA = {"admin", "capo_cantiere", "amministrazione"}
+
+
 @router.get("", response_model=List[DiarioOut])
 def lista_diari(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     if user.ruolo.value == "cliente":
         raise HTTPException(status_code=403, detail="Accesso non consentito")
-    diari = (db.query(DiarioGiornaliero)
-             .filter(DiarioGiornaliero.cantiere_id == cantiere_id)
-             .order_by(DiarioGiornaliero.data.desc(), DiarioGiornaliero.creato_il.desc())
-             .all())
+    q = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.cantiere_id == cantiere_id)
+    # Artigiani/fornitori vedono solo le proprie bozze + quelle pubblicate
+    if user.ruolo.value in _RUOLI_BOZZA:
+        from sqlalchemy import or_
+        q = q.filter(or_(
+            DiarioGiornaliero.autore_id == user.id,
+            DiarioGiornaliero.stato_validazione == "pubblicata",
+        ))
+    diari = q.order_by(DiarioGiornaliero.data.desc(), DiarioGiornaliero.creato_il.desc()).all()
     return [_diario_out(d) for d in diari]
 
 
 @router.post("", response_model=DiarioOut, status_code=201)
 def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    diario = DiarioGiornaliero(**data.model_dump(exclude={"cantiere_id"}), autore_id=user.id, cantiere_id=cantiere_id)
+    stato = "bozza" if user.ruolo.value in _RUOLI_BOZZA else "pubblicata"
+    diario = DiarioGiornaliero(**data.model_dump(exclude={"cantiere_id"}), autore_id=user.id, cantiere_id=cantiere_id, stato_validazione=stato)
     db.add(diario)
     db.commit()
     db.refresh(diario)
@@ -75,6 +85,19 @@ def elimina_diario(cantiere_id: int, diario_id: int, db: Session = Depends(get_d
         raise HTTPException(status_code=403, detail="Non autorizzato")
     db.delete(diario)
     db.commit()
+
+
+@router.put("/{diario_id}/valida", response_model=DiarioOut)
+def valida_diario(cantiere_id: int, diario_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Capocantiere/admin valida una bozza artigiano → pubblicata."""
+    if user.ruolo.value not in _RUOLI_VALIDA:
+        raise HTTPException(403, "Solo capocantiere o admin può validare")
+    diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id, DiarioGiornaliero.cantiere_id == cantiere_id).first()
+    if not diario:
+        raise HTTPException(404, "Diario non trovato")
+    diario.stato_validazione = "pubblicata"
+    db.commit(); db.refresh(diario)
+    return _diario_out(diario)
 
 
 @router.post("/{diario_id}/foto", response_model=DiarioOut)
@@ -228,6 +251,7 @@ Testo trascritto:
             testo_originale=testo_originale,
             lingua_originale=lingua,
             voci_estratte=voci,
+            stato_validazione="bozza" if user.ruolo.value in _RUOLI_BOZZA else "pubblicata",
         )
         db.add(diario)
         db.commit()

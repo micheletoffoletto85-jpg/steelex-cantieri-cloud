@@ -116,6 +116,8 @@ def _migra():
         )""",
         # Migra categoria archivio_docs verso le 4 categorie ufficiali
         "UPDATE archivio_docs SET categoria = 'operativita' WHERE categoria NOT IN ('sicurezza','relazioni_disegni','amministrazione','operativita')",
+        # Validazione diario: artigiani inseriscono bozze, capocantiere pubblica
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS stato_validazione VARCHAR(20) DEFAULT 'pubblicata'",
     ]
     for sql in migrazioni:
         try:

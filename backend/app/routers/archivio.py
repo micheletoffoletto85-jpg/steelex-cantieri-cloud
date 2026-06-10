@@ -66,15 +66,17 @@ def _check(cantiere_id, db, user):
 
 
 def _categorie_leggibili(cantiere_id: int, utente_id: int, ruolo: RuoloUtente, db: Session) -> set:
-    """Restituisce l'insieme di categorie che l'utente può leggere."""
+    """Default: tutti gli assegnati al cantiere leggono tutto.
+    I permessi espliciti negativi (can_read=False) revocano categorie specifiche."""
     if ruolo in _RUOLI_FULL_ACCESS:
         return set(CATEGORIE)
     perms = db.query(DocCategoriaPermesso).filter(
         DocCategoriaPermesso.cantiere_id == cantiere_id,
         DocCategoriaPermesso.utente_id == utente_id,
-        DocCategoriaPermesso.can_read == True,
     ).all()
-    return {p.categoria for p in perms}
+    if not perms:
+        return set(CATEGORIE)  # nessun permesso esplicito → legge tutto
+    return {p.categoria for p in perms if p.can_read}
 
 
 def _can_write_categoria(cantiere_id: int, utente_id: int, ruolo: RuoloUtente, categoria: str, db: Session) -> bool:
