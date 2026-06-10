@@ -1535,16 +1535,44 @@ function DiarioTab({ cantiereId, utente }) {
           </p>
           {diariBozza.map(d => (
             <div key={d.id} className="bg-white rounded-xl p-3 space-y-2 border border-amber-100">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-gray-700">{d.autore_nome} · {dayjs(d.data).format('D MMM')}</p>
-                  <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{d.attivita}</p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                    {d.fonte === 'voce' && <Mic size={11} className="text-red-400" />}
+                    {d.autore_nome} · {dayjs(d.data).format('D MMM')}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-0.5">{d.attivita}</p>
                 </div>
                 <button onClick={() => validaDiario.mutate(d.id)}
-                  className="flex-shrink-0 ml-2 text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700">
-                  <CheckCheck size={12} className="inline mr-1" />Pubblica
+                  className="flex-shrink-0 text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 flex items-center gap-1">
+                  <CheckCheck size={12} />Pubblica
                 </button>
               </div>
+              {/* Voci contabilizzabili — capocantiere può approvarle anche da bozza */}
+              {d.voci_estratte?.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1.5">
+                  <p className="text-xs font-semibold text-amber-700 flex items-center gap-1">
+                    <Wrench size={11} /> Voci da contabilizzare
+                  </p>
+                  {d.voci_estratte.map((v, idx) => (
+                    <div key={idx} className={`flex items-center justify-between gap-2 py-1 border-b border-amber-100 last:border-0 ${v.approvato ? 'opacity-40' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        {v.tipo === 'ore_extra'
+                          ? <p className="text-xs text-gray-800">👷 {v.operaio} — {v.ore}h {v.attivita ? `(${v.attivita})` : ''}</p>
+                          : <p className="text-xs text-gray-800">📦 {v.descrizione} × {v.quantita} {v.um}</p>}
+                        {v.totale > 0 && <p className="text-xs text-gray-500">≈ €{v.totale.toFixed(2)}</p>}
+                      </div>
+                      {!v.approvato
+                        ? <button onClick={() => approvaVoce(d.id, v, idx)}
+                            className="flex-shrink-0 text-xs px-2 py-1 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium whitespace-nowrap">
+                            {v.tipo === 'ore_extra' ? '→ Ore' : '→ Spesa'}
+                          </button>
+                        : <span className="text-xs text-green-600 font-medium flex-shrink-0">✓ Registrato</span>
+                      }
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
