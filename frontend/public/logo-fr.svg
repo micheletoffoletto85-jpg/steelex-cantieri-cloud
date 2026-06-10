@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" fill="none">
+  <!-- Monogramma FR a sinistra -->
+  <rect x="0" y="0" width="60" height="60" rx="8" fill="#1A1A2E"/>
+  <text x="30" y="44" font-family="Georgia, 'Times New Roman', serif" font-size="36" font-weight="700" fill="white" text-anchor="middle" letter-spacing="-1">FR</text>
+  <rect x="8" y="52" width="44" height="2" rx="1" fill="#FF6B00"/>
+
+  <!-- Testo nome azienda -->
+  <text x="76" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="15" font-weight="700" fill="#1A1A2E" letter-spacing="0.5">FONTANA RAFFAELE</text>
+  <text x="76" y="44" font-family="'Segoe UI', Arial, sans-serif" font-size="11" font-weight="400" fill="#FF6B00" letter-spacing="2">CANTIERI</text>
+</svg>
