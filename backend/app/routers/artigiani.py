@@ -28,14 +28,13 @@ CATEGORIE = [
     "coperture_tetti",
     "movimento_terra",
     "ponteggi",
-    "saldatura",
     "gru_sollevamento",
     "trasporti",
     "altro",
 ]
 
 CATEGORIE_LABEL = {
-    "carpenteria_metallica":   "⚙️ Carpenteria metallica",
+    "carpenteria_metallica":   "⚙️ Carpenteria / Saldatura",
     "muratura":                "🧱 Muratura",
     "impianti_elettrici":      "⚡ Impianti elettrici",
     "impianti_idraulici":      "🔧 Impianti idraulici",
@@ -46,7 +45,6 @@ CATEGORIE_LABEL = {
     "coperture_tetti":         "🏗️ Coperture / Tetti",
     "movimento_terra":         "🚜 Movimento terra / Scavi",
     "ponteggi":                "🏗️ Ponteggi",
-    "saldatura":               "🔥 Saldatura",
     "gru_sollevamento":        "🏋️ Gru / Sollevamento",
     "trasporti":               "🚚 Trasporti",
     "altro":                   "👷 Altro",

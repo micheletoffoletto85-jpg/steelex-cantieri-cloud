@@ -156,3 +156,84 @@ def rimuovi_artigiano(cantiere_id: int, utente_id: int, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
     cantiere.artigiani = [a for a in cantiere.artigiani if a.id != utente_id]
     db.commit()
+
+# ─── EXPORT / IMPORT CANTIERE ────────────────────────────────────────────────
+
+@router.get("/{cantiere_id}/export")
+def export_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Esporta un cantiere completo come JSON (fasi, checklist). Solo admin."""
+    if user.ruolo != RuoloUtente.admin:
+        raise HTTPException(403, "Solo admin può esportare")
+    c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not c: raise HTTPException(404, "Cantiere non trovato")
+
+    from app.models.checklist import ChecklistItem
+    from app.models.cantiere import FaseLavoro
+
+    fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine).all()
+    checklist = db.query(ChecklistItem).filter(ChecklistItem.cantiere_id == cantiere_id).all()
+
+    return {
+        "cantiere": {
+            "nome": c.nome, "indirizzo": c.indirizzo, "cliente": c.cliente,
+            "descrizione": c.descrizione, "stato": c.stato.value if c.stato else "preventivo",
+            "data_inizio": str(c.data_inizio) if c.data_inizio else None,
+            "data_fine_prevista": str(c.data_fine_prevista) if c.data_fine_prevista else None,
+            "note": c.note,
+        },
+        "fasi": [
+            {"nome": f.nome, "categoria": f.categoria, "colore": f.colore,
+             "data_inizio": str(f.data_inizio) if f.data_inizio else None,
+             "data_fine_prevista": str(f.data_fine_prevista) if f.data_fine_prevista else None,
+             "percentuale": f.percentuale, "stato": f.stato, "note": f.note, "ordine": f.ordine}
+            for f in fasi
+        ],
+        "checklist": [
+            {"testo": i.testo, "completato": i.completato, "categoria": getattr(i, "categoria", None)}
+            for i in checklist
+        ],
+    }
+
+
+@router.post("/import", status_code=201)
+def import_cantiere(body: dict, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Importa un cantiere da JSON esportato. Solo admin."""
+    if user.ruolo != RuoloUtente.admin:
+        raise HTTPException(403, "Solo admin può importare")
+
+    from app.models.cantiere import FaseLavoro
+    from app.models.checklist import ChecklistItem
+
+    cd = body.get("cantiere", {})
+    stato_val = cd.get("stato", "preventivo")
+    try:
+        stato_enum = StatoCantiere(stato_val)
+    except ValueError:
+        stato_enum = StatoCantiere.preventivo
+
+    c = Cantiere(
+        nome=cd["nome"], indirizzo=cd.get("indirizzo"), cliente=cd.get("cliente"),
+        descrizione=cd.get("descrizione"), stato=stato_enum,
+        data_inizio=cd.get("data_inizio") or None,
+        data_fine_prevista=cd.get("data_fine_prevista") or None,
+        note=cd.get("note"), creato_da=user.id,
+    )
+    db.add(c); db.flush()
+
+    for f in body.get("fasi", []):
+        db.add(FaseLavoro(
+            cantiere_id=c.id, nome=f["nome"], categoria=f.get("categoria"),
+            colore=f.get("colore"), data_inizio=f.get("data_inizio") or None,
+            data_fine_prevista=f.get("data_fine_prevista") or None,
+            percentuale=f.get("percentuale", 0), stato=f.get("stato", "pianificata"),
+            note=f.get("note"), ordine=f.get("ordine", 0),
+        ))
+
+    for i in body.get("checklist", []):
+        db.add(ChecklistItem(
+            cantiere_id=c.id, testo=i["testo"],
+            completato=i.get("completato", False),
+        ))
+
+    db.commit()
+    return {"id": c.id, "nome": c.nome, "messaggio": "Cantiere importato con successo"}

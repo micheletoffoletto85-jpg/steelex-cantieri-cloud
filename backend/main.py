@@ -143,6 +143,7 @@ def _migra():
             creato_il    TIMESTAMPTZ DEFAULT NOW()
         )""",
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS utente_id INTEGER REFERENCES utenti(id) ON DELETE SET NULL",
+        "UPDATE artigiani SET categoria = 'carpenteria_metallica' WHERE categoria = 'saldatura'",
     ]
     for sql in migrazioni:
         try:
