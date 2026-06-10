@@ -420,15 +420,18 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
   const gridLines = zoomEff === 'giorni' ? settimaneLabels : (zoomEff === 'settimane' ? settimaneLabels : mesiLabels)
 
   // ── DRAG & RESIZE ─────────────────────────────────────────────────────────
-  const ganttAreaRef = useRef(null) // ref sull'area gantt del header → misura la larghezza
+  const ganttAreaRef = useRef(null)
   const [dragState, setDragState] = useState(null)
-  // dragState = { type:'move'|'resize-l'|'resize-r', faseId, startX, origInizio, origFine }
   const [dragPreview, setDragPreview] = useState({})
-  // dragPreview = { [faseId]: { data_inizio, data_fine_prevista } }
+  // Ref per accesso sincrono dentro i listener (evita stale closure)
+  const dragRef = useRef(null)
+  const fasiRef = useRef(fasi)
+  useEffect(() => { fasiRef.current = fasi }, [fasi])
 
   const getPxPerDay = () => {
     if (!ganttAreaRef.current) return 10
-    return ganttAreaRef.current.getBoundingClientRect().width / totalDays
+    // offsetWidth = larghezza logica intera anche se la div eccede il viewport
+    return (ganttAreaRef.current.offsetWidth || ganttAreaRef.current.getBoundingClientRect().width) / totalDays
   }
 
   const startDrag = (e, fase, type) => {
@@ -436,45 +439,53 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
     e.preventDefault()
     e.stopPropagation()
     const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    setDragState({
-      type, faseId: fase.id, startX: clientX,
-      origInizio: fase.data_inizio,
-      origFine: fase.data_fine_prevista || fase.data_fine_reale,
-    })
+    const ds = { type, faseId: fase.id, startX: clientX, origInizio: fase.data_inizio, origFine: fase.data_fine_prevista || fase.data_fine_reale }
+    dragRef.current = ds
+    setDragState(ds)
   }
 
+  // Listener registrati UNA sola volta — usano dragRef per leggere lo stato corrente
   useEffect(() => {
-    if (!dragState) return
     const onMove = (e) => {
+      const ds = dragRef.current
+      if (!ds) return
+      if (e.cancelable) e.preventDefault()
       const clientX = e.touches ? e.touches[0].clientX : e.clientX
       const pxPerDay = getPxPerDay()
       if (pxPerDay === 0) return
-      const deltaDays = Math.round((clientX - dragState.startX) / pxPerDay)
-      let inizio = dragState.origInizio
-      let fine   = dragState.origFine
-      if (dragState.type === 'move') {
+      const deltaDays = Math.round((clientX - ds.startX) / pxPerDay)
+      let inizio = ds.origInizio
+      let fine   = ds.origFine
+      if (ds.type === 'move') {
         inizio = inizio ? dayjs(inizio).add(deltaDays,'day').format('YYYY-MM-DD') : null
         fine   = fine   ? dayjs(fine  ).add(deltaDays,'day').format('YYYY-MM-DD') : null
-      } else if (dragState.type === 'resize-r') {
+      } else if (ds.type === 'resize-r') {
         fine = fine ? dayjs(fine).add(deltaDays,'day').format('YYYY-MM-DD') : null
         if (fine && inizio && fine < inizio) fine = inizio
-      } else if (dragState.type === 'resize-l') {
+      } else if (ds.type === 'resize-l') {
         inizio = inizio ? dayjs(inizio).add(deltaDays,'day').format('YYYY-MM-DD') : null
         if (inizio && fine && inizio > fine) inizio = fine
       }
-      setDragPreview(prev => ({ ...prev, [dragState.faseId]: { data_inizio: inizio, data_fine_prevista: fine } }))
+      setDragPreview(prev => ({ ...prev, [ds.faseId]: { data_inizio: inizio, data_fine_prevista: fine } }))
     }
     const onUp = () => {
-      const preview = dragPreview[dragState.faseId]
-      if (preview) {
-        const fase = fasi.find(f => f.id === dragState.faseId)
-        const fineOrig = fase?.data_fine_prevista || fase?.data_fine_reale
-        if (fase && (preview.data_inizio !== fase.data_inizio || preview.data_fine_prevista !== fineOrig)) {
-          onUpdate(dragState.faseId, { data_inizio: preview.data_inizio, data_fine_prevista: preview.data_fine_prevista })
+      const ds = dragRef.current
+      if (!ds) return
+      setDragPreview(prev => {
+        const preview = prev[ds.faseId]
+        if (preview) {
+          const fase = fasiRef.current.find(f => f.id === ds.faseId)
+          const fineOrig = fase?.data_fine_prevista || fase?.data_fine_reale
+          if (fase && (preview.data_inizio !== fase.data_inizio || preview.data_fine_prevista !== fineOrig)) {
+            onUpdate(ds.faseId, { data_inizio: preview.data_inizio, data_fine_prevista: preview.data_fine_prevista })
+          }
         }
-      }
+        const n = { ...prev }; delete n[ds.faseId]; return n
+      })
+      dragRef.current = null
       setDragState(null)
-      setDragPreview(prev => { const n = { ...prev }; delete n[dragState.faseId]; return n })
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
@@ -486,15 +497,13 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
       document.removeEventListener('touchmove', onMove)
       document.removeEventListener('touchend', onUp)
     }
-  }, [dragState, dragPreview, fasi, totalDays])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cursore globale durante il drag
   useEffect(() => {
     if (!dragState) return
-    const cursor = dragState.type === 'move' ? 'grabbing' : 'ew-resize'
-    document.body.style.cursor = cursor
+    document.body.style.cursor = dragState.type === 'move' ? 'grabbing' : 'ew-resize'
     document.body.style.userSelect = 'none'
-    return () => { document.body.style.cursor = ''; document.body.style.userSelect = '' }
   }, [dragState])
 
   return (
