@@ -16,6 +16,7 @@ class Artigiano(Base):
     email       = Column(String(150), nullable=True)
     note        = Column(Text, nullable=True)
     attivo      = Column(Boolean, default=True, nullable=False)
+    utente_id   = Column(Integer, ForeignKey("utenti.id", ondelete="SET NULL"), nullable=True)
     creato_da   = Column(Integer, ForeignKey("utenti.id"), nullable=True)
     creato_il   = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Building2, Edit2, Trash2 } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -199,6 +199,24 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const [voto, setVoto] = useState('su')
   const [nota, setNota] = useState('')
+  const [cantiereFeedback, setCantiereFeedback] = useState('')
+  const [showCollegaUtente, setShowCollegaUtente] = useState(false)
+
+  const { data: cantieri = [] } = useQuery(
+    'cantieri-lista',
+    () => api.get('/cantieri').then(r => r.data),
+    { staleTime: 60000, enabled: espanso }
+  )
+  const { data: utentiArtigiani = [] } = useQuery(
+    'utenti-artigiani',
+    () => api.get('/utenti').then(r => r.data.filter(u => ['artigiano','fornitore'].includes(u.ruolo))),
+    { staleTime: 60000, enabled: espanso && showCollegaUtente }
+  )
+  const collegaUtenteMutation = useMutation(
+    utenteId => api.put(`/artigiani/${a.id}`, { utente_id: utenteId || null }),
+    { onSuccess: () => { qc.invalidateQueries('artigiani'); setShowCollegaUtente(false); toast.success('Account collegato!') },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore') }
+  )
 
   const { data: feedbacks = [] } = useQuery(
     ['feedback', a.id],
@@ -215,6 +233,7 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
         setShowFeedbackForm(false)
         setNota('')
         setVoto('su')
+        setCantiereFeedback('')
         toast.success('Feedback salvato!')
       },
       onError: e => toast.error(e.response?.data?.detail || 'Errore'),
@@ -307,6 +326,40 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
             <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-2.5 italic">📝 {a.note}</p>
           )}
 
+          {/* Collegamento account utente */}
+          {puoScrivere && (
+            <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-600">
+                  <Link2 size={13} /> Account app
+                </div>
+                <button onClick={() => setShowCollegaUtente(!showCollegaUtente)}
+                  className="text-xs text-steelex-orange hover:underline">
+                  {showCollegaUtente ? 'Annulla' : a.utente_id ? 'Modifica' : 'Collega'}
+                </button>
+              </div>
+              {a.utente_nome ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <UserCheck size={15} className="text-green-500" />
+                  <span className="font-medium text-gray-800">{a.utente_nome}</span>
+                  <span className="text-xs text-gray-400">ha accesso all'app</span>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">Nessun account collegato</p>
+              )}
+              {showCollegaUtente && (
+                <select className="input-field text-sm w-full"
+                  defaultValue={a.utente_id || ''}
+                  onChange={e => collegaUtenteMutation.mutate(e.target.value ? parseInt(e.target.value) : null)}>
+                  <option value="">— Nessun collegamento —</option>
+                  {utentiArtigiani.map(u => (
+                    <option key={u.id} value={u.id}>{u.nome} {u.cognome} ({u.ruolo})</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
           {/* Form feedback rapido */}
           {puoScrivere && (
             <div>
@@ -331,10 +384,14 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
                       )
                     })}
                   </div>
-                  <textarea className="input-field text-sm h-14 resize-none" placeholder="Nota opzionale (es. cantiere, motivo)..."
+                  <select className="input-field text-sm" value={cantiereFeedback} onChange={e => setCantiereFeedback(e.target.value)}>
+                    <option value="">— Cantiere (opzionale) —</option>
+                    {cantieri.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                  <textarea className="input-field text-sm h-14 resize-none" placeholder="Nota opzionale..."
                     value={nota} onChange={e => setNota(e.target.value)} />
                   <button
-                    onClick={() => addFeedbackMutation.mutate({ voto, nota: nota || null })}
+                    onClick={() => addFeedbackMutation.mutate({ voto, nota: nota || null, cantiere_id: cantiereFeedback ? parseInt(cantiereFeedback) : null })}
                     disabled={addFeedbackMutation.isLoading}
                     className="btn-primary w-full py-2.5 text-sm">
                     {addFeedbackMutation.isLoading ? 'Salvataggio...' : 'Salva feedback'}

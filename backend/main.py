@@ -142,6 +142,7 @@ def _migra():
             autore_id    INTEGER NOT NULL REFERENCES utenti(id),
             creato_il    TIMESTAMPTZ DEFAULT NOW()
         )""",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS utente_id INTEGER REFERENCES utenti(id) ON DELETE SET NULL",
     ]
     for sql in migrazioni:
         try:

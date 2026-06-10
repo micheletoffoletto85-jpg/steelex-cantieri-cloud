@@ -85,6 +85,7 @@ class ArtigianoUpdate(BaseModel):
     email: Optional[str] = None
     note: Optional[str] = None
     attivo: Optional[bool] = None
+    utente_id: Optional[int] = None
 
 class FeedbackCreate(BaseModel):
     voto: str           # su | medio | giu
@@ -114,6 +115,8 @@ class ArtigianoOut(BaseModel):
     email: Optional[str] = None
     note: Optional[str] = None
     attivo: bool
+    utente_id: Optional[int] = None
+    utente_nome: Optional[str] = None
     score: Optional[int] = None
     totale_feedback: int = 0
     su: int = 0
@@ -124,10 +127,15 @@ class ArtigianoOut(BaseModel):
 
 def _artigiano_out(a: Artigiano, db: Session) -> ArtigianoOut:
     stats = _calcola_score(a.feedback)
+    utente_nome = None
+    if a.utente_id:
+        u = db.query(Utente).filter(Utente.id == a.utente_id).first()
+        if u: utente_nome = f"{u.nome} {u.cognome}".strip()
     return ArtigianoOut(
         id=a.id, nome=a.nome, cognome=a.cognome, azienda=a.azienda,
         categoria=a.categoria, categoria_label=CATEGORIE_LABEL.get(a.categoria, a.categoria),
         telefono=a.telefono, email=a.email, note=a.note, attivo=a.attivo,
+        utente_id=a.utente_id, utente_nome=utente_nome,
         score=stats["score"], totale_feedback=stats["totale"],
         su=stats["su"], medio=stats["medio"], giu=stats["giu"],
     )
@@ -140,6 +148,7 @@ def lista_artigiani(
     categoria: Optional[str] = Query(None),
     solo_attivi: bool = Query(True),
     q: Optional[str] = Query(None),
+    cantiere_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
@@ -148,16 +157,19 @@ def lista_artigiani(
         query = query.filter(Artigiano.attivo == True)
     if categoria:
         query = query.filter(Artigiano.categoria == categoria)
+    if cantiere_id:
+        # Solo artigiani che hanno almeno un feedback su questo cantiere
+        query = query.join(FeedbackArtigiano, FeedbackArtigiano.artigiano_id == Artigiano.id).filter(
+            FeedbackArtigiano.cantiere_id == cantiere_id
+        ).distinct()
     artigiani = query.order_by(Artigiano.cognome).all()
 
     result = [_artigiano_out(a, db) for a in artigiani]
 
-    # Filtro testo
     if q:
         q_low = q.lower()
         result = [a for a in result if q_low in f"{a.nome} {a.cognome} {a.azienda or ''}".lower()]
 
-    # Ordina: chi ha score migliore prima, poi senza feedback in fondo
     result.sort(key=lambda a: (a.score is None, -(a.score or 0)))
     return result
 
