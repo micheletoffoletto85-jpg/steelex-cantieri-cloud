@@ -2,7 +2,7 @@
  * Diagramma di Gantt + Cronoprogramma
  * Collega le fasi di lavoro ai SAL (Stato Avanzamento Lavori)
  */
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -406,10 +406,105 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
   }, [minData, totalDays, zoomEff])
 
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
-  const LABEL_W = 180
+  const LABEL_W = 160
+
+  // Larghezza minima area gantt per leggibilità su mobile
+  const minGanttPx = useMemo(() => {
+    if (zoomEff === 'giorni')    return Math.max(totalDays * 22, 300)
+    if (zoomEff === 'settimane') return Math.max(Math.ceil(totalDays / 7) * 48, 300)
+    return Math.max(Math.ceil(totalDays / 30) * 80, 300)
+  }, [zoomEff, totalDays])
+  const minWidth = LABEL_W + 56 + minGanttPx
 
   // Griglia verticale nel body: settimane o mesi
   const gridLines = zoomEff === 'giorni' ? settimaneLabels : (zoomEff === 'settimane' ? settimaneLabels : mesiLabels)
+
+  // ── DRAG & RESIZE ─────────────────────────────────────────────────────────
+  const ganttAreaRef = useRef(null)
+  const [dragState, setDragState] = useState(null)
+  const [dragPreview, setDragPreview] = useState({})
+  // Ref per accesso sincrono dentro i listener (evita stale closure)
+  const dragRef = useRef(null)
+  const fasiRef = useRef(fasi)
+  useEffect(() => { fasiRef.current = fasi }, [fasi])
+
+  const getPxPerDay = () => {
+    if (!ganttAreaRef.current) return 10
+    // offsetWidth = larghezza logica intera anche se la div eccede il viewport
+    return (ganttAreaRef.current.offsetWidth || ganttAreaRef.current.getBoundingClientRect().width) / totalDays
+  }
+
+  const startDrag = (e, fase, type) => {
+    if (!canWrite) return
+    e.preventDefault()
+    e.stopPropagation()
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const ds = { type, faseId: fase.id, startX: clientX, origInizio: fase.data_inizio, origFine: fase.data_fine_prevista || fase.data_fine_reale }
+    dragRef.current = ds
+    setDragState(ds)
+  }
+
+  // Listener registrati UNA sola volta — usano dragRef per leggere lo stato corrente
+  useEffect(() => {
+    const onMove = (e) => {
+      const ds = dragRef.current
+      if (!ds) return
+      if (e.cancelable) e.preventDefault()
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const pxPerDay = getPxPerDay()
+      if (pxPerDay === 0) return
+      const deltaDays = Math.round((clientX - ds.startX) / pxPerDay)
+      let inizio = ds.origInizio
+      let fine   = ds.origFine
+      if (ds.type === 'move') {
+        inizio = inizio ? dayjs(inizio).add(deltaDays,'day').format('YYYY-MM-DD') : null
+        fine   = fine   ? dayjs(fine  ).add(deltaDays,'day').format('YYYY-MM-DD') : null
+      } else if (ds.type === 'resize-r') {
+        fine = fine ? dayjs(fine).add(deltaDays,'day').format('YYYY-MM-DD') : null
+        if (fine && inizio && fine < inizio) fine = inizio
+      } else if (ds.type === 'resize-l') {
+        inizio = inizio ? dayjs(inizio).add(deltaDays,'day').format('YYYY-MM-DD') : null
+        if (inizio && fine && inizio > fine) inizio = fine
+      }
+      setDragPreview(prev => ({ ...prev, [ds.faseId]: { data_inizio: inizio, data_fine_prevista: fine } }))
+    }
+    const onUp = () => {
+      const ds = dragRef.current
+      if (!ds) return
+      setDragPreview(prev => {
+        const preview = prev[ds.faseId]
+        if (preview) {
+          const fase = fasiRef.current.find(f => f.id === ds.faseId)
+          const fineOrig = fase?.data_fine_prevista || fase?.data_fine_reale
+          if (fase && (preview.data_inizio !== fase.data_inizio || preview.data_fine_prevista !== fineOrig)) {
+            onUpdate(ds.faseId, { data_inizio: preview.data_inizio, data_fine_prevista: preview.data_fine_prevista })
+          }
+        }
+        const n = { ...prev }; delete n[ds.faseId]; return n
+      })
+      dragRef.current = null
+      setDragState(null)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onUp)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cursore globale durante il drag
+  useEffect(() => {
+    if (!dragState) return
+    document.body.style.cursor = dragState.type === 'move' ? 'grabbing' : 'ew-resize'
+    document.body.style.userSelect = 'none'
+  }, [dragState])
 
   return (
     <div className="card overflow-hidden p-0">
@@ -452,8 +547,8 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
         <span className="ml-auto text-xs text-gray-400">{totalDays} giorni tot.</span>
       </div>
 
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: 500 }}>
+      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ minWidth }}>
 
           {/* ── RIGA 1: MESI — sfondo scuro, testo bianco ───────────────── */}
           {/* IMPORTANTE: w-14 spacer a destra = stesso della colonna % nel corpo */}
@@ -477,7 +572,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
           {/* ── RIGA 2: SETTIMANE / GIORNI ───────────────────────────────── */}
           <div className="relative border-b-2 border-gray-300 h-7 flex" style={{ background: '#f1f5f9' }}>
             <div className="flex-shrink-0 border-r-2 border-gray-300" style={{ width: LABEL_W, background: '#f1f5f9' }} />
-            <div className="relative flex-1 overflow-hidden">
+            <div ref={ganttAreaRef} className="relative flex-1 overflow-hidden">
               {zoomEff === 'giorni'
                 ? giorniLabels.map((g, i) => (
                   <div key={i}
@@ -513,18 +608,23 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
 
           {/* ── RIGHE FASI ───────────────────────────────────────────────── */}
           {fasi.map(f => {
-            const startPct = toPercent(f.data_inizio)
-            const endPct   = toPercent(f.data_fine_prevista || f.data_fine_reale)
+            // Usa dragPreview se disponibile per posizione live
+            const preview = dragPreview[f.id]
+            const dataInizio = preview?.data_inizio || f.data_inizio
+            const dataFine   = preview?.data_fine_prevista || f.data_fine_prevista || f.data_fine_reale
+            const startPct = toPercent(dataInizio)
+            const endPct   = toPercent(dataFine)
             const width    = startPct !== null && endPct !== null ? Math.max(endPct - startPct, 0.8) : null
             const statoInfo = STATO_FASE[f.stato] || STATO_FASE.pianificata
             const sal = f.sal_id ? salMap[f.sal_id] : null
             const isSelected = tooltipFase?.id === f.id
+            const isDragging = dragState?.faseId === f.id
 
             return (
               <div key={f.id}
                 className={`relative flex items-center border-b border-gray-100 group cursor-pointer transition-colors ${isSelected ? 'bg-orange-50' : 'hover:bg-gray-50'}`}
                 style={{ height: 48 }}
-                onClick={() => setTooltipFase(isSelected ? null : f)}>
+                onClick={() => !isDragging && setTooltipFase(isSelected ? null : f)}>
 
                 {/* Label sinistra */}
                 <div style={{ width: LABEL_W, background: isSelected ? '#fff7ed' : undefined }}
@@ -566,14 +666,47 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                   <div className="absolute top-0 bottom-0 z-10"
                     style={{ left:`${todayPct}%`, width:2, background:'#FF6B00' }} />
 
-                  {/* Barra fase */}
+                  {/* Barra fase con drag & resize */}
                   {width !== null && startPct !== null && (
-                    <div className="absolute top-2.5 h-7 rounded-md flex items-center overflow-hidden shadow-sm"
-                      style={{ left:`${startPct}%`, width:`${width}%`, background: f.colore||'#ccc', opacity: f.stato==='sospesa' ? 0.55 : 1 }}>
-                      <div className="h-full bg-black/20" style={{ width:`${f.percentuale}%` }} />
-                      <span className="absolute inset-0 flex items-center px-2 text-white text-xs font-bold drop-shadow">
-                        {width > 5 ? `${f.percentuale}%` : ''}
+                    <div className={`absolute top-2.5 h-7 rounded-md flex items-center shadow-sm select-none
+                        ${isDragging ? 'ring-2 ring-white/60 opacity-90' : ''}`}
+                      style={{
+                        left:`${startPct}%`, width:`${width}%`,
+                        background: f.colore||'#ccc',
+                        opacity: f.stato==='sospesa' ? 0.55 : 1,
+                        cursor: canWrite ? (isDragging ? 'grabbing' : 'grab') : 'default',
+                        zIndex: isDragging ? 20 : 5,
+                        touchAction: canWrite ? 'none' : 'auto',
+                      }}
+                      onMouseDown={canWrite ? e => { e.stopPropagation(); startDrag(e, f, 'move') } : undefined}
+                      onTouchStart={canWrite ? e => { e.stopPropagation(); startDrag(e, f, 'move') } : undefined}>
+
+                      {/* Barra avanzamento */}
+                      <div className="absolute inset-0 h-full bg-black/20 rounded-md" style={{ width:`${f.percentuale}%` }} />
+
+                      {/* Handle ridimensiona sinistra */}
+                      {canWrite && (
+                        <div className="absolute left-0 top-0 bottom-0 w-3 rounded-l-md cursor-ew-resize z-10 hover:bg-white/30 active:bg-white/40"
+                          style={{ touchAction: 'none' }}
+                          onMouseDown={e => { e.stopPropagation(); startDrag(e, f, 'resize-l') }}
+                          onTouchStart={e => { e.stopPropagation(); startDrag(e, f, 'resize-l') }} />
+                      )}
+
+                      {/* Label con date durante drag, altrimenti percentuale */}
+                      <span className="absolute inset-0 flex items-center justify-center px-3 text-white text-xs font-bold drop-shadow pointer-events-none">
+                        {isDragging
+                          ? `${dayjs(dataInizio).format('D/M')}→${dayjs(dataFine).format('D/M')}`
+                          : (width > 5 ? `${f.percentuale}%` : '')
+                        }
                       </span>
+
+                      {/* Handle ridimensiona destra */}
+                      {canWrite && (
+                        <div className="absolute right-0 top-0 bottom-0 w-3 rounded-r-md cursor-ew-resize z-10 hover:bg-white/30 active:bg-white/40"
+                          style={{ touchAction: 'none' }}
+                          onMouseDown={e => { e.stopPropagation(); startDrag(e, f, 'resize-r') }}
+                          onTouchStart={e => { e.stopPropagation(); startDrag(e, f, 'resize-r') }} />
+                      )}
                     </div>
                   )}
 
