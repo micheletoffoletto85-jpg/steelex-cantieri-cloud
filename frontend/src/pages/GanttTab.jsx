@@ -331,6 +331,7 @@ export default function GanttTab({ cantiereId }) {
 /* ─── DIAGRAMMA DI GANTT ─── */
 function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onToggleCliente, tooltipFase, setTooltipFase }) {
   const oggi = dayjs()
+  const [zoom, setZoom] = useState('auto') // 'mesi' | 'settimane' | 'giorni' | 'auto'
 
   // Calcola range date totale
   const { minData, maxData, totalDays } = useMemo(() => {
@@ -341,26 +342,74 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
     return { minData: min, maxData: max, totalDays: max.diff(min,'day') + 1 }
   }, [fasi])
 
+  // Zoom effettivo: auto sceglie in base alla durata totale
+  const zoomEff = zoom === 'auto'
+    ? (totalDays <= 45 ? 'giorni' : totalDays <= 150 ? 'settimane' : 'mesi')
+    : zoom
+
   const toPercent = d => d ? Math.max(0, Math.min(100, (dayjs(d).diff(minData,'day') / totalDays) * 100)) : null
   const todayPct = Math.max(0, Math.min(100, (oggi.diff(minData,'day') / totalDays) * 100))
 
-  // Genera etichette mesi sull'asse X
+  // Bande dei mesi (riga 1 header)
   const mesiLabels = useMemo(() => {
     const labels = []
     let cur = minData.startOf('month')
-    while (cur.isBefore(maxData)) {
-      const pct = toPercent(cur.format('YYYY-MM-DD'))
-      if (pct !== null && pct >= 0 && pct <= 100)
-        labels.push({ label: cur.format('MMM YY'), pct })
+    while (cur.isBefore(maxData) || cur.isSame(maxData, 'month')) {
+      const startPct = Math.max(0, (cur.diff(minData,'day') / totalDays) * 100)
+      const endPct = Math.min(100, (cur.add(1,'month').diff(minData,'day') / totalDays) * 100)
+      if (endPct > 0 && startPct < 100)
+        labels.push({ label: cur.format('MMM YYYY'), pct: startPct, widthPct: endPct - startPct })
       cur = cur.add(1,'month')
     }
     return labels
   }, [minData, maxData, totalDays])
 
-  // Raggruppa fasi per SAL
-  const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
+  // Bande delle settimane (riga 2 header per zoom 'mesi' e 'settimane')
+  const settimaneLabels = useMemo(() => {
+    const labels = []
+    // Inizia dal lunedì della settimana che contiene minData
+    let cur = minData.startOf('week')
+    let settN = 1
+    let lastMonth = -1
+    while (cur.isBefore(maxData)) {
+      const startPct = Math.max(0, (cur.diff(minData,'day') / totalDays) * 100)
+      const endPct = Math.min(100, (cur.add(7,'day').diff(minData,'day') / totalDays) * 100)
+      if (endPct > 0 && startPct < 100) {
+        // reset contatore settimane ad ogni nuovo mese
+        if (cur.month() !== lastMonth) { settN = 1; lastMonth = cur.month() }
+        labels.push({
+          shortLabel: `S${settN}`,
+          dateLabel: cur.format('D/M'),
+          fullLabel: cur.format('D MMM'),
+          pct: startPct,
+          widthPct: endPct - startPct,
+          isNewMonth: cur.date() <= 7,
+        })
+        settN++
+      }
+      cur = cur.add(7,'day')
+    }
+    return labels
+  }, [minData, maxData, totalDays])
 
-  const LABEL_W = 180 // px colonna sinistra
+  // Singoli giorni (riga 2 header per zoom 'giorni', max 60 giorni visibili)
+  const giorniLabels = useMemo(() => {
+    if (zoomEff !== 'giorni') return []
+    const labels = []
+    for (let i = 0; i < totalDays; i++) {
+      const d = minData.add(i, 'day')
+      const pct = (i / totalDays) * 100
+      const isWeekend = d.day() === 0 || d.day() === 6
+      labels.push({ label: d.format('D'), dayOfWeek: d.format('dd')[0], pct, isWeekend, isMonday: d.day() === 1 })
+    }
+    return labels
+  }, [minData, totalDays, zoomEff])
+
+  const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
+  const LABEL_W = 180
+
+  // Griglia verticale nel body: settimane o mesi
+  const gridLines = zoomEff === 'giorni' ? settimaneLabels : (zoomEff === 'settimane' ? settimaneLabels : mesiLabels)
 
   return (
     <div className="card overflow-hidden p-0">
@@ -377,11 +426,9 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {canWrite && (
-              <button
-                onClick={() => onToggleCliente(tooltipFase.id, !tooltipFase.visibile_cliente)}
+              <button onClick={() => onToggleCliente(tooltipFase.id, !tooltipFase.visibile_cliente)}
                 title={tooltipFase.visibile_cliente ? 'Visibile al cliente — nascondi' : 'Nascosto al cliente — condividi'}
-                className={`p-1 rounded transition-colors ${tooltipFase.visibile_cliente ? 'text-blue-300 hover:text-blue-100' : 'text-gray-500 hover:text-blue-300'}`}
-              >
+                className={`p-1 rounded transition-colors ${tooltipFase.visibile_cliente ? 'text-blue-300 hover:text-blue-100' : 'text-gray-500 hover:text-blue-300'}`}>
                 {tooltipFase.visibile_cliente ? <Eye size={15} /> : <EyeOff size={15} />}
               </button>
             )}
@@ -390,26 +437,75 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
           </div>
         </div>
       )}
+
+      {/* Zoom selector */}
+      <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 border-b border-gray-200">
+        <span className="text-xs text-gray-400 mr-1">Scala:</span>
+        {['giorni','settimane','mesi'].map(z => (
+          <button key={z} onClick={() => setZoom(zoom === z ? 'auto' : z)}
+            className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors border ${
+              zoomEff === z ? 'bg-steelex-orange text-white border-steelex-orange' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:bg-gray-100'
+            }`}>
+            {z.charAt(0).toUpperCase() + z.slice(1)}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-gray-400">{totalDays} giorni tot.</span>
+      </div>
+
       <div className="overflow-x-auto">
         <div style={{ minWidth: 500 }}>
-          {/* Header: asse X (mesi) */}
-          <div className="relative bg-gray-50 border-b border-gray-200 h-8 flex items-end pb-1" style={{ paddingLeft: LABEL_W }}>
-            {mesiLabels.map((m, i) => (
-              <div key={i} className="absolute text-xs text-gray-400 font-medium" style={{ left: `calc(${LABEL_W}px + ${m.pct}%)` }}>
-                {m.label}
-              </div>
-            ))}
-            {/* Linea oggi */}
-            <div className="absolute top-0 bottom-0 w-px bg-steelex-orange" style={{ left: `calc(${LABEL_W}px + ${todayPct}%)` }}>
-              <div className="absolute -top-0 left-1 text-xs text-steelex-orange font-bold whitespace-nowrap">oggi</div>
+
+          {/* ── RIGA 1: MESI ─────────────────────────────────────────────── */}
+          <div className="relative bg-gray-100 border-b border-gray-300 h-6" style={{ paddingLeft: LABEL_W }}>
+            {/* Label colonna sinistra */}
+            <div className="absolute left-0 inset-y-0 flex items-center px-2 border-r border-gray-300 bg-gray-100 z-10" style={{ width: LABEL_W }}>
+              <span className="text-xs font-semibold text-gray-500">Fase</span>
+            </div>
+            <div className="relative h-full ml-0">
+              {mesiLabels.map((m, i) => (
+                <div key={i} className="absolute inset-y-0 flex items-center overflow-hidden border-r border-gray-300"
+                  style={{ left: `${m.pct}%`, width: `${m.widthPct}%` }}>
+                  <span className="text-xs font-bold text-gray-600 px-1.5 truncate uppercase tracking-wide">{m.label}</span>
+                </div>
+              ))}
+              <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange z-10" style={{ left: `${todayPct}%` }} />
             </div>
           </div>
 
-          {/* Righe fasi */}
+          {/* ── RIGA 2: SETTIMANE o GIORNI ───────────────────────────────── */}
+          <div className="relative bg-gray-50 border-b-2 border-gray-300 h-6" style={{ paddingLeft: LABEL_W }}>
+            <div className="absolute left-0 inset-y-0 border-r border-gray-300 bg-gray-50 z-10" style={{ width: LABEL_W }} />
+            <div className="relative h-full">
+              {zoomEff === 'giorni'
+                /* Zoom Giorni: mostra ogni giorno */
+                ? giorniLabels.map((g, i) => (
+                  <div key={i} className={`absolute inset-y-0 flex flex-col items-center justify-center border-r border-gray-200 ${g.isWeekend ? 'bg-orange-50' : ''}`}
+                    style={{ left: `${g.pct}%`, width: `${100/totalDays}%` }}>
+                    <span className="text-gray-400 leading-none" style={{ fontSize: 8 }}>{g.dayOfWeek}</span>
+                    <span className={`font-medium leading-none ${g.isWeekend ? 'text-orange-400' : 'text-gray-600'}`} style={{ fontSize: 9 }}>{g.label}</span>
+                  </div>
+                ))
+                /* Zoom Settimane o Mesi: mostra settimane */
+                : settimaneLabels.map((s, i) => (
+                  <div key={i} className={`absolute inset-y-0 flex items-center overflow-hidden border-r ${s.isNewMonth ? 'border-gray-400' : 'border-gray-200'}`}
+                    style={{ left: `${s.pct}%`, width: `${s.widthPct}%` }}>
+                    <span className="text-gray-500 px-1 truncate" style={{ fontSize: 10 }}>
+                      {zoomEff === 'mesi' ? s.shortLabel : s.fullLabel}
+                    </span>
+                  </div>
+                ))
+              }
+              <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange opacity-70 z-10" style={{ left: `${todayPct}%` }}>
+                <div className="absolute -bottom-0.5 left-1 text-steelex-orange font-bold whitespace-nowrap" style={{ fontSize: 9 }}>oggi</div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHE FASI ───────────────────────────────────────────────── */}
           {fasi.map(f => {
             const startPct = toPercent(f.data_inizio)
-            const endPct = toPercent(f.data_fine_prevista || f.data_fine_reale)
-            const width = startPct !== null && endPct !== null ? Math.max(endPct - startPct, 1) : null
+            const endPct   = toPercent(f.data_fine_prevista || f.data_fine_reale)
+            const width    = startPct !== null && endPct !== null ? Math.max(endPct - startPct, 0.8) : null
             const statoInfo = STATO_FASE[f.stato] || STATO_FASE.pianificata
             const sal = f.sal_id ? salMap[f.sal_id] : null
             const isSelected = tooltipFase?.id === f.id
@@ -419,64 +515,73 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                 className={`relative flex items-center border-b border-gray-100 group cursor-pointer transition-colors ${isSelected ? 'bg-orange-50' : 'hover:bg-gray-50'}`}
                 style={{ height: 48 }}
                 onClick={() => setTooltipFase(isSelected ? null : f)}>
-                {/* Label sinistra — tap per tooltip */}
-                <div style={{ width: LABEL_W }} className="flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden">
+
+                {/* Label sinistra */}
+                <div style={{ width: LABEL_W }} className="flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden border-r border-gray-100">
                   <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: f.colore || '#ccc' }} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-800 leading-tight" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <p className="text-xs font-medium text-gray-800 leading-tight"
+                      style={{ display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
                       {f.nome}
                     </p>
                   </div>
                   {canWrite && (
-                    <button onClick={e => { e.stopPropagation(); onEdit(f) }} className="hidden group-hover:block ml-auto text-gray-400 hover:text-steelex-orange flex-shrink-0">
+                    <button onClick={e => { e.stopPropagation(); onEdit(f) }}
+                      className="hidden group-hover:block ml-auto text-gray-400 hover:text-steelex-orange flex-shrink-0">
                       <Edit2 size={11} />
                     </button>
                   )}
                 </div>
 
                 {/* Area Gantt */}
-                <div className="flex-1 relative h-full">
-                  {/* Griglia verticale mesi */}
-                  {mesiLabels.map((m, i) => (
-                    <div key={i} className="absolute top-0 bottom-0 w-px bg-gray-100" style={{ left: `${m.pct}%` }} />
+                <div className="flex-1 relative h-full overflow-hidden">
+                  {/* Griglia verticale: sfondo week/mese */}
+                  {gridLines.map((g, i) => (
+                    <div key={i} className={`absolute top-0 bottom-0 ${g.isNewMonth ? 'w-px bg-gray-300' : 'w-px bg-gray-100'}`}
+                      style={{ left: `${g.pct}%` }} />
+                  ))}
+                  {/* Bande weekend in zoom giorni */}
+                  {zoomEff === 'giorni' && giorniLabels.filter(g => g.isWeekend).map((g, i) => (
+                    <div key={i} className="absolute top-0 bottom-0 bg-orange-50/60"
+                      style={{ left: `${g.pct}%`, width: `${100/totalDays}%` }} />
                   ))}
                   {/* Linea oggi */}
-                  <div className="absolute top-0 bottom-0 w-px bg-steelex-orange opacity-40" style={{ left: `${todayPct}%` }} />
+                  <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange opacity-50 z-10"
+                    style={{ left: `${todayPct}%` }} />
 
                   {/* Barra fase */}
                   {width !== null && startPct !== null && (
-                    <div className="absolute top-2 h-8 rounded-md flex items-center overflow-hidden"
-                      style={{ left: `${startPct}%`, width: `${width}%`, background: f.colore || '#ccc', opacity: f.stato === 'sospesa' ? 0.5 : 1 }}>
-                      {/* Barra avanzamento */}
-                      <div className="h-full bg-black/20" style={{ width: `${f.percentuale}%` }} />
-                      {/* Testo % */}
+                    <div className="absolute top-2.5 h-7 rounded-md flex items-center overflow-hidden shadow-sm"
+                      style={{ left:`${startPct}%`, width:`${width}%`, background: f.colore||'#ccc', opacity: f.stato==='sospesa' ? 0.55 : 1 }}>
+                      <div className="h-full bg-black/20" style={{ width:`${f.percentuale}%` }} />
                       <span className="absolute inset-0 flex items-center px-2 text-white text-xs font-bold drop-shadow">
-                        {width > 6 ? `${f.percentuale}%` : ''}
+                        {width > 5 ? `${f.percentuale}%` : ''}
                       </span>
                     </div>
                   )}
 
-                  {/* Milestone SAL — linea verticale con diamante */}
+                  {/* Milestone SAL */}
                   {sal && sal.data && (() => {
                     const salPct = toPercent(sal.data)
                     return salPct !== null ? (
-                      <div className="absolute top-0 bottom-0 flex flex-col items-center" style={{ left: `${salPct}%` }}>
-                        <div className="w-px h-full bg-blue-500 opacity-60" />
-                        <div className="absolute top-1 w-3 h-3 bg-blue-500 rotate-45 -translate-x-1.5 rounded-sm" title={`SAL #${sal.numero}: ${sal.titolo}`} />
+                      <div className="absolute top-0 bottom-0 flex flex-col items-center z-10" style={{ left:`${salPct}%` }}>
+                        <div className="w-px h-full bg-blue-500 opacity-70" />
+                        <div className="absolute top-1 w-3 h-3 bg-blue-500 rotate-45 -translate-x-1.5 rounded-sm"
+                          title={`SAL #${sal.numero}: ${sal.titolo}`} />
                       </div>
                     ) : null
                   })()}
                 </div>
 
-                {/* Info destra */}
-                <div className="w-16 flex-shrink-0 px-2 text-right">
+                {/* % destra */}
+                <div className="w-14 flex-shrink-0 px-1 text-right">
                   <span className={`text-xs px-1 py-0.5 rounded-full ${statoInfo.bg}`}>{f.percentuale}%</span>
                 </div>
               </div>
             )
           })}
 
-          {/* Legenda SAL in fondo */}
+          {/* Legenda SAL */}
           {salList.filter(s => s.data).length > 0 && (
             <div className="px-4 py-2 bg-gray-50 border-t flex gap-4 flex-wrap">
               <span className="text-xs text-gray-400 font-medium">Milestone SAL:</span>
@@ -495,7 +600,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
       <div className="px-4 py-2 border-t flex gap-3 flex-wrap">
         {Object.entries(STATO_FASE).map(([k,v]) => (
           <div key={k} className="flex items-center gap-1 text-xs text-gray-500">
-            <div className="w-3 h-3 rounded-sm" style={{background: v.color}} />
+            <div className="w-3 h-3 rounded-sm" style={{ background: v.color }} />
             {v.label}
           </div>
         ))}
