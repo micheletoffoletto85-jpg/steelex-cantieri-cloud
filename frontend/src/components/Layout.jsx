@@ -1,13 +1,13 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star } from 'lucide-react'
+import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/cantieri', label: 'Cantieri', icon: HardHat },
-  { to: '/fornitori', label: 'Fornitori', icon: Star, roles: ['admin','capo_cantiere','amministrazione'] },
+  { to: '/artigiani', label: 'Rubrica', icon: BookUser, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
 ]
 

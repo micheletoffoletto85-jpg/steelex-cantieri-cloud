@@ -9,13 +9,14 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating  # importa tutti i modelli
+from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
 from app.routers import files as files_router
 from app.routers import note_campo as note_campo_router
 from app.routers import fornitori_rating as fornitori_rating_router
+from app.routers import artigiani as artigiani_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -118,6 +119,29 @@ def _migra():
         "UPDATE archivio_docs SET categoria = 'operativita' WHERE categoria NOT IN ('sicurezza','relazioni_disegni','amministrazione','operativita')",
         # Validazione diario: artigiani inseriscono bozze, capocantiere pubblica
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS stato_validazione VARCHAR(20) DEFAULT 'pubblicata'",
+        # Rubrica artigiani standalone (senza account app)
+        """CREATE TABLE IF NOT EXISTS artigiani (
+            id          SERIAL PRIMARY KEY,
+            nome        VARCHAR(100) NOT NULL,
+            cognome     VARCHAR(100) NOT NULL,
+            azienda     VARCHAR(200),
+            categoria   VARCHAR(50) NOT NULL DEFAULT 'altro',
+            telefono    VARCHAR(30),
+            email       VARCHAR(150),
+            note        TEXT,
+            attivo      BOOLEAN NOT NULL DEFAULT TRUE,
+            creato_da   INTEGER REFERENCES utenti(id),
+            creato_il   TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS feedback_artigiani (
+            id           SERIAL PRIMARY KEY,
+            artigiano_id INTEGER NOT NULL REFERENCES artigiani(id) ON DELETE CASCADE,
+            cantiere_id  INTEGER REFERENCES cantieri(id) ON DELETE SET NULL,
+            voto         VARCHAR(10) NOT NULL DEFAULT 'su',
+            nota         TEXT,
+            autore_id    INTEGER NOT NULL REFERENCES utenti(id),
+            creato_il    TIMESTAMPTZ DEFAULT NOW()
+        )""",
     ]
     for sql in migrazioni:
         try:
@@ -170,6 +194,7 @@ app.include_router(archivio_router.router, prefix="/api/v1")
 app.include_router(files_router.router)
 app.include_router(note_campo_router.router, prefix="/api/v1")
 app.include_router(fornitori_rating_router.router, prefix="/api/v1")
+app.include_router(artigiani_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():
