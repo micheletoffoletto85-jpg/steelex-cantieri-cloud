@@ -168,7 +168,7 @@ def export_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utent
     if not c: raise HTTPException(404, "Cantiere non trovato")
 
     from app.models.checklist import ChecklistItem
-    from app.models.cantiere import FaseLavoro
+    from app.models.economico import FaseLavoro
 
     fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine).all()
     checklist = db.query(ChecklistItem).filter(ChecklistItem.cantiere_id == cantiere_id).all()
@@ -202,7 +202,7 @@ def import_cantiere(body: dict, db: Session = Depends(get_db), user: Utente = De
     if user.ruolo != RuoloUtente.admin:
         raise HTTPException(403, "Solo admin può importare")
 
-    from app.models.cantiere import FaseLavoro
+    from app.models.economico import FaseLavoro
     from app.models.checklist import ChecklistItem
 
     cd = body.get("cantiere", {})
