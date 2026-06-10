@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
@@ -81,18 +81,44 @@ export default function CantierePage() {
       </div>
 
       {/* Tab bar — scroll orizzontale su mobile */}
-      <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {[['info','Info',null],['aggiornamenti','Aggiornamenti',Calendar],
-          ...(!['cliente'].includes(utente?.ruolo) ? [['team','Team',Users],['gantt','Gantt',BarChart2],['checklist','Checklist',CheckSquare],['diario','Diario',BookOpen],['mappe','Mappe',Map]] : []),
-          ...(['admin','capo_cantiere'].includes(utente?.ruolo) ? [['economia','Economia',Euro]] : []),
+      {(() => {
+        const ruolo = utente?.ruolo
+        const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+        const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
+        const isEsterno = ['artigiano','fornitore'].includes(ruolo)
+        const puoVedereEconomia = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+        const puoInseriireNote = ['artigiano','fornitore','capo_cantiere_sub'].includes(ruolo)
+        const puoVedereNoteValidazione = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+
+        const tabs = [
+          ['info','Info',null],
+          ['aggiornamenti','Aggiornamenti',Calendar],
+          // Team: solo staff interno e staff esterno — MAI fornitore/artigiano/cliente
+          ...(isStaffInterno || isStaffExt ? [['team','Team',Users]] : []),
+          // Gantt, Checklist, Diario, Mappe: staff interno + esterno + artigiano (non fornitore, non cliente)
+          ...(!['cliente','fornitore'].includes(ruolo) ? [
+            ['gantt','Gantt',BarChart2],
+            ['checklist','Checklist',CheckSquare],
+            ['diario','Diario',BookOpen],
+            ['mappe','Mappe',Map],
+          ] : []),
+          // Note campo: artigiani/fornitori inseriscono, capocantiere/admin validano
+          ...(puoInseriireNote || puoVedereNoteValidazione ? [['note','Note',ClipboardCheck]] : []),
+          // Economia: solo staff interno
+          ...(puoVedereEconomia ? [['economia','Economia',Euro]] : []),
           ['documenti','Documenti',FolderOpen],
-        ].map(([key,label,Icon]) => (
-          <button key={key} onClick={() => setTab(key)}
-            className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {Icon && <Icon size={12} />}{label}
-          </button>
-        ))}
-      </div>
+        ]
+        return (
+          <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+            {tabs.map(([key,label,Icon]) => (
+              <button key={key} onClick={() => setTab(key)}
+                className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {Icon && <Icon size={12} />}{label}
+              </button>
+            ))}
+          </div>
+        )
+      })()}
 
       {tab === 'info'          && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
       {tab === 'aggiornamenti' && <AggiornnamentiTab cantiereId={id} />}
@@ -101,6 +127,7 @@ export default function CantierePage() {
       {tab === 'checklist'     && <ChecklistTab cantiereId={id} />}
       {tab === 'diario'        && <DiarioTab cantiereId={id} />}
       {tab === 'mappe'         && <MappeTab cantiereId={id} />}
+      {tab === 'note'          && <NoteCampoTab cantiereId={id} utente={utente} />}
       {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
       {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
     </div>
@@ -1921,6 +1948,201 @@ function DocRow({ doc, apiUrl, isStaff, onElimina, selezionato, onToggleSel }) {
         <button onClick={onElimina} className="p-1.5 text-gray-200 hover:text-red-500 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <Trash2 size={14} />
         </button>
+      )}
+    </div>
+  )
+}
+
+/* ─── TAB NOTE CAMPO ─── */
+function NoteCampoTab({ cantiereId, utente }) {
+  const qc = useQueryClient()
+  const ruolo = utente?.ruolo
+  const puoInserire = ['artigiano', 'fornitore', 'capo_cantiere_sub'].includes(ruolo)
+  const puoValidare = ['admin', 'capo_cantiere', 'amministrazione'].includes(ruolo)
+  const [testo, setTesto] = useState('')
+  const [filtroStato, setFiltroStato] = useState('tutti')
+  const [inserendoSpesa, setInserendoSpesa] = useState(null) // nota selezionata per inserimento spesa
+  const [spesaForm, setSpesaForm] = useState({ descrizione: '', importo: '', data: new Date().toISOString().split('T')[0] })
+
+  const { data: note = [], isLoading } = useQuery(
+    ['note-campo', cantiereId, filtroStato],
+    () => api.get(`/cantieri/${cantiereId}/note-campo${filtroStato !== 'tutti' ? `?stato=${filtroStato}` : ''}`).then(r => r.data),
+  )
+
+  const creaMutation = useMutation(
+    () => api.post(`/cantieri/${cantiereId}/note-campo`, { testo }),
+    {
+      onSuccess: () => { qc.invalidateQueries(['note-campo', cantiereId]); setTesto(''); toast.success('Nota inviata!') },
+      onError: () => toast.error('Errore invio nota'),
+    }
+  )
+
+  const validaMutation = useMutation(
+    ({ notaId, stato, noteVal }) => api.put(`/cantieri/${cantiereId}/note-campo/${notaId}/valida`, { stato, note_validazione: noteVal }),
+    { onSuccess: () => { qc.invalidateQueries(['note-campo', cantiereId]); toast.success('Nota aggiornata') } }
+  )
+
+  const spesaMutation = useMutation(
+    ({ notaId, body }) => api.post(`/cantieri/${cantiereId}/note-campo/${notaId}/inserisci-spesa`, body),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries(['note-campo', cantiereId])
+        setInserendoSpesa(null)
+        setSpesaForm({ descrizione: '', importo: '', data: new Date().toISOString().split('T')[0] })
+        toast.success('Spesa inserita in economia!')
+      },
+      onError: err => toast.error(err.response?.data?.detail || 'Errore inserimento spesa'),
+    }
+  )
+
+  const STATO_STYLE = {
+    bozza: 'bg-yellow-100 text-yellow-700',
+    validata: 'bg-blue-100 text-blue-700',
+    pubblicata: 'bg-green-100 text-green-700',
+  }
+  const STATO_LABEL = { bozza: 'In attesa', validata: 'Validata', pubblicata: 'Pubblicata' }
+
+  const filtrate = filtroStato === 'tutti' ? note : note.filter(n => n.stato === filtroStato)
+
+  return (
+    <div className="space-y-4">
+      {/* Badge contatore bozze per capocantiere */}
+      {puoValidare && note.filter(n => n.stato === 'bozza').length > 0 && (
+        <div className="card bg-yellow-50 border border-yellow-200 flex items-center gap-3">
+          <AlertCircle size={20} className="text-yellow-600 flex-shrink-0" />
+          <p className="text-sm text-yellow-800 font-medium">
+            {note.filter(n => n.stato === 'bozza').length} nota/e in attesa di validazione
+          </p>
+        </div>
+      )}
+
+      {/* Form inserimento nota (artigiani/fornitori) */}
+      {puoInserire && (
+        <div className="card space-y-3">
+          <h3 className="font-semibold text-gray-700 flex items-center gap-2"><MessageSquare size={16} /> Inserisci nota</h3>
+          <textarea
+            className="input-field h-24 resize-none"
+            placeholder="Descrivi il lavoro svolto, ore, materiali, segnalazioni... (es. 'Ho messo 5 ore per stuccature pareti nord')"
+            value={testo}
+            onChange={e => setTesto(e.target.value)}
+          />
+          <button
+            onClick={() => testo.trim() && creaMutation.mutate()}
+            disabled={!testo.trim() || creaMutation.isLoading}
+            className="btn-primary w-full"
+          >
+            {creaMutation.isLoading ? 'Invio...' : 'Invia nota'}
+          </button>
+        </div>
+      )}
+
+      {/* Filtri stato (solo per chi valida) */}
+      {puoValidare && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {['tutti','bozza','validata','pubblicata'].map(s => (
+            <button key={s} onClick={() => setFiltroStato(s)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${filtroStato===s ? 'bg-steelex-orange text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>
+              {s === 'tutti' ? 'Tutte' : STATO_LABEL[s]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Lista note */}
+      {isLoading ? (
+        <div className="text-center py-6 text-gray-400">Caricamento...</div>
+      ) : filtrate.length === 0 ? (
+        <div className="card text-center py-8 text-gray-400">
+          <MessageSquare size={32} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm">Nessuna nota</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtrate.map(nota => (
+            <div key={nota.id} className={`card border-l-4 ${nota.stato === 'bozza' ? 'border-l-yellow-400' : nota.stato === 'validata' ? 'border-l-blue-400' : 'border-l-green-400'}`}>
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <p className="text-xs text-gray-500">{nota.autore_nome} · {nota.creato_il ? new Date(nota.creato_il).toLocaleDateString('it-IT') : ''}</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_STYLE[nota.stato]}`}>{STATO_LABEL[nota.stato]}</span>
+                </div>
+                {nota.spesa_inserita && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCheck size={10} /> Spesa inserita
+                  </span>
+                )}
+              </div>
+
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{nota.testo}</p>
+
+              {nota.note_validazione && (
+                <p className="text-xs text-gray-500 mt-2 italic">Note capocantiere: {nota.note_validazione}</p>
+              )}
+
+              {/* Azioni validazione per capocantiere */}
+              {puoValidare && nota.stato === 'bozza' && (
+                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                  <button
+                    onClick={() => validaMutation.mutate({ notaId: nota.id, stato: 'validata' })}
+                    className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center justify-center gap-1"
+                  >
+                    <ThumbsUp size={12} /> Valida
+                  </button>
+                  <button
+                    onClick={() => validaMutation.mutate({ notaId: nota.id, stato: 'pubblicata' })}
+                    className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-green-50 text-green-700 hover:bg-green-100 flex items-center justify-center gap-1"
+                  >
+                    <CheckCheck size={12} /> Pubblica
+                  </button>
+                  <button
+                    onClick={() => {
+                      const note = prompt('Motivo rifiuto (opzionale):')
+                      validaMutation.mutate({ notaId: nota.id, stato: 'bozza', noteVal: note })
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center gap-1"
+                  >
+                    <ThumbsDown size={12} />
+                  </button>
+                </div>
+              )}
+
+              {/* Inserimento spesa in economia (solo validata/pubblicata, non ancora inserita) */}
+              {puoValidare && nota.stato !== 'bozza' && !nota.spesa_inserita && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  {inserendoSpesa === nota.id ? (
+                    <div className="space-y-2">
+                      <input className="input-field text-sm" placeholder="Descrizione spesa" value={spesaForm.descrizione}
+                        onChange={e => setSpesaForm(f => ({...f, descrizione: e.target.value}))} />
+                      <div className="flex gap-2">
+                        <input className="input-field text-sm" type="number" placeholder="Importo €" value={spesaForm.importo}
+                          onChange={e => setSpesaForm(f => ({...f, importo: e.target.value}))} />
+                        <input className="input-field text-sm" type="date" value={spesaForm.data}
+                          onChange={e => setSpesaForm(f => ({...f, data: e.target.value}))} />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setInserendoSpesa(null)} className="flex-1 btn-secondary text-xs py-1.5">Annulla</button>
+                        <button
+                          onClick={() => spesaForm.descrizione && spesaForm.importo && spesaMutation.mutate({
+                            notaId: nota.id,
+                            body: { descrizione: spesaForm.descrizione, importo: Number(spesaForm.importo), data: spesaForm.data }
+                          })}
+                          disabled={!spesaForm.descrizione || !spesaForm.importo || spesaMutation.isLoading}
+                          className="flex-1 btn-primary text-xs py-1.5"
+                        >
+                          {spesaMutation.isLoading ? '...' : 'Inserisci in Economia'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setInserendoSpesa(nota.id); setSpesaForm(f => ({...f, descrizione: nota.testo.substring(0, 80)})) }}
+                      className="w-full py-1.5 text-xs font-medium rounded-lg bg-orange-50 text-steelex-orange hover:bg-orange-100 flex items-center justify-center gap-1">
+                      <Euro size={12} /> Inserisci voce in Economia
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

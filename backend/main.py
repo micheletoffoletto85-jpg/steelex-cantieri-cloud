@@ -9,11 +9,13 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs  # importa tutti i modelli
+from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
 from app.routers import files as files_router
+from app.routers import note_campo as note_campo_router
+from app.routers import fornitori_rating as fornitori_rating_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -70,6 +72,50 @@ def _migra():
         "ALTER TABLE utenti ADD COLUMN IF NOT EXISTS tipo_professione VARCHAR(50)",
         # Imposta visibile_cliente = FALSE dove è NULL (righe precedenti alla migration)
         "UPDATE fasi_lavoro SET visibile_cliente = FALSE WHERE visibile_cliente IS NULL",
+        # Nuovi ruoli (enum PostgreSQL — IF NOT EXISTS per idempotenza)
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'architetto'",
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'responsabile_sicurezza'",
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'amministrazione'",
+        # Tabella note di campo
+        """CREATE TABLE IF NOT EXISTS note_campo (
+            id               SERIAL PRIMARY KEY,
+            cantiere_id      INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
+            autore_id        INTEGER NOT NULL REFERENCES utenti(id),
+            testo            TEXT NOT NULL,
+            stato            VARCHAR(20) DEFAULT 'bozza',
+            voci_spesa       JSONB DEFAULT '[]',
+            spesa_inserita   BOOLEAN DEFAULT FALSE,
+            spesa_id         INTEGER REFERENCES spese(id),
+            validato_da      INTEGER REFERENCES utenti(id),
+            validato_il      TIMESTAMPTZ,
+            note_validazione TEXT,
+            creato_il        TIMESTAMPTZ DEFAULT NOW(),
+            aggiornato_il    TIMESTAMPTZ
+        )""",
+        # Tabella rating fornitori/artigiani
+        """CREATE TABLE IF NOT EXISTS fornitori_rating (
+            id           SERIAL PRIMARY KEY,
+            fornitore_id INTEGER NOT NULL REFERENCES utenti(id) ON DELETE CASCADE,
+            cantiere_id  INTEGER REFERENCES cantieri(id) ON DELETE SET NULL,
+            tipo         VARCHAR(10) NOT NULL DEFAULT 'positivo',
+            categoria    VARCHAR(30) NOT NULL DEFAULT 'qualita',
+            punteggio    INTEGER NOT NULL DEFAULT 3,
+            testo        TEXT,
+            creato_da    INTEGER NOT NULL REFERENCES utenti(id),
+            creato_il    TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        # Tabella permessi categorie documenti
+        """CREATE TABLE IF NOT EXISTS doc_categoria_permessi (
+            id          SERIAL PRIMARY KEY,
+            cantiere_id INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
+            utente_id   INTEGER NOT NULL REFERENCES utenti(id) ON DELETE CASCADE,
+            categoria   VARCHAR(50) NOT NULL,
+            can_read    BOOLEAN DEFAULT TRUE,
+            can_write   BOOLEAN DEFAULT FALSE,
+            UNIQUE (cantiere_id, utente_id, categoria)
+        )""",
+        # Migra categoria archivio_docs verso le 4 categorie ufficiali
+        "UPDATE archivio_docs SET categoria = 'operativita' WHERE categoria NOT IN ('sicurezza','relazioni_disegni','amministrazione','operativita')",
     ]
     for sql in migrazioni:
         try:
@@ -120,6 +166,8 @@ app.include_router(notifiche.router, prefix="/api/v1")
 app.include_router(raccolta_docs_router.router, prefix="/api/v1")
 app.include_router(archivio_router.router, prefix="/api/v1")
 app.include_router(files_router.router)
+app.include_router(note_campo_router.router, prefix="/api/v1")
+app.include_router(fornitori_rating_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():

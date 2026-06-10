@@ -1,12 +1,13 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff } from 'lucide-react'
+import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/cantieri', label: 'Cantieri', icon: HardHat },
+  { to: '/fornitori', label: 'Fornitori', icon: Star, roles: ['admin','capo_cantiere','amministrazione'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
 ]
 
@@ -64,7 +65,11 @@ export default function Layout() {
       {/* Menu mobile */}
       {menuOpen && (
         <div className="sm:hidden absolute top-14 left-0 right-0 bg-white border-b border-gray-200 p-3 z-40 flex flex-col gap-1 shadow-lg">
-          {navItems.filter(i => !i.adminOnly || utente?.ruolo === 'admin').map(({ to, label, icon: Icon, end }) => (
+          {navItems.filter(i => {
+            if (i.adminOnly) return utente?.ruolo === 'admin'
+            if (i.roles) return i.roles.includes(utente?.ruolo)
+            return true
+          }).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={() => setMenuOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-colors ${isActive ? 'bg-steelex-orange text-white' : 'text-gray-700 hover:bg-gray-100'}`
@@ -88,7 +93,11 @@ export default function Layout() {
 
           {/* Nav */}
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-            {navItems.filter(i => !i.adminOnly || utente?.ruolo === 'admin').map(({ to, label, icon: Icon, end }) => (
+            {navItems.filter(i => {
+              if (i.adminOnly) return utente?.ruolo === 'admin'
+              if (i.roles) return i.roles.includes(utente?.ruolo)
+              return true
+            }).map(({ to, label, icon: Icon, end }) => (
               <NavLink key={to} to={to} end={end}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors text-sm ${

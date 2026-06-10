@@ -6,9 +6,12 @@ from app.database import Base
 
 class RuoloUtente(str, enum.Enum):
     admin = "admin"
-    capo_cantiere = "capo_cantiere"          # interno STEELEX — vede tutto
-    capo_cantiere_sub = "capo_cantiere_sub"  # subappaltato — no economia
-    direzione_lavori = "direzione_lavori"    # DL esterno — no economia
+    capo_cantiere = "capo_cantiere"                  # interno STEELEX — vede tutto
+    capo_cantiere_sub = "capo_cantiere_sub"          # subappaltato — no economia
+    direzione_lavori = "direzione_lavori"            # DL esterno — no economia
+    architetto = "architetto"                        # solo lettura, no economia
+    responsabile_sicurezza = "responsabile_sicurezza"  # solo lettura, no economia
+    amministrazione = "amministrazione"              # lettura + scrittura, sempre presente
     artigiano = "artigiano"
     fornitore = "fornitore"
     cliente = "cliente"
