@@ -455,48 +455,58 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
       <div className="overflow-x-auto">
         <div style={{ minWidth: 500 }}>
 
-          {/* ── RIGA 1: MESI ─────────────────────────────────────────────── */}
-          <div className="relative bg-gray-100 border-b border-gray-300 h-6" style={{ paddingLeft: LABEL_W }}>
+          {/* ── RIGA 1: MESI — sfondo scuro, testo bianco ───────────────── */}
+          <div className="relative border-b-2 border-gray-400 h-8 flex" style={{ background: '#1e293b' }}>
             {/* Label colonna sinistra */}
-            <div className="absolute left-0 inset-y-0 flex items-center px-2 border-r border-gray-300 bg-gray-100 z-10" style={{ width: LABEL_W }}>
-              <span className="text-xs font-semibold text-gray-500">Fase</span>
+            <div className="flex-shrink-0 flex items-center px-3 border-r-2 border-gray-600 z-10" style={{ width: LABEL_W }}>
+              <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">Fase</span>
             </div>
-            <div className="relative h-full ml-0">
+            <div className="relative flex-1">
               {mesiLabels.map((m, i) => (
-                <div key={i} className="absolute inset-y-0 flex items-center overflow-hidden border-r border-gray-300"
+                <div key={i} className="absolute inset-y-0 flex items-center overflow-hidden border-r border-gray-600"
                   style={{ left: `${m.pct}%`, width: `${m.widthPct}%` }}>
-                  <span className="text-xs font-bold text-gray-600 px-1.5 truncate uppercase tracking-wide">{m.label}</span>
+                  <span className="text-xs font-bold text-white px-2 truncate uppercase tracking-wider">{m.label}</span>
                 </div>
               ))}
+              {/* Linea oggi */}
               <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange z-10" style={{ left: `${todayPct}%` }} />
             </div>
           </div>
 
-          {/* ── RIGA 2: SETTIMANE o GIORNI ───────────────────────────────── */}
-          <div className="relative bg-gray-50 border-b-2 border-gray-300 h-6" style={{ paddingLeft: LABEL_W }}>
-            <div className="absolute left-0 inset-y-0 border-r border-gray-300 bg-gray-50 z-10" style={{ width: LABEL_W }} />
-            <div className="relative h-full">
+          {/* ── RIGA 2: SETTIMANE / GIORNI ───────────────────────────────── */}
+          <div className="relative border-b-2 border-gray-300 h-7 flex" style={{ background: '#f1f5f9' }}>
+            <div className="flex-shrink-0 border-r-2 border-gray-300" style={{ width: LABEL_W, background: '#f1f5f9' }} />
+            <div className="relative flex-1">
               {zoomEff === 'giorni'
-                /* Zoom Giorni: mostra ogni giorno */
+                /* ── Giorni: un box per giorno, weekend evidenziato ── */
                 ? giorniLabels.map((g, i) => (
-                  <div key={i} className={`absolute inset-y-0 flex flex-col items-center justify-center border-r border-gray-200 ${g.isWeekend ? 'bg-orange-50' : ''}`}
+                  <div key={i}
+                    className={`absolute inset-y-0 flex items-center justify-center
+                      ${g.isMonday ? 'border-l-2 border-gray-400' : 'border-l border-gray-200'}
+                      ${g.isWeekend ? 'bg-orange-100' : ''}`}
                     style={{ left: `${g.pct}%`, width: `${100/totalDays}%` }}>
-                    <span className="text-gray-400 leading-none" style={{ fontSize: 8 }}>{g.dayOfWeek}</span>
-                    <span className={`font-medium leading-none ${g.isWeekend ? 'text-orange-400' : 'text-gray-600'}`} style={{ fontSize: 9 }}>{g.label}</span>
+                    <span className={`font-semibold leading-none select-none
+                      ${g.isWeekend ? 'text-orange-500' : 'text-gray-600'}`}
+                      style={{ fontSize: 10 }}>
+                      {g.label}
+                    </span>
                   </div>
                 ))
-                /* Zoom Settimane o Mesi: mostra settimane */
+                /* ── Settimane/Mesi: una banda per settimana ── */
                 : settimaneLabels.map((s, i) => (
-                  <div key={i} className={`absolute inset-y-0 flex items-center overflow-hidden border-r ${s.isNewMonth ? 'border-gray-400' : 'border-gray-200'}`}
+                  <div key={i}
+                    className={`absolute inset-y-0 flex items-center overflow-hidden
+                      ${s.isNewMonth ? 'border-l-2 border-gray-500' : 'border-l border-gray-300'}`}
                     style={{ left: `${s.pct}%`, width: `${s.widthPct}%` }}>
-                    <span className="text-gray-500 px-1 truncate" style={{ fontSize: 10 }}>
+                    <span className="font-medium text-gray-600 px-1.5 truncate" style={{ fontSize: 11 }}>
                       {zoomEff === 'mesi' ? s.shortLabel : s.fullLabel}
                     </span>
                   </div>
                 ))
               }
-              <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange opacity-70 z-10" style={{ left: `${todayPct}%` }}>
-                <div className="absolute -bottom-0.5 left-1 text-steelex-orange font-bold whitespace-nowrap" style={{ fontSize: 9 }}>oggi</div>
+              {/* Linea oggi con etichetta */}
+              <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange z-10" style={{ left: `${todayPct}%` }}>
+                <div className="absolute top-0.5 left-1 text-steelex-orange font-bold whitespace-nowrap" style={{ fontSize: 9 }}>oggi</div>
               </div>
             </div>
           </div>
@@ -517,7 +527,8 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                 onClick={() => setTooltipFase(isSelected ? null : f)}>
 
                 {/* Label sinistra */}
-                <div style={{ width: LABEL_W }} className="flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden border-r border-gray-100">
+                <div style={{ width: LABEL_W, background: isSelected ? '#fff7ed' : undefined }}
+                  className="flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden border-r-2 border-gray-200">
                   <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: f.colore || '#ccc' }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-gray-800 leading-tight"
@@ -535,19 +546,25 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
 
                 {/* Area Gantt */}
                 <div className="flex-1 relative h-full overflow-hidden">
-                  {/* Griglia verticale: sfondo week/mese */}
-                  {gridLines.map((g, i) => (
-                    <div key={i} className={`absolute top-0 bottom-0 ${g.isNewMonth ? 'w-px bg-gray-300' : 'w-px bg-gray-100'}`}
-                      style={{ left: `${g.pct}%` }} />
-                  ))}
-                  {/* Bande weekend in zoom giorni */}
+                  {/* 1. Bande weekend (sotto tutto) */}
                   {zoomEff === 'giorni' && giorniLabels.filter(g => g.isWeekend).map((g, i) => (
-                    <div key={i} className="absolute top-0 bottom-0 bg-orange-50/60"
-                      style={{ left: `${g.pct}%`, width: `${100/totalDays}%` }} />
+                    <div key={i} className="absolute top-0 bottom-0"
+                      style={{ left:`${g.pct}%`, width:`${100/totalDays}%`, background:'rgba(251,146,60,0.08)' }} />
                   ))}
-                  {/* Linea oggi */}
-                  <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange opacity-50 z-10"
-                    style={{ left: `${todayPct}%` }} />
+                  {/* 2. Linee griglia: settimanali più spesse, giornaliere sottili */}
+                  {zoomEff === 'giorni'
+                    ? giorniLabels.map((g, i) => (
+                      <div key={i} className="absolute top-0 bottom-0"
+                        style={{ left:`${g.pct}%`, width: g.isMonday ? 1.5 : 1, background: g.isMonday ? '#94a3b8' : '#e2e8f0' }} />
+                    ))
+                    : gridLines.map((g, i) => (
+                      <div key={i} className="absolute top-0 bottom-0"
+                        style={{ left:`${g.pct}%`, width: g.isNewMonth ? 2 : 1, background: g.isNewMonth ? '#64748b' : '#cbd5e1' }} />
+                    ))
+                  }
+                  {/* 3. Linea oggi — arancione piena */}
+                  <div className="absolute top-0 bottom-0 z-10"
+                    style={{ left:`${todayPct}%`, width:2, background:'#FF6B00' }} />
 
                   {/* Barra fase */}
                   {width !== null && startPct !== null && (
