@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, date
 from app.database import get_db
 from app.models.artigiano import Artigiano, FeedbackArtigiano
 from app.models.utente import Utente
@@ -73,6 +73,9 @@ class ArtigianoCreate(BaseModel):
     telefono: Optional[str] = None
     email: Optional[str] = None
     note: Optional[str] = None
+    durc_scadenza: Optional[date] = None
+    attestato_sicurezza_scadenza: Optional[date] = None
+    attestato_primo_soccorso_scadenza: Optional[date] = None
 
 class ArtigianoUpdate(BaseModel):
     nome: Optional[str] = None
@@ -84,6 +87,9 @@ class ArtigianoUpdate(BaseModel):
     note: Optional[str] = None
     attivo: Optional[bool] = None
     utente_id: Optional[int] = None
+    durc_scadenza: Optional[date] = None
+    attestato_sicurezza_scadenza: Optional[date] = None
+    attestato_primo_soccorso_scadenza: Optional[date] = None
 
 class FeedbackCreate(BaseModel):
     voto: str           # su | medio | giu
@@ -115,6 +121,9 @@ class ArtigianoOut(BaseModel):
     attivo: bool
     utente_id: Optional[int] = None
     utente_nome: Optional[str] = None
+    durc_scadenza: Optional[date] = None
+    attestato_sicurezza_scadenza: Optional[date] = None
+    attestato_primo_soccorso_scadenza: Optional[date] = None
     score: Optional[int] = None
     totale_feedback: int = 0
     su: int = 0
@@ -134,6 +143,9 @@ def _artigiano_out(a: Artigiano, db: Session) -> ArtigianoOut:
         categoria=a.categoria, categoria_label=CATEGORIE_LABEL.get(a.categoria, a.categoria),
         telefono=a.telefono, email=a.email, note=a.note, attivo=a.attivo,
         utente_id=a.utente_id, utente_nome=utente_nome,
+        durc_scadenza=getattr(a, 'durc_scadenza', None),
+        attestato_sicurezza_scadenza=getattr(a, 'attestato_sicurezza_scadenza', None),
+        attestato_primo_soccorso_scadenza=getattr(a, 'attestato_primo_soccorso_scadenza', None),
         score=stats["score"], totale_feedback=stats["totale"],
         su=stats["su"], medio=stats["medio"], giu=stats["giu"],
     )

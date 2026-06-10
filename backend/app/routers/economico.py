@@ -314,6 +314,71 @@ def elimina_spesa(cantiere_id: int, spesa_id: int, db: Session = Depends(get_db)
     db.delete(s); db.commit()
 
 
+# ─── AUTORIZZAZIONE FATTURE ───────────────────────────────────────────────────
+
+@router.get("/{cantiere_id}/fatture", response_model=List[dict])
+def lista_fatture(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    fatture = db.query(FatturaFornitore).filter(FatturaFornitore.cantiere_id == cantiere_id)\
+                .order_by(FatturaFornitore.data_fattura.desc()).all()
+    result = []
+    for f in fatture:
+        aut = None
+        if getattr(f, 'autorizzata_da', None):
+            u = db.query(Utente).filter(Utente.id == f.autorizzata_da).first()
+            aut = f"{u.nome} {u.cognome}".strip() if u else None
+        result.append({
+            "id": f.id, "fornitore_nome": f.fornitore_nome, "numero_fattura": f.numero_fattura,
+            "descrizione": f.descrizione, "importo_netto": f.importo_netto,
+            "importo_totale": f.importo_totale, "data_fattura": str(f.data_fattura) if f.data_fattura else None,
+            "data_scadenza": str(f.data_scadenza) if f.data_scadenza else None,
+            "stato": f.stato.value if f.stato else None, "pdf_url": f.pdf_url,
+            "autorizzata": getattr(f, 'autorizzata', False) or False,
+            "autorizzata_da_nome": aut,
+            "autorizzata_il": str(getattr(f, 'autorizzata_il', None)) if getattr(f, 'autorizzata_il', None) else None,
+        })
+    return result
+
+
+@router.post("/{cantiere_id}/fatture", response_model=dict, status_code=201)
+def crea_fattura(cantiere_id: int, body: dict, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    from app.models.economico import StatoFattura
+    try: stato = StatoFattura(body.get("stato", "ricevuta"))
+    except ValueError: stato = StatoFattura.ricevuta
+    f = FatturaFornitore(
+        cantiere_id=cantiere_id, fornitore_nome=body["fornitore_nome"],
+        numero_fattura=body.get("numero_fattura"), descrizione=body.get("descrizione"),
+        importo_netto=body.get("importo_netto", 0), iva_perc=body.get("iva_perc", 22),
+        importo_iva=body.get("importo_iva", 0), importo_totale=body.get("importo_totale", 0),
+        data_fattura=body.get("data_fattura") or None,
+        data_scadenza=body.get("data_scadenza") or None, stato=stato,
+    )
+    db.add(f); db.commit(); db.refresh(f)
+    return {"id": f.id, "messaggio": "Fattura creata"}
+
+
+@router.post("/{cantiere_id}/fatture/{fattura_id}/autorizza", response_model=dict)
+def autorizza_fattura(cantiere_id: int, fattura_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    from datetime import datetime as dt
+    f = db.query(FatturaFornitore).filter(FatturaFornitore.id == fattura_id, FatturaFornitore.cantiere_id == cantiere_id).first()
+    if not f: raise HTTPException(404, "Fattura non trovata")
+    from sqlalchemy import text as _t
+    db.execute(_t("UPDATE fatture_fornitori SET autorizzata=TRUE, autorizzata_da=:uid, autorizzata_il=NOW() WHERE id=:fid"),
+               {"uid": user.id, "fid": fattura_id})
+    db.commit()
+    return {"messaggio": "Fattura autorizzata", "autorizzata_da": f"{user.nome} {user.cognome}".strip()}
+
+
+@router.delete("/{cantiere_id}/fatture/{fattura_id}", status_code=204)
+def elimina_fattura(cantiere_id: int, fattura_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    f = db.query(FatturaFornitore).filter(FatturaFornitore.id == fattura_id, FatturaFornitore.cantiere_id == cantiere_id).first()
+    if not f: raise HTTPException(404)
+    db.delete(f); db.commit()
+
+
 # ─── SAL ──────────────────────────────────────────────────────────────────────
 
 class SALOut(BaseModel):

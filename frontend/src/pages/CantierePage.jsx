@@ -99,6 +99,7 @@ export default function CantierePage() {
           ] : []),
           ...(puoVedereEconomia ? [['economia','Economia',Euro]] : []),
           ...(isStaffInterno || isStaffExt ? [['artigiani','Artigiani',HardHat]] : []),
+          ...(isStaffInterno ? [['nc','NC',AlertCircle]] : []),
           ['documenti','Documenti',FolderOpen],
         ]
         return (
@@ -123,6 +124,7 @@ export default function CantierePage() {
 
       {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
       {tab === 'artigiani'     && <ArtigianiCantiere cantiereId={id} utente={utente} />}
+      {tab === 'nc'            && <NCTab cantiereId={id} utente={utente} />}
       {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
     </div>
   )
@@ -2231,6 +2233,146 @@ function ArtigianiCantiere({ cantiereId, utente }) {
               </div>
             )
           })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── TAB NON CONFORMITÀ ─── */
+function NCTab({ cantiereId, utente }) {
+  const qc = useQueryClient()
+  const [form, setForm] = useState({ descrizione: '', responsabile_id: '', scadenza: '', foto_url: '' })
+  const [apriForm, setApriForm] = useState(false)
+  const [chiudiId, setChiudiId] = useState(null)
+  const [notaChiusura, setNotaChiusura] = useState('')
+
+  const { data: ncs = [], isLoading } = useQuery(['nc', cantiereId], () =>
+    api.get(`/non-conformita/cantiere/${cantiereId}`).then(r => r.data))
+  const { data: team = [] } = useQuery(['team', cantiereId], () =>
+    api.get(`/cantieri/${cantiereId}/team`).then(r => r.data).catch(() => []))
+
+  const crea = useMutation(body => api.post('/non-conformita', body), {
+    onSuccess: () => { qc.invalidateQueries(['nc', cantiereId]); setApriForm(false); setForm({ descrizione: '', responsabile_id: '', scadenza: '', foto_url: '' }); toast.success('NC registrata') }
+  })
+  const chiudi = useMutation(({ id, nota }) => api.post(`/non-conformita/${id}/chiudi`, { nota_chiusura: nota }), {
+    onSuccess: () => { qc.invalidateQueries(['nc', cantiereId]); setChiudiId(null); setNotaChiusura(''); toast.success('NC chiusa') }
+  })
+
+  const aperte = ncs.filter(n => n.stato === 'aperta')
+  const chiuse = ncs.filter(n => n.stato === 'chiusa')
+  const canWrite = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'].includes(utente?.ruolo)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-3 text-sm">
+          <span className="font-bold text-red-600">{aperte.length} aperte</span>
+          <span className="text-gray-400">{chiuse.length} chiuse</span>
+        </div>
+        {canWrite && (
+          <button onClick={() => setApriForm(!apriForm)}
+            className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium">
+            <Plus size={14} /> Nuova NC
+          </button>
+        )}
+      </div>
+
+      {apriForm && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
+          <textarea placeholder="Descrivi il problema *" rows={3}
+            className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm resize-none"
+            value={form.descrizione} onChange={e => setForm(f => ({ ...f, descrizione: e.target.value }))} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Responsabile chiusura</label>
+              <select className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={form.responsabile_id} onChange={e => setForm(f => ({ ...f, responsabile_id: e.target.value }))}>
+                <option value="">— nessuno —</option>
+                {team.map(u => <option key={u.id} value={u.id}>{u.nome} {u.cognome}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Da chiudere entro</label>
+              <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={form.scadenza} onChange={e => setForm(f => ({ ...f, scadenza: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => crea.mutate({ cantiere_id: parseInt(cantiereId), descrizione: form.descrizione, responsabile_id: form.responsabile_id ? parseInt(form.responsabile_id) : null, scadenza: form.scadenza || null })}
+              disabled={!form.descrizione || crea.isLoading}
+              className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50">
+              Registra NC
+            </button>
+            <button onClick={() => setApriForm(false)} className="px-4 border rounded-lg text-sm">Annulla</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? <div className="text-center py-8 text-gray-400">Caricamento...</div> : (
+        <div className="space-y-2">
+          {aperte.map(nc => (
+            <div key={nc.id} className={`bg-white border rounded-xl p-4 space-y-2 ${nc.scaduta ? 'border-red-400 bg-red-50' : 'border-orange-200'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${nc.scaduta ? 'bg-red-600 text-white' : 'bg-orange-500 text-white'}`}>
+                      {nc.scaduta ? '⚠ SCADUTA' : 'APERTA'}
+                    </span>
+                    {nc.scadenza && <span className="text-xs text-gray-500">entro {new Date(nc.scadenza).toLocaleDateString('it-IT')}</span>}
+                  </div>
+                  <p className="text-sm text-gray-800">{nc.descrizione}</p>
+                  <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                    {nc.responsabile_nome && <span>👤 {nc.responsabile_nome}</span>}
+                    <span>Segnalata da {nc.autore_nome}</span>
+                  </div>
+                </div>
+                {canWrite && (
+                  <button onClick={() => { setChiudiId(nc.id); setNotaChiusura('') }}
+                    className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium flex-shrink-0">
+                    Chiudi
+                  </button>
+                )}
+              </div>
+              {chiudiId === nc.id && (
+                <div className="border-t pt-2 space-y-2">
+                  <textarea placeholder="Nota di chiusura (opzionale)" rows={2}
+                    className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
+                    value={notaChiusura} onChange={e => setNotaChiusura(e.target.value)} />
+                  <div className="flex gap-2">
+                    <button onClick={() => chiudi.mutate({ id: nc.id, nota: notaChiusura })}
+                      className="flex-1 bg-green-600 text-white rounded-lg py-2 text-sm font-medium">
+                      Conferma chiusura
+                    </button>
+                    <button onClick={() => setChiudiId(null)} className="px-4 border rounded-lg text-sm">Annulla</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {chiuse.length > 0 && (
+            <details className="mt-2">
+              <summary className="text-sm text-gray-500 cursor-pointer py-1">Mostra {chiuse.length} NC chiuse</summary>
+              <div className="space-y-2 mt-2">
+                {chiuse.map(nc => (
+                  <div key={nc.id} className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">CHIUSA</span>
+                      <span className="text-xs text-gray-400">{nc.chiusa_il ? new Date(nc.chiusa_il).toLocaleDateString('it-IT') : ''}</span>
+                    </div>
+                    <p className="text-sm text-gray-600">{nc.descrizione}</p>
+                    {nc.nota_chiusura && <p className="text-xs text-gray-500 mt-1 italic">"{nc.nota_chiusura}"</p>}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+          {ncs.length === 0 && (
+            <div className="text-center py-10 text-gray-400">
+              <AlertCircle size={32} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Nessuna non conformità registrata</p>
+            </div>
+          )}
         </div>
       )}
     </div>

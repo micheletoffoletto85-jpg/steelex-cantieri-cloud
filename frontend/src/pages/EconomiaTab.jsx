@@ -23,6 +23,7 @@ const SEZIONI = [
   ['riepilogo', 'Riepilogo', BarChart2],
   ['computo',   'Computo',   ClipboardList],
   ['spese',     'Spese',     Receipt],
+  ['fatture',   'Fatture',   FileText],
   ['sal',       'SAL',       TrendingUp],
   ['ore',       'Ore Extra', Clock],
 ]
@@ -66,6 +67,9 @@ export default function EconomiaTab({ cantiereId }) {
       </div>
       <div style={{ display: sezione === 'spese' ? 'block' : 'none' }}>
         <SpeseSection cantiereId={cantiereId} canWrite={canWrite} />
+      </div>
+      <div style={{ display: sezione === 'fatture' ? 'block' : 'none' }}>
+        <FattureSection cantiereId={cantiereId} canWrite={canWrite} />
       </div>
       <div style={{ display: sezione === 'sal' ? 'block' : 'none' }}>
         <SALSection cantiereId={cantiereId} canWrite={canWrite} />
@@ -1432,3 +1436,39 @@ function OreExtraSection({ cantiereId, canWrite }) {
     </div>
   )
 }
+
+/* ─── FATTURE FORNITORI ─── */
+function FattureSection({ cantiereId, canWrite }) {
+  const qc = useQueryClient()
+  const { utente } = useAuth()
+  const [form, setForm] = useState({ fornitore_nome: '', numero_fattura: '', descrizione: '', importo_netto: '', iva_perc: '22', data_fattura: '', data_scadenza: '' })
+  const [apriForm, setApriForm] = useState(false)
+
+  const { data: fatture = [], isLoading } = useQuery(
+    ['fatture', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/fatture`).then(r => r.data),
+    { staleTime: 0 }
+  )
+  const crea = useMutation(body => api.post(`/cantieri/${cantiereId}/fatture`, body), {
+    onSuccess: () => { qc.invalidateQueries(['fatture', cantiereId]); setApriForm(false); toast.success('Fattura aggiunta') }
+  })
+  const autorizza = useMutation(id => api.post(`/cantieri/${cantiereId}/fatture/${id}/autorizza`), {
+    onSuccess: () => { qc.invalidateQueries(['fatture', cantiereId]); toast.success('Fattura autorizzata') }
+  })
+  const elimina = useMutation(id => api.delete(`/cantieri/${cantiereId}/fatture/${id}`), {
+    onSuccess: () => { qc.invalidateQueries(['fatture', cantiereId]); toast.success('Fattura eliminata') }
+  })
+  const puoAutorizzare = ['admin','capo_cantiere','direzione_lavori','amministrazione'].includes(utente?.ruolo)
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-orange-600 font-bold">{fatture.filter(f=>!f.autorizzata).length > 0 ? `⏳ ${fatture.filter(f=>!f.autorizzata).length} da autorizzare` : `${fatture.length} fatture`}</span>
+        {canWrite && <button onClick={()=>setApriForm(!apriForm)} className="flex items-center gap-1 px-3 py-2 bg-steelex-orange text-white rounded-lg text-sm font-medium"><Plus size={14}/> Nuova fattura</button>}
+      </div>
+      {apriForm && (
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs text-gray-500 mb-1 block">Fornitore *</label><input className="w-full border rounded-lg px-3 py-2 text-sm" value={form.fornitore_nome} onChange={e=>setForm(f=>({...f,fornitore_nome:e.target.value}))} /></div>
+            <div><label className="text-xs text-gray-500 mb-1 block">N° fattura</label><input className="w-full border rounded-lg px-3 py-2 text-sm" value={form.numero_fattura} onChange={e=>setForm(f=>({...f,numero_fattura:e.target.value}))} /></div>
+            <div><label className="text-xs text-gray-500 mb-1 block">Imponibile €</label><input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.importo_netto} onChange={e=>setForm(f=>({...f,importo_netto:e.target.value}))} /></div>
+            <div><label className="text-xs text-gray-500 mb-1 block">IVA 

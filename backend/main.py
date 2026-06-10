@@ -9,7 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano  # importa tutti i modelli
+from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
@@ -17,6 +17,7 @@ from app.routers import files as files_router
 from app.routers import note_campo as note_campo_router
 from app.routers import fornitori_rating as fornitori_rating_router
 from app.routers import artigiani as artigiani_router
+from app.routers import non_conformita as nc_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -144,6 +145,28 @@ def _migra():
         )""",
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS utente_id INTEGER REFERENCES utenti(id) ON DELETE SET NULL",
         "UPDATE artigiani SET categoria = 'carpenteria_metallica' WHERE categoria = 'saldatura'",
+        # Scadenze documenti artigiani
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS durc_scadenza DATE",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_sicurezza_scadenza DATE",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_primo_soccorso_scadenza DATE",
+        # Autorizzazione pagamento fatture
+        "ALTER TABLE fatture_fornitori ADD COLUMN IF NOT EXISTS autorizzata BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE fatture_fornitori ADD COLUMN IF NOT EXISTS autorizzata_da INTEGER REFERENCES utenti(id)",
+        "ALTER TABLE fatture_fornitori ADD COLUMN IF NOT EXISTS autorizzata_il TIMESTAMPTZ",
+        # Registro Non Conformità
+        """CREATE TABLE IF NOT EXISTS non_conformita (
+            id               SERIAL PRIMARY KEY,
+            cantiere_id      INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
+            descrizione      TEXT NOT NULL,
+            foto_url         VARCHAR(500),
+            responsabile_id  INTEGER REFERENCES utenti(id),
+            scadenza         DATE,
+            stato            VARCHAR(20) DEFAULT 'aperta',
+            nota_chiusura    TEXT,
+            creato_da        INTEGER NOT NULL REFERENCES utenti(id),
+            creato_il        TIMESTAMPTZ DEFAULT NOW(),
+            chiusa_il        TIMESTAMPTZ
+        )""",
     ]
     for sql in migrazioni:
         try:
@@ -197,6 +220,7 @@ app.include_router(files_router.router)
 app.include_router(note_campo_router.router, prefix="/api/v1")
 app.include_router(fornitori_rating_router.router, prefix="/api/v1")
 app.include_router(artigiani_router.router, prefix="/api/v1")
+app.include_router(nc_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():

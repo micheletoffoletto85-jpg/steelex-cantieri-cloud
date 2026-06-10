@@ -326,6 +326,43 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
             <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-2.5 italic">📝 {a.note}</p>
           )}
 
+          {/* Scadenze documenti */}
+          {(() => {
+            const oggi = new Date()
+            const tra30 = new Date(); tra30.setDate(tra30.getDate() + 30)
+            const docs = [
+              { label: 'DURC', val: a.durc_scadenza, key: 'durc_scadenza' },
+              { label: 'Attestato sicurezza', val: a.attestato_sicurezza_scadenza, key: 'attestato_sicurezza_scadenza' },
+              { label: 'Primo soccorso', val: a.attestato_primo_soccorso_scadenza, key: 'attestato_primo_soccorso_scadenza' },
+            ]
+            return (
+              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <div className="text-xs font-semibold text-gray-600 flex items-center gap-1.5 mb-2">
+                  <span>📋</span> Documenti & scadenze
+                </div>
+                {docs.map(({ label, val, key }) => {
+                  const d = val ? new Date(val) : null
+                  const scaduto = d && d < oggi
+                  const inScadenza = d && !scaduto && d < tra30
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-600">{label}</span>
+                      {puoScrivere ? (
+                        <input type="date" value={val || ''}
+                          onChange={e => aggiorna.mutate({ [key]: e.target.value || null })}
+                          className={`text-xs border rounded px-2 py-1 ${scaduto ? 'border-red-400 bg-red-50 text-red-700' : inScadenza ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`} />
+                      ) : val ? (
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                          {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{new Date(val).toLocaleDateString('it-IT')}
+                        </span>
+                      ) : <span className="text-xs text-gray-400">non inserita</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+
           {/* Collegamento account utente */}
           {puoScrivere && (
             <div className="border border-gray-200 rounded-xl p-3 space-y-2">
