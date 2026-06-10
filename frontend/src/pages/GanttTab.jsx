@@ -456,29 +456,29 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
         <div style={{ minWidth: 500 }}>
 
           {/* ── RIGA 1: MESI — sfondo scuro, testo bianco ───────────────── */}
+          {/* IMPORTANTE: w-14 spacer a destra = stesso della colonna % nel corpo */}
           <div className="relative border-b-2 border-gray-400 h-8 flex" style={{ background: '#1e293b' }}>
-            {/* Label colonna sinistra */}
             <div className="flex-shrink-0 flex items-center px-3 border-r-2 border-gray-600 z-10" style={{ width: LABEL_W }}>
               <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">Fase</span>
             </div>
-            <div className="relative flex-1">
+            <div className="relative flex-1 overflow-hidden">
               {mesiLabels.map((m, i) => (
                 <div key={i} className="absolute inset-y-0 flex items-center overflow-hidden border-r border-gray-600"
                   style={{ left: `${m.pct}%`, width: `${m.widthPct}%` }}>
                   <span className="text-xs font-bold text-white px-2 truncate uppercase tracking-wider">{m.label}</span>
                 </div>
               ))}
-              {/* Linea oggi */}
-              <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange z-10" style={{ left: `${todayPct}%` }} />
+              <div className="absolute top-0 bottom-0 z-10" style={{ left: `${todayPct}%`, width: 2, background: '#FF6B00' }} />
             </div>
+            {/* Spacer uguale alla colonna % del corpo — mantiene allineamento */}
+            <div className="flex-shrink-0 w-14" style={{ background: '#1e293b' }} />
           </div>
 
           {/* ── RIGA 2: SETTIMANE / GIORNI ───────────────────────────────── */}
           <div className="relative border-b-2 border-gray-300 h-7 flex" style={{ background: '#f1f5f9' }}>
             <div className="flex-shrink-0 border-r-2 border-gray-300" style={{ width: LABEL_W, background: '#f1f5f9' }} />
-            <div className="relative flex-1">
+            <div className="relative flex-1 overflow-hidden">
               {zoomEff === 'giorni'
-                /* ── Giorni: un box per giorno, weekend evidenziato ── */
                 ? giorniLabels.map((g, i) => (
                   <div key={i}
                     className={`absolute inset-y-0 flex items-center justify-center
@@ -492,7 +492,6 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                     </span>
                   </div>
                 ))
-                /* ── Settimane/Mesi: una banda per settimana ── */
                 : settimaneLabels.map((s, i) => (
                   <div key={i}
                     className={`absolute inset-y-0 flex items-center overflow-hidden
@@ -504,11 +503,12 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                   </div>
                 ))
               }
-              {/* Linea oggi con etichetta */}
-              <div className="absolute top-0 bottom-0 w-0.5 bg-steelex-orange z-10" style={{ left: `${todayPct}%` }}>
-                <div className="absolute top-0.5 left-1 text-steelex-orange font-bold whitespace-nowrap" style={{ fontSize: 9 }}>oggi</div>
+              <div className="absolute top-0 bottom-0 z-10" style={{ left: `${todayPct}%`, width: 2, background: '#FF6B00' }}>
+                <div className="absolute top-0.5 left-1 font-bold whitespace-nowrap" style={{ fontSize: 9, color: '#FF6B00' }}>oggi</div>
               </div>
             </div>
+            {/* Spacer uguale alla colonna % del corpo */}
+            <div className="flex-shrink-0 w-14 border-l border-gray-200" style={{ background: '#f1f5f9' }} />
           </div>
 
           {/* ── RIGHE FASI ───────────────────────────────────────────────── */}
