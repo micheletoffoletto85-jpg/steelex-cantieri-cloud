@@ -1,13 +1,19 @@
 {
-  "name": "STEELEX Cantieri",
-  "short_name": "STEELEX",
-  "description": "Gestione cantieri STEELEX",
+  "name": "FR Cantieri",
+  "short_name": "FR",
+  "description": "Gestione cantieri Fontana Raffaele",
   "theme_color": "#FF6B00",
   "background_color": "#1A1A2E",
   "display": "standalone",
   "scope": "/",
   "start_url": "/",
   "icons": [
+    {
+      "src": "/icon-fr.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
