@@ -28,7 +28,7 @@ export default function SplashScreen({ onDone, utente }) {
       <div className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-steelex-dark transition-opacity duration-600 ${fase === 3 ? 'opacity-0' : 'opacity-100'}`}>
         {/* Logo */}
         <div className={`transition-all duration-500 ${fase >= 0 ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}>
-          <img src="/logo-fr.svg" alt="Fontana Raffaele" className="h-14 mb-8" />
+          <img src="/logo-steelex.png" alt="Steelex" className="h-14 mb-8" />
         </div>
 
         {/* Benvenuto */}
@@ -52,8 +52,14 @@ export default function SplashScreen({ onDone, utente }) {
 
         {/* Partnership — appare in fase 2 */}
         <div className={`absolute bottom-10 left-0 right-0 flex flex-col items-center gap-3 transition-all duration-700 ${fase >= 2 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-          <p className="text-[10px] tracking-[0.3em] text-gray-600 uppercase">Un servizio</p>
-          <span className="text-xs font-semibold text-gray-400 tracking-wider">Fontana Raffaele S.R.L.</span>
+          <p className="text-[10px] tracking-[0.3em] text-gray-600 uppercase">Un progetto</p>
+          <div className="flex items-center gap-6">
+            <span className="text-xs font-semibold text-gray-400 tracking-wider">GeoColors</span>
+            <span className="text-gray-700">·</span>
+            <span className="text-xs font-semibold text-gray-400 tracking-wider">GeoBuildings</span>
+            <span className="text-gray-700">·</span>
+            <span className="text-xs font-semibold text-gray-400 tracking-wider">Fontana Raffaele</span>
+          </div>
         </div>
       </div>
     )
@@ -64,7 +70,7 @@ export default function SplashScreen({ onDone, utente }) {
     <div className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-steelex-dark transition-opacity duration-500 ${fase === 2 ? 'opacity-0' : 'opacity-100'}`}>
       {/* Logo */}
       <div className={`transition-all duration-500 ${fase >= 0 ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}>
-        <img src="/logo-fr.svg" alt="Fontana Raffaele" className="h-16 mb-6" />
+        <img src="/logo-steelex.png" alt="Steelex" className="h-16 mb-6" />
       </div>
 
       {/* Nome che scorre dal basso */}
@@ -87,8 +93,14 @@ export default function SplashScreen({ onDone, utente }) {
 
       {/* Partnership — appare insieme alla tagline */}
       <div className={`absolute bottom-10 left-0 right-0 flex flex-col items-center gap-3 transition-all duration-700 delay-500 ${fase >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        <p className="text-[10px] tracking-[0.3em] text-gray-600 uppercase">Un servizio</p>
-        <span className="text-xs font-semibold text-gray-500 tracking-wider">Fontana Raffaele S.R.L.</span>
+        <p className="text-[10px] tracking-[0.3em] text-gray-600 uppercase">Un progetto</p>
+        <div className="flex items-center gap-6">
+          <span className="text-xs font-semibold text-gray-500 tracking-wider">GeoColors</span>
+          <span className="text-gray-700">·</span>
+          <span className="text-xs font-semibold text-gray-500 tracking-wider">GeoBuildings</span>
+          <span className="text-gray-700">·</span>
+          <span className="text-xs font-semibold text-gray-500 tracking-wider">Fontana Raffaele</span>
+        </div>
       </div>
     </div>
   )

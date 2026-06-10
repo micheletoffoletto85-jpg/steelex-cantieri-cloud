@@ -29,7 +29,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <img src="/logo-fr.svg" alt="Fontana Raffaele" className="h-12 mx-auto mb-4" />
+          <img src="/logo-steelex.png" alt="Steelex" className="h-12 mx-auto mb-4" />
           <p className="text-gray-400 text-sm mt-1">Gestione cantieri professionale</p>
         </div>
 

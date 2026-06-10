@@ -44,7 +44,7 @@ export default function Layout() {
 
       {/* Header mobile (sm e sotto) */}
       <header className="sm:hidden bg-steelex-dark text-white px-4 py-3 flex items-center justify-between shadow-lg sticky top-0 z-50">
-        <img src="/logo-fr.svg" alt="Fontana Raffaele" className="h-12" />
+        <img src="/logo-steelex.png" alt="Steelex" className="h-12" />
         <div className="flex items-center gap-1">
           {mostraNotificheBell && (
             <button onClick={toggleNotifiche}
@@ -83,7 +83,7 @@ export default function Layout() {
 
           {/* Logo */}
           <div className="px-4 py-5 border-b border-white/10">
-            <img src="/logo-fr.svg" alt="Fontana Raffaele Cantieri" className="h-14 w-auto" />
+            <img src="/logo-steelex.png" alt="Steelex Cantieri" className="h-14 w-auto" />
           </div>
 
           {/* Nav */}
