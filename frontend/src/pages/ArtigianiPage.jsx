@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -331,31 +331,54 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
             const oggi = new Date()
             const tra30 = new Date(); tra30.setDate(tra30.getDate() + 30)
             const docs = [
-              { label: 'DURC', val: a.durc_scadenza, key: 'durc_scadenza' },
-              { label: 'Attestato sicurezza', val: a.attestato_sicurezza_scadenza, key: 'attestato_sicurezza_scadenza' },
-              { label: 'Primo soccorso', val: a.attestato_primo_soccorso_scadenza, key: 'attestato_primo_soccorso_scadenza' },
+              { label: 'DURC', val: a.durc_scadenza, key: 'durc_scadenza', urlKey: 'durc_url', tipo: 'durc', url: a.durc_url },
+              { label: 'Attestato sicurezza', val: a.attestato_sicurezza_scadenza, key: 'attestato_sicurezza_scadenza', urlKey: 'attestato_sicurezza_url', tipo: 'sicurezza', url: a.attestato_sicurezza_url },
+              { label: 'Primo soccorso', val: a.attestato_primo_soccorso_scadenza, key: 'attestato_primo_soccorso_scadenza', urlKey: 'attestato_primo_soccorso_url', tipo: 'primo_soccorso', url: a.attestato_primo_soccorso_url },
             ]
             return (
               <div className="border border-gray-200 rounded-xl p-3 space-y-2">
                 <div className="text-xs font-semibold text-gray-600 flex items-center gap-1.5 mb-2">
                   <span>📋</span> Documenti & scadenze
                 </div>
-                {docs.map(({ label, val, key }) => {
+                {docs.map(({ label, val, key, tipo, url }) => {
                   const d = val ? new Date(val) : null
                   const scaduto = d && d < oggi
                   const inScadenza = d && !scaduto && d < tra30
                   return (
                     <div key={key} className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-gray-600">{label}</span>
-                      {puoScrivere ? (
-                        <input type="date" value={val || ''}
-                          onChange={e => aggiorna.mutate({ [key]: e.target.value || null })}
-                          className={`text-xs border rounded px-2 py-1 ${scaduto ? 'border-red-400 bg-red-50 text-red-700' : inScadenza ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`} />
-                      ) : val ? (
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                          {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{new Date(val).toLocaleDateString('it-IT')}
-                        </span>
-                      ) : <span className="text-xs text-gray-400">non inserita</span>}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {url ? (
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline truncate">
+                            <FileText size={11}/><span>{label}</span>
+                          </a>
+                        ) : <span className="text-xs text-gray-600">{label}</span>}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {puoScrivere ? (
+                          <>
+                            <input type="date" value={val || ''}
+                              onChange={e => aggiorna.mutate({ [key]: e.target.value || null })}
+                              className={`text-xs border rounded px-2 py-1 ${scaduto ? 'border-red-400 bg-red-50 text-red-700' : inScadenza ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`} />
+                            <label className="cursor-pointer p-1 text-gray-400 hover:text-steelex-orange transition-colors" title="Carica documento">
+                              <Upload size={13}/>
+                              <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                                onChange={async e => {
+                                  const f = e.target.files?.[0]; if (!f) return
+                                  const fd = new FormData(); fd.append('file', f)
+                                  try {
+                                    await api.post(`/artigiani/${a.id}/upload-doc?tipo=${tipo}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+                                    qc.invalidateQueries(['artigiani']); toast.success('Documento caricato')
+                                  } catch { toast.error('Errore upload') }
+                                  e.target.value = ''
+                                }} />
+                            </label>
+                          </>
+                        ) : val ? (
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                            {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{new Date(val).toLocaleDateString('it-IT')}
+                          </span>
+                        ) : <span className="text-xs text-gray-400">non inserita</span>}
+                      </div>
                     </div>
                   )
                 })}

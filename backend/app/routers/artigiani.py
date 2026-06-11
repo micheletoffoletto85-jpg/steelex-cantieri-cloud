@@ -2,7 +2,7 @@
 Rubrica artigiani/fornitori con sistema di feedback pollice su/medio/giù.
 Anagrafica indipendente dagli account utente.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -11,6 +11,8 @@ from app.database import get_db
 from app.models.artigiano import Artigiano, FeedbackArtigiano
 from app.models.utente import Utente
 from app.auth import get_current_user
+from app.config import settings
+from app.storage import salva_file
 
 router = APIRouter(prefix="/artigiani", tags=["Artigiani"])
 
@@ -124,6 +126,9 @@ class ArtigianoOut(BaseModel):
     durc_scadenza: Optional[date] = None
     attestato_sicurezza_scadenza: Optional[date] = None
     attestato_primo_soccorso_scadenza: Optional[date] = None
+    durc_url: Optional[str] = None
+    attestato_sicurezza_url: Optional[str] = None
+    attestato_primo_soccorso_url: Optional[str] = None
     score: Optional[int] = None
     totale_feedback: int = 0
     su: int = 0
@@ -146,6 +151,9 @@ def _artigiano_out(a: Artigiano, db: Session) -> ArtigianoOut:
         durc_scadenza=getattr(a, 'durc_scadenza', None),
         attestato_sicurezza_scadenza=getattr(a, 'attestato_sicurezza_scadenza', None),
         attestato_primo_soccorso_scadenza=getattr(a, 'attestato_primo_soccorso_scadenza', None),
+        durc_url=getattr(a, 'durc_url', None),
+        attestato_sicurezza_url=getattr(a, 'attestato_sicurezza_url', None),
+        attestato_primo_soccorso_url=getattr(a, 'attestato_primo_soccorso_url', None),
         score=stats["score"], totale_feedback=stats["totale"],
         su=stats["su"], medio=stats["medio"], giu=stats["giu"],
     )
@@ -227,6 +235,37 @@ def elimina_artigiano(
     a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
     if not a: raise HTTPException(404, "Non trovato")
     db.delete(a); db.commit()
+
+
+_DOC_TIPI = {
+    "durc": "durc_url",
+    "sicurezza": "attestato_sicurezza_url",
+    "primo_soccorso": "attestato_primo_soccorso_url",
+}
+
+@router.post("/{artigiano_id}/upload-doc", response_model=ArtigianoOut)
+async def upload_documento(
+    artigiano_id: int,
+    tipo: str = Query(..., description="durc | sicurezza | primo_soccorso"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    if user.ruolo.value not in _RUOLI_SCRIVE:
+        raise HTTPException(403, "Non autorizzato")
+    if tipo not in _DOC_TIPI:
+        raise HTTPException(400, f"tipo deve essere: {', '.join(_DOC_TIPI)}")
+    a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
+    if not a: raise HTTPException(404, "Artigiano non trovato")
+    contenuto = await file.read()
+    if len(contenuto) > settings.MAX_FILE_SIZE:
+        raise HTTPException(413, "File troppo grande")
+    import os
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".pdf"
+    url, _ = salva_file(contenuto, f"artigiani/{artigiano_id}", ext)
+    setattr(a, _DOC_TIPI[tipo], url)
+    db.commit(); db.refresh(a)
+    return _artigiano_out(a, db)
 
 
 @router.post("/{artigiano_id}/feedback", response_model=FeedbackOut, status_code=201)

@@ -149,6 +149,9 @@ def _migra():
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS durc_scadenza DATE",
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_sicurezza_scadenza DATE",
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_primo_soccorso_scadenza DATE",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS durc_url VARCHAR(500)",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_sicurezza_url VARCHAR(500)",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_primo_soccorso_url VARCHAR(500)",
         # Autorizzazione pagamento fatture
         "ALTER TABLE fatture_fornitori ADD COLUMN IF NOT EXISTS autorizzata BOOLEAN DEFAULT FALSE",
         "ALTER TABLE fatture_fornitori ADD COLUMN IF NOT EXISTS autorizzata_da INTEGER REFERENCES utenti(id)",

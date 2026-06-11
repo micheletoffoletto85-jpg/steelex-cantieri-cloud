@@ -168,6 +168,9 @@ export default function UtentiPage() {
               <option value="capo_cantiere">Capo Cantiere (interno STEELEX)</option>
               <option value="capo_cantiere_sub">Capo Cantiere Subappaltato</option>
               <option value="direzione_lavori">Direzione Lavori</option>
+              <option value="architetto">Architetto</option>
+              <option value="responsabile_sicurezza">Resp. Sicurezza</option>
+              <option value="amministrazione">Amministrazione</option>
               <option value="artigiano">Artigiano</option>
               <option value="fornitore">Fornitore</option>
               <option value="cliente">Cliente</option>
@@ -212,6 +215,9 @@ export default function UtentiPage() {
               <option value="capo_cantiere">Capo Cantiere (interno STEELEX)</option>
               <option value="capo_cantiere_sub">Capo Cantiere Subappaltato</option>
               <option value="direzione_lavori">Direzione Lavori</option>
+              <option value="architetto">Architetto</option>
+              <option value="responsabile_sicurezza">Resp. Sicurezza</option>
+              <option value="amministrazione">Amministrazione</option>
               <option value="artigiano">Artigiano</option>
               <option value="fornitore">Fornitore</option>
               <option value="cliente">Cliente</option>
