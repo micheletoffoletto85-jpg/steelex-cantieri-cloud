@@ -739,14 +739,13 @@ function MappeTab({ cantiereId }) {
   const canWrite   = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const canContrib = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)
 
-  // Tutti i membri attivi del team (per assegnazione pin)
-  const { data: utenti = [] } = useQuery(
-    'utenti',
-    () => api.get('/utenti').then(r => r.data),
-    { enabled: canWrite, staleTime: 60000 }
+  // Team del cantiere (per assegnazione pin) — responsabile + assegnati
+  const { data: teamAttivo = [] } = useQuery(
+    ['team', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/team`).then(r => r.data).catch(() => []),
+    { staleTime: 60000 }
   )
-  const teamAttivo = utenti.filter(u => u.attivo)
-  const fornitori = utenti.filter(u => u.ruolo === 'fornitore' && u.attivo)
+  const fornitori = teamAttivo.filter(u => u.ruolo === 'fornitore')
   // Chip visibilità: ogni membro ha il suo chip con nome
   // Ruoli "unici" (admin, capo_cantiere, direzione_lavori) → chip ruolo
   // Ruoli "multipli" (artigiano, fornitore, cliente) → chip per persona

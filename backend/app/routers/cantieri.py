@@ -123,6 +123,22 @@ def lista_utenti_assegnabili(db: Session = Depends(get_db), user: Utente = Depen
 class AssegnaBody(BaseModel):
     utente_id: int
 
+@router.get("/{cantiere_id}/team", response_model=List[UtenteBase])
+def team_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Responsabile + artigiani/utenti assegnati al cantiere."""
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    visti = set()
+    membri = []
+    for u in cantiere.artigiani:
+        if u.id not in visti:
+            visti.add(u.id)
+            membri.append(u)
+    if cantiere.responsabile and cantiere.responsabile.id not in visti:
+        membri.insert(0, cantiere.responsabile)
+    return sorted(membri, key=lambda u: (u.cognome or '', u.nome or ''))
+
 @router.get("/{cantiere_id}/artigiani", response_model=List[UtenteBase])
 def lista_artigiani(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     if user.ruolo not in (RuoloUtente.admin, *_RUOLI_STEELEX):
