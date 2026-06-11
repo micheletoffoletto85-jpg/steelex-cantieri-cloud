@@ -1471,4 +1471,52 @@ function FattureSection({ cantiereId, canWrite }) {
             <div><label className="text-xs text-gray-500 mb-1 block">Fornitore *</label><input className="w-full border rounded-lg px-3 py-2 text-sm" value={form.fornitore_nome} onChange={e=>setForm(f=>({...f,fornitore_nome:e.target.value}))} /></div>
             <div><label className="text-xs text-gray-500 mb-1 block">N° fattura</label><input className="w-full border rounded-lg px-3 py-2 text-sm" value={form.numero_fattura} onChange={e=>setForm(f=>({...f,numero_fattura:e.target.value}))} /></div>
             <div><label className="text-xs text-gray-500 mb-1 block">Imponibile €</label><input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.importo_netto} onChange={e=>setForm(f=>({...f,importo_netto:e.target.value}))} /></div>
-            <div><label className="text-xs text-gray-500 mb-1 block">IVA 
+            <div><label className="text-xs text-gray-500 mb-1 block">IVA %</label><input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.iva_perc} onChange={e=>setForm(f=>({...f,iva_perc:e.target.value}))} /></div>
+            <div><label className="text-xs text-gray-500 mb-1 block">Data fattura</label><input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.data_fattura} onChange={e=>setForm(f=>({...f,data_fattura:e.target.value}))} /></div>
+            <div><label className="text-xs text-gray-500 mb-1 block">Scadenza pagamento</label><input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.data_scadenza} onChange={e=>setForm(f=>({...f,data_scadenza:e.target.value}))} /></div>
+          </div>
+          <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Descrizione (opzionale)" value={form.descrizione} onChange={e=>setForm(f=>({...f,descrizione:e.target.value}))} />
+          <div className="flex gap-2">
+            <button onClick={()=>setApriForm(false)} className="flex-1 px-3 py-2 border rounded-lg text-sm">Annulla</button>
+            <button onClick={()=>crea.mutate({...form,importo_netto:parseFloat(form.importo_netto)||0,iva_perc:parseFloat(form.iva_perc)||22,data_fattura:form.data_fattura||null,data_scadenza:form.data_scadenza||null})}
+              disabled={!form.fornitore_nome||!form.importo_netto}
+              className="flex-1 px-3 py-2 bg-steelex-orange text-white rounded-lg text-sm font-medium disabled:opacity-50">Aggiungi</button>
+          </div>
+        </div>
+      )}
+      {isLoading && <div className="text-center py-4 text-gray-400">Caricamento...</div>}
+      {!isLoading && fatture.length === 0 && !apriForm && (
+        <div className="text-center py-8 text-gray-400"><FileText size={32} className="mx-auto mb-2 opacity-30"/><p>Nessuna fattura fornitore</p></div>
+      )}
+      {fatture.map(f => (
+        <div key={f.id} className={`rounded-xl border p-3 space-y-1 ${f.autorizzata ? 'border-green-300 bg-green-50' : 'border-orange-300 bg-orange-50'}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-900 truncate">{f.fornitore_nome}</p>
+              {f.numero_fattura && <p className="text-xs text-gray-500">N° {f.numero_fattura}</p>}
+              {f.descrizione && <p className="text-xs text-gray-600 italic">{f.descrizione}</p>}
+              <div className="flex gap-2 text-xs text-gray-400 mt-0.5">
+                {f.data_fattura && <span>{f.data_fattura}</span>}
+                {f.data_scadenza && <span>scad. {f.data_scadenza}</span>}
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p className="font-bold text-gray-900">{fmt(f.importo_totale||f.importo_netto)}</p>
+              <p className="text-xs text-gray-400">IVA {f.iva_perc}%</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            {f.autorizzata ? (
+              <span className="text-xs text-green-700 font-medium">✓ Autorizzata {f.autorizzata_da_nome ? `da ${f.autorizzata_da_nome}` : ''}</span>
+            ) : puoAutorizzare ? (
+              <button onClick={()=>autorizza.mutate(f.id)} className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg font-medium">Autorizza</button>
+            ) : (
+              <span className="text-xs text-orange-600 font-medium">⏳ In attesa autorizzazione</span>
+            )}
+            {canWrite && <button onClick={()=>confirm('Eliminare fattura?')&&elimina.mutate(f.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
