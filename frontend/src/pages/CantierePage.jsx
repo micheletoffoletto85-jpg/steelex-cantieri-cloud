@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
@@ -514,6 +514,194 @@ const STATO_PIN = {
 }
 const ASSEGNATO_LABEL = { admin:'Admin', capo_cantiere:'Capo Cantiere', fornitore:'Fornitore', cliente:'Cliente' }
 
+/* ─── ANNOTATORE FOTO ─── */
+function AnnotaFoto({ url, onSalva, onChiudi }) {
+  const canvasRef = useRef(null)
+  const imgRef = useRef(null)
+  const [tool, setTool] = useState('pen') // pen | text | eraser
+  const [color, setColor] = useState('#ef4444')
+  const [size, setSize] = useState(4)
+  const [drawing, setDrawing] = useState(false)
+  const [lastPos, setLastPos] = useState(null)
+  const [history, setHistory] = useState([])
+  const [textInput, setTextInput] = useState('')
+  const [textPos, setTextPos] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const img = imgRef.current
+    if (!canvas || !img) return
+    const draw = () => {
+      canvas.width = img.naturalWidth || img.width
+      canvas.height = img.naturalHeight || img.height
+      const ctx = canvas.getContext('2d')
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
+    if (img.complete) draw()
+    else img.onload = draw
+  }, [url])
+
+  const getPos = (e) => {
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY }
+  }
+
+  const saveSnapshot = () => {
+    const canvas = canvasRef.current
+    setHistory(h => [...h, canvas.toDataURL()])
+  }
+
+  const undo = () => {
+    if (history.length === 0) return
+    const prev = history[history.length - 1]
+    setHistory(h => h.slice(0, -1))
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const img = new Image()
+    img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0) }
+    img.src = prev
+  }
+
+  const onMouseDown = (e) => {
+    e.preventDefault()
+    if (tool === 'text') {
+      const pos = getPos(e)
+      setTextPos(pos)
+      setTextInput('')
+      return
+    }
+    saveSnapshot()
+    setDrawing(true)
+    setLastPos(getPos(e))
+  }
+
+  const onMouseMove = (e) => {
+    e.preventDefault()
+    if (!drawing) return
+    const pos = getPos(e)
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    ctx.beginPath()
+    ctx.moveTo(lastPos.x, lastPos.y)
+    ctx.lineTo(pos.x, pos.y)
+    ctx.strokeStyle = tool === 'eraser' ? 'rgba(0,0,0,1)' : color
+    ctx.lineWidth = tool === 'eraser' ? size * 4 : size
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    if (tool === 'eraser') ctx.globalCompositeOperation = 'destination-out'
+    else ctx.globalCompositeOperation = 'source-over'
+    ctx.stroke()
+    setLastPos(pos)
+  }
+
+  const onMouseUp = (e) => { e.preventDefault(); setDrawing(false); setLastPos(null) }
+
+  const confermaText = () => {
+    if (!textInput || !textPos) return
+    saveSnapshot()
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.font = `bold ${size * 6}px sans-serif`
+    ctx.fillStyle = color
+    ctx.strokeStyle = 'white'
+    ctx.lineWidth = size / 2
+    ctx.strokeText(textInput, textPos.x, textPos.y)
+    ctx.fillText(textInput, textPos.x, textPos.y)
+    setTextPos(null)
+    setTextInput('')
+  }
+
+  const salva = async () => {
+    setSaving(true)
+    try {
+      const imgEl = imgRef.current
+      const canvas = canvasRef.current
+      // Componi immagine base + annotazioni
+      const out = document.createElement('canvas')
+      out.width = canvas.width
+      out.height = canvas.height
+      const ctx = out.getContext('2d')
+      ctx.drawImage(imgEl, 0, 0, out.width, out.height)
+      ctx.drawImage(canvas, 0, 0)
+      out.toBlob(async (blob) => {
+        try {
+          await onSalva(blob)
+        } finally { setSaving(false) }
+      }, 'image/jpeg', 0.9)
+    } catch { setSaving(false) }
+  }
+
+  const COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ffffff','#000000']
+
+  return (
+    <div className="fixed inset-0 bg-black z-[100] flex flex-col" onClick={e => e.stopPropagation()}>
+      {/* Toolbar */}
+      <div className="bg-gray-900 px-3 py-2 flex items-center gap-2 overflow-x-auto flex-shrink-0">
+        <button onClick={onChiudi} className="p-1.5 text-gray-400 hover:text-white flex-shrink-0"><X size={18}/></button>
+        <div className="w-px h-6 bg-gray-600 flex-shrink-0"/>
+        {/* Strumenti */}
+        {[['pen',<Pen size={16}/>],['text',<Type size={16}/>],['eraser',<Eraser size={16}/>]].map(([t, icon]) => (
+          <button key={t} onClick={() => setTool(t)}
+            className={`p-1.5 rounded-lg flex-shrink-0 ${tool === t ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'}`}>
+            {icon}
+          </button>
+        ))}
+        <div className="w-px h-6 bg-gray-600 flex-shrink-0"/>
+        {/* Colori */}
+        {COLORS.map(c => (
+          <button key={c} onClick={() => setColor(c)}
+            className={`w-6 h-6 rounded-full flex-shrink-0 border-2 transition-all ${color === c ? 'border-white scale-125' : 'border-transparent'}`}
+            style={{ background: c }} />
+        ))}
+        <div className="w-px h-6 bg-gray-600 flex-shrink-0"/>
+        {/* Dimensione */}
+        <input type="range" min="2" max="20" value={size} onChange={e => setSize(+e.target.value)}
+          className="w-20 flex-shrink-0" />
+        <div className="w-px h-6 bg-gray-600 flex-shrink-0"/>
+        <button onClick={undo} disabled={history.length === 0}
+          className="p-1.5 text-gray-400 hover:text-white disabled:opacity-30 flex-shrink-0"><RotateCcw size={16}/></button>
+        <div className="flex-1"/>
+        <button onClick={salva} disabled={saving}
+          className="px-3 py-1.5 bg-steelex-orange text-white rounded-lg text-sm font-medium flex-shrink-0 disabled:opacity-50">
+          {saving ? '...' : '💾 Salva'}
+        </button>
+      </div>
+
+      {/* Canvas area */}
+      <div className="flex-1 overflow-auto flex items-center justify-center bg-black relative">
+        <div className="relative" style={{ display: 'inline-block' }}>
+          <img ref={imgRef} src={url} alt="" className="max-w-full max-h-[calc(100vh-100px)] block" style={{ userSelect: 'none' }} crossOrigin="anonymous" />
+          <canvas ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+            style={{ cursor: tool === 'eraser' ? 'cell' : tool === 'text' ? 'text' : 'crosshair', touchAction: 'none' }}
+            onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+            onTouchStart={onMouseDown} onTouchMove={onMouseMove} onTouchEnd={onMouseUp}
+          />
+        </div>
+      </div>
+
+      {/* Input testo flottante */}
+      {textPos && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-2 bg-gray-800 p-2 rounded-xl shadow-xl z-[101]">
+          <input autoFocus className="bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm w-48"
+            placeholder="Scrivi testo..." value={textInput}
+            onChange={e => setTextInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') confermaText(); if (e.key === 'Escape') setTextPos(null) }} />
+          <button onClick={confermaText} className="px-3 py-1.5 bg-steelex-orange text-white rounded-lg text-sm">OK</button>
+          <button onClick={() => setTextPos(null)} className="px-2 py-1.5 text-gray-400 hover:text-white"><X size={14}/></button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MappeTab({ cantiereId }) {
   const { utente } = useAuth()
   const qc = useQueryClient()
@@ -522,6 +710,7 @@ function MappeTab({ cantiereId }) {
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
   const [lightboxUrl, setLightboxUrl] = useState(null) // foto aperta a schermo intero
+  const [annotaUrl, setAnnotaUrl] = useState(null) // foto aperta nell'annotatore
   const [confirmPending, setConfirmPending] = useState(null) // { messaggio, onConfirm }
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [editPinMode, setEditPinMode] = useState(false)
@@ -958,8 +1147,16 @@ function MappeTab({ cantiereId }) {
                     {pinSelezionato.foto_urls?.length > 0 && (
                       <div className="flex gap-2 flex-wrap">
                         {pinSelezionato.foto_urls.map((url, i) => (
-                          <img key={i} src={url} onClick={() => setLightboxUrl(url)}
-                            className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
+                          <div key={i} className="relative group">
+                            <img src={url} onClick={() => setLightboxUrl(url)}
+                              className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
+                            {canContrib && (
+                              <button onClick={() => setAnnotaUrl(url)}
+                                className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[9px] px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                                <Pen size={9}/>Annota
+                              </button>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}
@@ -1190,6 +1387,31 @@ function MappeTab({ cantiereId }) {
             onClick={e => e.stopPropagation()}
           />
         </div>
+      )}
+
+      {/* ── Annotazione foto ── */}
+      {annotaUrl && (
+        <AnnotaFoto
+          url={annotaUrl}
+          onSalva={async (blob) => {
+            try {
+              const fd = new FormData()
+              fd.append('file', blob, 'annotazione.jpg')
+              const r = await api.post(
+                `/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/foto`,
+                fd,
+                { headers: { 'Content-Type': 'multipart/form-data' } }
+              )
+              setDocSelezionato(r.data)
+              qc.invalidateQueries(['documenti', cantiereId])
+              toast.success('Annotazione salvata')
+            } catch {
+              toast.error('Errore salvataggio annotazione')
+            }
+            setAnnotaUrl(null)
+          }}
+          onChiudi={() => setAnnotaUrl(null)}
+        />
       )}
     </div>
   )
