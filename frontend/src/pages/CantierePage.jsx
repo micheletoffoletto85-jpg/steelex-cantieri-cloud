@@ -516,8 +516,11 @@ const ASSEGNATO_LABEL = { admin:'Admin', capo_cantiere:'Capo Cantiere', fornitor
 
 /* ─── ANNOTATORE FOTO ─── */
 function AnnotaFoto({ url, onSalva, onChiudi }) {
+  const { src: blobSrc, loading: imgLoading } = useAuthImage(url)
   const canvasRef = useRef(null)
   const imgRef = useRef(null)
+  // imgBitmap viene disegnata sul canvas di output al salvataggio
+  const imgBitmapRef = useRef(null)
   const [tool, setTool] = useState('pen') // pen | text | eraser
   const [color, setColor] = useState('#ef4444')
   const [size, setSize] = useState(4)
@@ -529,18 +532,19 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    if (!blobSrc) return
     const canvas = canvasRef.current
-    const img = imgRef.current
-    if (!canvas || !img) return
-    const draw = () => {
+    if (!canvas) return
+    const img = new window.Image()
+    img.onload = () => {
+      imgBitmapRef.current = img
       canvas.width = img.naturalWidth || img.width
       canvas.height = img.naturalHeight || img.height
       const ctx = canvas.getContext('2d')
       ctx.clearRect(0, 0, canvas.width, canvas.height)
     }
-    if (img.complete) draw()
-    else img.onload = draw
-  }, [url])
+    img.src = blobSrc
+  }, [blobSrc])
 
   const getPos = (e) => {
     const canvas = canvasRef.current
@@ -621,14 +625,13 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   const salva = async () => {
     setSaving(true)
     try {
-      const imgEl = imgRef.current
+      const imgEl = imgBitmapRef.current
       const canvas = canvasRef.current
-      // Componi immagine base + annotazioni
       const out = document.createElement('canvas')
       out.width = canvas.width
       out.height = canvas.height
       const ctx = out.getContext('2d')
-      ctx.drawImage(imgEl, 0, 0, out.width, out.height)
+      if (imgEl) ctx.drawImage(imgEl, 0, 0, out.width, out.height)
       ctx.drawImage(canvas, 0, 0)
       out.toBlob(async (blob) => {
         try {
@@ -676,8 +679,13 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
 
       {/* Canvas area */}
       <div className="flex-1 overflow-auto flex items-center justify-center bg-black relative">
-        <div className="relative" style={{ display: 'inline-block' }}>
-          <img ref={imgRef} src={url} alt="" className="max-w-full max-h-[calc(100vh-100px)] block" style={{ userSelect: 'none' }} crossOrigin="anonymous" />
+        {imgLoading && (
+          <div className="text-gray-400 text-sm flex items-center gap-2">
+            <Loader2 size={20} className="animate-spin text-steelex-orange" /> Caricamento...
+          </div>
+        )}
+        <div className="relative" style={{ display: imgLoading ? 'none' : 'inline-block' }}>
+          <img src={blobSrc || ''} alt="" className="max-w-full max-h-[calc(100vh-100px)] block" style={{ userSelect: 'none' }} />
           <canvas ref={canvasRef}
             className="absolute inset-0 w-full h-full"
             style={{ cursor: tool === 'eraser' ? 'cell' : tool === 'text' ? 'text' : 'crosshair', touchAction: 'none' }}
