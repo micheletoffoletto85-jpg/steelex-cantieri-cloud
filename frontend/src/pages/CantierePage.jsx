@@ -502,9 +502,10 @@ function useAuthImage(url) {
 }
 
 const TIPO_PIN = {
-  lavorazione: { label: 'Lavorazione', color: '#2563eb', bg: 'bg-blue-100 text-blue-700' },
-  criticita:   { label: 'Criticità',   color: '#dc2626', bg: 'bg-red-100 text-red-700'   },
-  nota:        { label: 'Nota',        color: '#d97706', bg: 'bg-yellow-100 text-yellow-700' },
+  lavorazione:       { label: 'Lavorazione',       color: '#2563eb', bg: 'bg-blue-100 text-blue-700' },
+  criticita:         { label: 'Criticità',          color: '#dc2626', bg: 'bg-red-100 text-red-700'   },
+  nota:              { label: 'Nota',               color: '#d97706', bg: 'bg-yellow-100 text-yellow-700' },
+  extra_preventivo:  { label: 'Extra Preventivo ⚠', color: '#ea580c', bg: 'bg-orange-100 text-orange-700' },
 }
 const STATO_PIN = {
   aperto:        { label: 'Aperto',        bg: 'bg-red-100 text-red-700'    },
@@ -533,7 +534,7 @@ function MappeTab({ cantiereId }) {
   const pinChunksRef = useRef([])
   const pinTimerRef = useRef(null)
   const [pinRecSecondi, setPinRecSecondi] = useState(0)
-  const [uploadingFoto, setUploadingFoto] = useState(false)
+  const [uploadingFotoCount, setUploadingFotoCount] = useState(0) // quante foto in upload parallelo
   const imgContainerRef = useRef(null)
   const uploadInputRef = useRef(null)
   const uploadCartellaRef = useRef(null)
@@ -753,15 +754,23 @@ function MappeTab({ cantiereId }) {
   }
   const fermaPinFormRec = () => { clearInterval(pinTimerRef.current); pinRecorderRef.current?.stop() }
 
-  const uploadFotoPin = async (file) => {
+  const uploadFotoPin = async (files) => {
     if (!pinSelezionato) return
-    setUploadingFoto(true)
-    try {
-      const fd = new FormData(); fd.append('file', file)
-      const r = await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setDocSelezionato(r.data); qc.invalidateQueries(['documenti', cantiereId]); toast.success('Foto aggiunta')
-    } catch (e) { toast.error(e.response?.data?.detail || 'Errore upload foto')
-    } finally { setUploadingFoto(false) }
+    const fileList = Array.from(files)
+    if (fileList.length === 0) return
+    setUploadingFotoCount(n => n + fileList.length)
+    // Upload in background — non blocca l'UI
+    Promise.all(fileList.map(async (file) => {
+      try {
+        const fd = new FormData(); fd.append('file', file)
+        const r = await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        setDocSelezionato(r.data)
+      } catch (e) { toast.error(e.response?.data?.detail || `Errore upload ${file.name}`) }
+      finally { setUploadingFotoCount(n => n - 1) }
+    })).then(() => {
+      qc.invalidateQueries(['documenti', cantiereId])
+      toast.success(fileList.length > 1 ? `${fileList.length} foto aggiunte` : 'Foto aggiunta')
+    })
   }
 
   const onClickMappa = (e) => {
@@ -955,10 +964,11 @@ function MappeTab({ cantiereId }) {
                       </div>
                     )}
                     {canContrib && (
-                      <label className={`flex items-center gap-2 text-xs text-steelex-orange cursor-pointer hover:underline ${uploadingFoto ? 'opacity-50' : ''}`}>
-                        <Camera size={14} />{uploadingFoto ? 'Caricamento...' : 'Aggiungi foto'}
-                        <input type="file" accept="image/*" capture="environment" className="hidden"
-                          onChange={e => e.target.files[0] && uploadFotoPin(e.target.files[0])} disabled={uploadingFoto} />
+                      <label className="flex items-center gap-2 text-xs text-steelex-orange cursor-pointer hover:underline">
+                        <Camera size={14} />
+                        {uploadingFotoCount > 0 ? `⏳ ${uploadingFotoCount} in upload...` : 'Aggiungi foto'}
+                        <input type="file" accept="image/*" multiple className="hidden"
+                          onChange={e => e.target.files.length && uploadFotoPin(e.target.files)} />
                       </label>
                     )}
                   </div>
@@ -1034,15 +1044,20 @@ function MappeTab({ cantiereId }) {
           <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3 shadow-xl" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-gray-900">Nuovo pin</h3>
             {/* Tipo */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {Object.entries(TIPO_PIN).map(([k, v]) => (
                 <button key={k} onClick={() => setPinForm(f => ({ ...f, tipo: k }))}
                   className={`py-2.5 rounded-xl text-xs font-medium border-2 transition-colors flex flex-col items-center gap-1 ${pinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
-                  {k === 'criticita' ? <AlertTriangle size={15} /> : k === 'lavorazione' ? <Wrench size={15} /> : <MapPin size={15} />}
+                  {k === 'criticita' ? <AlertTriangle size={15} /> : k === 'lavorazione' ? <Wrench size={15} /> : k === 'extra_preventivo' ? <AlertCircle size={15} className="text-orange-500" /> : <MapPin size={15} />}
                   {v.label}
                 </button>
               ))}
             </div>
+            {pinForm.tipo === 'extra_preventivo' && (
+              <div className="bg-orange-50 border border-orange-300 rounded-xl p-3 text-xs text-orange-800">
+                ⚠️ <strong>Extra preventivo</strong>: verrà inviata una notifica al direttore dei lavori e all'amministrazione. Ricorda di aggiungere la voce nelle spese.
+              </div>
+            )}
             {/* Descrizione + Registrazione vocale */}
             {pinFormRecStato === 'idle' && (
               <button onClick={avviaPinFormRec}
@@ -1250,7 +1265,7 @@ function DiarioTab({ cantiereId, utente }) {
   const puoValidare = ['admin', 'capo_cantiere', 'amministrazione'].includes(ruolo)
 
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0 })
+  const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0, extra_preventivo: false, extra_preventivo_nota: '' })
   const [uploadingFor, setUploadingFor] = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
   const [confirmDiario, setConfirmDiario] = useState(null) // { id, attivita } da confermare
@@ -1524,6 +1539,21 @@ function DiarioTab({ cantiereId, utente }) {
               <input type="number" min="0" className="input-field" value={form.operai_presenti} onChange={e => setForm(f => ({ ...f, operai_presenti: e.target.value }))} />
             </div>
           </div>
+          {/* Tag Extra Preventivo */}
+          <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${form.extra_preventivo ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`}>
+            <input type="checkbox" checked={form.extra_preventivo || false}
+              onChange={e => setForm(f => ({ ...f, extra_preventivo: e.target.checked }))}
+              className="w-4 h-4 accent-orange-500" />
+            <div>
+              <p className="text-sm font-medium text-gray-800">⚠️ Extra preventivo</p>
+              <p className="text-xs text-gray-500">Notifica DL e amministrazione — aggiungi poi nelle spese</p>
+            </div>
+          </label>
+          {form.extra_preventivo && (
+            <input className="input-field" placeholder="Nota extra preventivo (opzionale)..."
+              value={form.extra_preventivo_nota || ''}
+              onChange={e => setForm(f => ({ ...f, extra_preventivo_nota: e.target.value }))} />
+          )}
           <div className="flex gap-2">
             <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">Annulla</button>
             <button onClick={() => createMutation.mutate()} className="btn-primary flex-1">Salva</button>
@@ -1588,9 +1618,10 @@ function DiarioTab({ cantiereId, utente }) {
           <div key={d.id} className="card space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {d.fonte === 'voce' && <Mic size={12} className="text-red-400 flex-shrink-0" />}
                   <span className="font-bold text-gray-800 text-sm">{dayjs(d.data).format('dddd D MMMM YYYY')}</span>
+                  {d.extra_preventivo && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">⚠ Extra preventivo</span>}
                 </div>
                 {d.autore_nome && <p className="text-xs text-gray-400">{d.autore_nome}</p>}
               </div>

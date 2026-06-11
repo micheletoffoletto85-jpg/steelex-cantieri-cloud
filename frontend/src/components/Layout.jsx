@@ -2,7 +2,9 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { useQuery } from 'react-query'
 import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
+import api from '../lib/api'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -39,6 +41,14 @@ export default function Layout() {
 
   const handleLogout = () => { logout(); navigate('/login') }
   const mostraNotificheBell = supportaNotifiche() && ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)
+
+  // Badge notifiche non lette
+  const { data: notificheInApp = [] } = useQuery(
+    'notifiche-inapp',
+    () => api.get('/notifiche/inapp').then(r => r.data),
+    { staleTime: 30000, refetchInterval: 60000, enabled: !!utente }
+  )
+  const nonLette = notificheInApp.filter(n => !n.letta).length
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -106,7 +116,14 @@ export default function Layout() {
                       : 'text-gray-300 hover:bg-white/10 hover:text-white'
                   }`
                 }>
-                <Icon size={18} />
+                <div className="relative">
+                  <Icon size={18} />
+                  {to === '/' && nonLette > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full text-white text-[9px] font-bold flex items-center justify-center">
+                      {nonLette > 9 ? '9+' : nonLette}
+                    </span>
+                  )}
+                </div>
                 {label}
               </NavLink>
             ))}

@@ -11,6 +11,8 @@ class DiarioBase(BaseModel):
 
 class DiarioCreate(DiarioBase):
     cantiere_id: int
+    extra_preventivo: Optional[bool] = False
+    extra_preventivo_nota: Optional[str] = None
 
 class DiarioUpdate(BaseModel):
     attivita: Optional[str] = None
@@ -18,6 +20,8 @@ class DiarioUpdate(BaseModel):
     meteo: Optional[str] = None
     operai_presenti: Optional[int] = None
     condividi_cliente: Optional[bool] = None
+    extra_preventivo: Optional[bool] = None
+    extra_preventivo_nota: Optional[str] = None
 
 class DiarioOut(DiarioBase):
     id: int
@@ -31,6 +35,8 @@ class DiarioOut(DiarioBase):
     voci_estratte: Optional[Any] = None
     condividi_cliente: bool = False
     stato_validazione: Optional[str] = "pubblicata"
+    extra_preventivo: Optional[bool] = False
+    extra_preventivo_nota: Optional[str] = None
     autore_nome: Optional[str] = None   # calcolato nel router
 
     class Config:

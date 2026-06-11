@@ -9,7 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita  # importa tutti i modelli
+from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
@@ -152,6 +152,22 @@ def _migra():
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS durc_url VARCHAR(500)",
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_sicurezza_url VARCHAR(500)",
         "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS attestato_primo_soccorso_url VARCHAR(500)",
+        # Notifiche in-app
+        """CREATE TABLE IF NOT EXISTS notifiche_inapp (
+            id          SERIAL PRIMARY KEY,
+            user_id     INTEGER NOT NULL REFERENCES utenti(id) ON DELETE CASCADE,
+            cantiere_id INTEGER REFERENCES cantieri(id) ON DELETE CASCADE,
+            tipo        VARCHAR(30) DEFAULT 'info',
+            titolo      VARCHAR(200) NOT NULL,
+            corpo       TEXT,
+            url         VARCHAR(300),
+            letta       BOOLEAN DEFAULT FALSE,
+            creato_il   TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_notifiche_inapp_user ON notifiche_inapp(user_id, letta, creato_il DESC)",
+        # Extra preventivo nel diario
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS extra_preventivo BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS extra_preventivo_nota TEXT",
         # Autorizzazione pagamento fatture
         "ALTER TABLE fatture_fornitori ADD COLUMN IF NOT EXISTS autorizzata BOOLEAN DEFAULT FALSE",
         "ALTER TABLE fatture_fornitori ADD COLUMN IF NOT EXISTS autorizzata_da INTEGER REFERENCES utenti(id)",

@@ -274,15 +274,25 @@ def aggiungi_pin(
     pins.append(pin)
     _salva_pin_dati(doc, pins, db)
     try:
-        # Notifica admin/capo cantiere
         extra = [data.assegnato_a_user_id] if data.assegnato_a_user_id else []
-        notifica_cantiere(db, cantiere_id,
-            ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"],
-            titolo="📍 Nuovo pin aggiunto alla mappa",
-            corpo=f"{user.nome} {user.cognome}: {(data.nota or '')[:80]}",
-            escludi_id=user.id,
-            extra_user_ids=extra,
-        )
+        if data.tipo == "extra_preventivo":
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "amministrazione"],
+                titolo="⚠️ Extra preventivo segnalato",
+                corpo=f"{user.nome} {user.cognome}: {(data.nota or '')[:80]}",
+                escludi_id=user.id,
+                extra_user_ids=extra,
+                tipo="extra_preventivo",
+            )
+        else:
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"],
+                titolo="📍 Nuovo pin aggiunto alla mappa",
+                corpo=f"{user.nome} {user.cognome}: {(data.nota or '')[:80]}",
+                escludi_id=user.id,
+                extra_user_ids=extra,
+                tipo="info",
+            )
     except Exception: pass
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc

@@ -54,12 +54,21 @@ def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_
     db.commit()
     db.refresh(diario)
     try:
-        notifica_cantiere(db, cantiere_id,
-            ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"],
-            titolo="📋 Nuova nota diario",
-            corpo=f"{user.nome} {user.cognome}: {(data.attivita or '')[:80]}",
-            escludi_id=user.id,
-        )
+        if getattr(data, 'extra_preventivo', False):
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "amministrazione"],
+                titolo="⚠️ Extra preventivo nel diario",
+                corpo=f"{user.nome} {user.cognome}: {(data.extra_preventivo_nota or data.attivita or '')[:80]}",
+                escludi_id=user.id,
+                tipo="extra_preventivo",
+            )
+        else:
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"],
+                titolo="📋 Nuova nota diario",
+                corpo=f"{user.nome} {user.cognome}: {(data.attivita or '')[:80]}",
+                escludi_id=user.id,
+            )
     except Exception: pass
     return _diario_out(diario)
 

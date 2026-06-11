@@ -1,6 +1,6 @@
-import { useQuery } from 'react-query'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Link } from 'react-router-dom'
-import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, ChevronRight, Calendar } from 'lucide-react'
+import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, ChevronRight, Calendar, Bell, BellOff } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import dayjs from 'dayjs'
@@ -244,6 +244,9 @@ export default function DashboardPage() {
             <StatCard icon={TrendingUp} label="Avanz. Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
           </div>
 
+          {/* Notifiche */}
+          <NotifichePanel />
+
           {/* Azioni rapide — solo desktop, no cliente */}
           {!isCliente && (
             <div className="hidden lg:block card space-y-2">
@@ -304,6 +307,74 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function NotifichePanel() {
+  const qc = useQueryClient()
+  const { data: notifiche = [], isLoading } = useQuery(
+    'notifiche-inapp',
+    () => api.get('/notifiche/inapp').then(r => r.data),
+    { staleTime: 30000, refetchInterval: 60000 }
+  )
+  const leggiTutte = useMutation(
+    () => api.post('/notifiche/inapp/leggi-tutte'),
+    { onSuccess: () => qc.invalidateQueries('notifiche-inapp') }
+  )
+  const leggi = useMutation(
+    (id) => api.post(`/notifiche/inapp/${id}/leggi`),
+    { onSuccess: () => qc.invalidateQueries('notifiche-inapp') }
+  )
+
+  const nonLette = notifiche.filter(n => !n.letta).length
+  const TIPO_COLOR = {
+    extra_preventivo: 'border-l-orange-500 bg-orange-50',
+    warning: 'border-l-yellow-500 bg-yellow-50',
+    nc: 'border-l-red-500 bg-red-50',
+    fattura: 'border-l-blue-500 bg-blue-50',
+    info: 'border-l-gray-300 bg-white',
+  }
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bell size={16} className="text-steelex-orange" />
+          <h2 className="font-bold text-gray-800">Notifiche</h2>
+          {nonLette > 0 && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold">{nonLette}</span>}
+        </div>
+        {nonLette > 0 && (
+          <button onClick={() => leggiTutte.mutate()} className="text-xs text-gray-400 hover:text-steelex-orange">
+            Segna tutte lette
+          </button>
+        )}
+      </div>
+      {isLoading && <div className="text-center py-4 text-gray-400 text-sm">Caricamento...</div>}
+      {!isLoading && notifiche.length === 0 && (
+        <div className="text-center py-6 text-gray-400">
+          <BellOff size={28} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm">Nessuna notifica</p>
+        </div>
+      )}
+      <div className="space-y-2 max-h-80 overflow-y-auto">
+        {notifiche.map(n => (
+          <div key={n.id}
+            className={`border-l-4 rounded-r-xl px-3 py-2 cursor-pointer transition-opacity ${TIPO_COLOR[n.tipo] || TIPO_COLOR.info} ${n.letta ? 'opacity-50' : ''}`}
+            onClick={() => {
+              if (!n.letta) leggi.mutate(n.id)
+              if (n.url) window.location.href = n.url
+            }}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${n.letta ? 'text-gray-500' : 'text-gray-900'}`}>{n.titolo}</p>
+                {n.corpo && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.corpo}</p>}
+              </div>
+              <span className="text-xs text-gray-400 flex-shrink-0">{dayjs(n.creato_il).fromNow()}</span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

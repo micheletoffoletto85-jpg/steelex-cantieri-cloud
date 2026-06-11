@@ -3,11 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.notifica import PushSubscription
+from app.models.notifica_inapp import NotificaInApp
 from app.models.utente import Utente, RuoloUtente
 from app.auth import get_current_user
 from app.config import settings
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime
 
 router = APIRouter(prefix="/notifiche", tags=["Notifiche"])
 
@@ -53,6 +55,52 @@ def subscribe(
     return {"ok": True}
 
 
+class NotificaInAppOut(BaseModel):
+    id: int
+    cantiere_id: Optional[int] = None
+    tipo: str
+    titolo: str
+    corpo: Optional[str] = None
+    url: Optional[str] = None
+    letta: bool
+    creato_il: datetime
+    class Config: from_attributes = True
+
+
+@router.get("/inapp", response_model=List[NotificaInAppOut])
+def get_notifiche_inapp(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    return db.query(NotificaInApp).filter(
+        NotificaInApp.user_id == user.id
+    ).order_by(NotificaInApp.creato_il.desc()).limit(50).all()
+
+
+@router.post("/inapp/{notifica_id}/leggi")
+def segna_letta(
+    notifica_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    n = db.query(NotificaInApp).filter(NotificaInApp.id == notifica_id, NotificaInApp.user_id == user.id).first()
+    if n:
+        n.letta = True; db.commit()
+    return {"ok": True}
+
+
+@router.post("/inapp/leggi-tutte")
+def segna_tutte_lette(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    db.query(NotificaInApp).filter(
+        NotificaInApp.user_id == user.id, NotificaInApp.letta == False
+    ).update({"letta": True})
+    db.commit()
+    return {"ok": True}
+
+
 @router.delete("/unsubscribe")
 def unsubscribe(
     endpoint: str,
@@ -77,15 +125,17 @@ def notifica_cantiere(
     corpo: str,
     escludi_id: int | None = None,
     extra_user_ids: list[int] | None = None,
+    tipo: str = "info",
 ):
     """
-    Invia push notification agli utenti attivi con i ruoli indicati.
-    Esclude l'autore dell'azione (escludi_id) per non notificare chi ha appena agito.
-    extra_user_ids: utenti specifici da aggiungere (es. fornitore assegnato al pin).
+    Invia notifica in-app + push agli utenti con i ruoli indicati.
+    Admin, capo_cantiere, amministrazione ricevono SEMPRE tutte le notifiche.
     """
     from app.models.utente import Utente as UtenteModel
+    # Ruoli richiesti + sempre: admin, capo_cantiere, amministrazione
+    ruoli_estesi = list(set(ruoli) | {"admin", "capo_cantiere", "amministrazione"})
     dest = db.query(UtenteModel).filter(
-        UtenteModel.ruolo.in_(ruoli),
+        UtenteModel.ruolo.in_(ruoli_estesi),
         UtenteModel.attivo == True,
     ).all()
     ids = {u.id for u in dest}
@@ -94,7 +144,7 @@ def notifica_cantiere(
     if escludi_id:
         ids.discard(escludi_id)
     if ids:
-        invia_notifica(db, list(ids), titolo, corpo, f"/cantieri/{cantiere_id}")
+        invia_notifica(db, list(ids), titolo, corpo, f"/cantieri/{cantiere_id}", tipo=tipo, cantiere_id=cantiere_id)
 
 
 # ─── HELPER: invia notifica a uno o più utenti ────────────────────────────────
@@ -105,10 +155,24 @@ def invia_notifica(
     titolo: str,
     corpo: str,
     url: str = "/",
+    tipo: str = "info",
+    cantiere_id: int | None = None,
 ):
-    """Invia push notification a tutti i dispositivi degli utenti indicati."""
+    """Invia notifica in-app (DB) + push notification a tutti i dispositivi degli utenti indicati."""
+    # Sempre salva in DB (in-app)
+    for uid in user_ids:
+        try:
+            n = NotificaInApp(user_id=uid, titolo=titolo, corpo=corpo, url=url, tipo=tipo, cantiere_id=cantiere_id)
+            db.add(n)
+        except Exception:
+            pass
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
     if not settings.VAPID_PRIVATE_KEY or not settings.VAPID_PUBLIC_KEY:
-        return  # non configurato, silenzioso
+        return  # push non configurato, silenzioso
 
     subs = db.query(PushSubscription).filter(
         PushSubscription.user_id.in_(user_ids)
