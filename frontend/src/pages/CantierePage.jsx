@@ -749,14 +749,26 @@ function MappeTab({ cantiereId }) {
   // Chip visibilità: ogni membro ha il suo chip con nome
   // Ruoli "unici" (admin, capo_cantiere, direzione_lavori) → chip ruolo
   // Ruoli "multipli" (artigiano, fornitore, cliente) → chip per persona
-  const RUOLI_UNICI = new Set(['admin', 'capo_cantiere', 'capo_cantiere_sub', 'direzione_lavori'])
-  const RUOLO_LABEL_SHORT = {
-    admin: 'Admin', capo_cantiere: 'Capo Cantiere', capo_cantiere_sub: 'Vice Capo',
-    direzione_lavori: 'Dir. Lavori', artigiano: 'Artigiano', fornitore: 'Fornitore', cliente: 'Cliente',
-  }
+  // Ruoli sempre presenti come chip (indipendentemente dal team)
+  const CHIP_RUOLI_FISSI = [
+    { key: 'admin',                label: 'Admin' },
+    { key: 'capo_cantiere',        label: 'Capo Cantiere' },
+    { key: 'capo_cantiere_sub',    label: 'Vice Capo' },
+    { key: 'direzione_lavori',     label: 'Dir. Lavori' },
+    { key: 'amministrazione',      label: 'Amministrazione' },
+  ]
+  const RUOLI_FISSI_KEYS = new Set(CHIP_RUOLI_FISSI.map(c => c.key))
+
+  // Chip visibilità: ruoli fissi + persone specifiche del team (fornitori, artigiani, clienti)
+  const chipVisibilita = [
+    ...CHIP_RUOLI_FISSI,
+    ...teamAttivo
+      .filter(u => !RUOLI_FISSI_KEYS.has(u.ruolo))
+      .map(u => ({ key: `user_${u.id}`, label: `${u.nome} ${u.cognome}` }))
+  ]
+
   // Verifica se una chip key riguarda il cliente (per conferma condivisione)
   const isClienteKey = (key) => {
-    if (key === 'cliente') return true
     if (key.startsWith('user_')) {
       const uid = parseInt(key.replace('user_', ''))
       const u = teamAttivo.find(u => u.id === uid)
@@ -764,16 +776,6 @@ function MappeTab({ cantiereId }) {
     }
     return false
   }
-  // Costruisce la lista chip: { key, label } dove key è il valore salvato in visibilita
-  const chipVisibilita = (() => {
-    const chips = []
-    const ruoliUnici = [...new Set(teamAttivo.filter(u => RUOLI_UNICI.has(u.ruolo)).map(u => u.ruolo))]
-    ruoliUnici.forEach(r => chips.push({ key: r, label: RUOLO_LABEL_SHORT[r] }))
-    teamAttivo.filter(u => !RUOLI_UNICI.has(u.ruolo)).forEach(u =>
-      chips.push({ key: `user_${u.id}`, label: `${u.nome} ${u.cognome}` })
-    )
-    return chips
-  })()
 
   const { data: docs = [], isLoading } = useQuery(
     ['documenti', cantiereId],
