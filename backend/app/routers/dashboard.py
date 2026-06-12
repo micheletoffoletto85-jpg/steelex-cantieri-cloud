@@ -4,11 +4,15 @@ Protetto da DASHBOARD_API_KEY (variabile d'ambiente) — non richiede JWT.
 Restituisce un riepilogo aggregato dei cantieri per il cruscotto.
 """
 import os
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from app.database import get_db
 from app.models.cantiere import Cantiere, StatoCantiere
 from app.models.non_conformita import NonConformita
+from app.models.notifica_inapp import NotificaInApp
+from app.models.diario import DiarioGiornaliero
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -68,4 +72,65 @@ def dashboard_summary(db: Session = Depends(get_db)):
         "criticita": criticita,
         "totale_cantieri": len(cantieri_out),
         "totale_criticita": len(criticita),
+    }
+
+
+@router.get("/aggiornamenti", dependencies=[Depends(_verifica_api_key)])
+def dashboard_aggiornamenti(db: Session = Depends(get_db), giorni: int = 7):
+    """Ultime notifiche in-app e diari recenti per il Cruscotto Michele."""
+    cutoff = datetime.utcnow() - timedelta(days=giorni)
+
+    # Notifiche non lette (tutte) + lette recenti
+    notifiche = (
+        db.query(NotificaInApp)
+        .filter(NotificaInApp.creato_il >= cutoff)
+        .order_by(desc(NotificaInApp.creato_il))
+        .limit(20)
+        .all()
+    )
+
+    # Mappa id cantiere → nome
+    id_cantieri = {c.id for n in notifiche if n.cantiere_id for c in []}
+    cantieri_map = {c.id: c.nome for c in db.query(Cantiere.id, Cantiere.nome).all()}
+
+    notifiche_out = []
+    for n in notifiche:
+        notifiche_out.append({
+            "id": n.id,
+            "tipo": n.tipo,
+            "titolo": n.titolo,
+            "corpo": n.corpo or "",
+            "letta": n.letta,
+            "cantiere": cantieri_map.get(n.cantiere_id, "") if n.cantiere_id else "",
+            "data": n.creato_il.strftime("%d/%m %H:%M") if n.creato_il else "",
+            "data_iso": n.creato_il.isoformat() if n.creato_il else "",
+        })
+
+    # Ultimi diari giornalieri
+    diari = (
+        db.query(DiarioGiornaliero)
+        .filter(DiarioGiornaliero.creato_il >= cutoff)
+        .order_by(desc(DiarioGiornaliero.creato_il))
+        .limit(10)
+        .all()
+    )
+
+    diari_out = []
+    for d in diari:
+        diari_out.append({
+            "id": d.id,
+            "cantiere": cantieri_map.get(d.cantiere_id, ""),
+            "data": d.data.strftime("%d/%m/%Y") if d.data else "",
+            "attivita": (d.attivita or "")[:200],
+            "problemi": (d.problemi or "")[:150],
+            "operai": d.operai_presenti or 0,
+            "fonte": d.fonte or "manuale",
+        })
+
+    non_lette = sum(1 for n in notifiche_out if not n["letta"])
+
+    return {
+        "notifiche": notifiche_out,
+        "diari": diari_out,
+        "non_lette": non_lette,
     }
