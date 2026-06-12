@@ -516,7 +516,10 @@ const ASSEGNATO_LABEL = { admin:'Admin', capo_cantiere:'Capo Cantiere', fornitor
 
 /* ─── ANNOTATORE FOTO ─── */
 function AnnotaFoto({ url, onSalva, onChiudi }) {
-  const { src: blobSrc, loading: imgLoading } = useAuthImage(url)
+  // Usa il src diretto per display (veloce)
+  const { src: displaySrc, loading: imgLoading } = useAuthImage(url)
+  // Per il canvas compositing, serve sempre un blob URL (evita CORS taint)
+  const [canvasBlobSrc, setCanvasBlobSrc] = useState(null)
   const canvasRef = useRef(null)
   const imgRef = useRef(null)
   const [tool, setTool] = useState('pen') // pen | text | eraser
@@ -528,6 +531,21 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   const [textInput, setTextInput] = useState('')
   const [textPos, setTextPos] = useState(null)
   const [saving, setSaving] = useState(false)
+
+  // Converte in blob URL per canvas (supporta sia R2 che URL locali)
+  useEffect(() => {
+    if (!displaySrc) return
+    let objUrl = null
+    if (displaySrc.startsWith('blob:')) {
+      setCanvasBlobSrc(displaySrc)
+      return
+    }
+    fetch(displaySrc, { mode: 'cors', cache: 'force-cache' })
+      .then(r => r.blob())
+      .then(b => { objUrl = URL.createObjectURL(b); setCanvasBlobSrc(objUrl) })
+      .catch(() => setCanvasBlobSrc(displaySrc)) // fallback: prova comunque
+    return () => { if (objUrl) URL.revokeObjectURL(objUrl) }
+  }, [displaySrc])
 
   // Inizializza canvas quando l'immagine è pronta
   const onImgLoad = () => {
@@ -624,22 +642,23 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
     }
     setSaving(true)
     try {
-      // Carica l'immagine come blob per evitare CORS taint sul canvas
-      const imgBlob = await fetch(url, { mode: 'cors', cache: 'force-cache' })
-        .then(r => r.blob())
-        .catch(() => null)
-
       const out = document.createElement('canvas')
       out.width = canvas.width
       out.height = canvas.height
       const ctx = out.getContext('2d')
-
-      if (imgBlob) {
-        const bmp = await createImageBitmap(imgBlob)
-        ctx.drawImage(bmp, 0, 0, out.width, out.height)
+      // Carica sfondo dal blob URL canvas-safe
+      if (canvasBlobSrc) {
+        await new Promise(resolve => {
+          const bg = new window.Image()
+          bg.onload = () => { ctx.drawImage(bg, 0, 0, out.width, out.height); resolve() }
+          bg.onerror = resolve
+          bg.src = canvasBlobSrc
+        })
+      } else {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, out.width, out.height)
       }
       ctx.drawImage(canvas, 0, 0)
-
       out.toBlob(async (blob) => {
         if (!blob) { toast.error('Errore composizione immagine'); setSaving(false); return }
         try { await onSalva(blob) }
@@ -693,7 +712,8 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
           </div>
         )}
         <div className="relative" style={{ display: imgLoading ? 'none' : 'inline-block' }}>
-          <img ref={imgRef} src={blobSrc || ''} alt="" className="max-w-full max-h-[calc(100vh-100px)] block" style={{ userSelect: 'none' }} onLoad={onImgLoad} />
+          <img ref={imgRef} src={displaySrc || ''} alt=""
+            className="max-w-full max-h-[calc(100vh-100px)] block" style={{ userSelect: 'none' }} onLoad={onImgLoad} />
           <canvas ref={canvasRef}
             className="absolute inset-0 w-full h-full"
             style={{ cursor: tool === 'eraser' ? 'cell' : tool === 'text' ? 'text' : 'crosshair', touchAction: 'none' }}
