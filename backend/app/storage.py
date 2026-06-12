@@ -19,6 +19,27 @@ def _r2_client():
     )
 
 
+def configura_cors_r2():
+    """Imposta CORS sul bucket R2 per permettere fetch() dal browser."""
+    client = _r2_client()
+    if not client:
+        return
+    try:
+        client.put_bucket_cors(
+            Bucket=settings.R2_BUCKET_NAME,
+            CORSConfiguration={
+                "CORSRules": [{
+                    "AllowedHeaders": ["*"],
+                    "AllowedMethods": ["GET", "HEAD"],
+                    "AllowedOrigins": ["*"],
+                    "MaxAgeSeconds": 86400,
+                }]
+            },
+        )
+    except Exception:
+        pass
+
+
 def salva_file(contenuto: bytes, cartella: str, estensione: str) -> tuple[str, str]:
     """
     Salva il file e restituisce (url_pubblica, percorso_locale_o_chiave).

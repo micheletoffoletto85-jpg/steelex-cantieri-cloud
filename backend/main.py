@@ -197,6 +197,9 @@ def _migra():
 
 _migra()
 
+from app.storage import configura_cors_r2
+configura_cors_r2()
+
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(

@@ -479,15 +479,17 @@ function useAuthImage(url) {
     setError(false)
     setSrc(null)
 
-    // URL R2 (http): fetch diretto senza token
-    // URL locale (/api/v1/...): fetch con Bearer token via api
-    const fetcher = url.startsWith('http')
-      ? fetch(url).then(r => r.blob())
-      : api.get(url, { responseType: 'blob' }).then(r => r.data)
+    // URL R2 pubblica — usa direttamente (no CORS fetch per display)
+    if (url.startsWith('http')) {
+      setSrc(url)
+      setLoading(false)
+      return
+    }
 
-    fetcher
+    // URL locale — fetch con Bearer token
+    api.get(url, { responseType: 'blob' })
       .then(blob => {
-        objectUrl = URL.createObjectURL(blob)
+        objectUrl = URL.createObjectURL(blob.data ?? blob)
         setSrc(objectUrl)
       })
       .catch(() => setError(true))
@@ -615,25 +617,33 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   }
 
   const salva = async () => {
-    const imgEl = imgRef.current
     const canvas = canvasRef.current
-    if (!imgEl || !canvas || canvas.width === 0 || canvas.height === 0) {
+    if (!canvas || canvas.width === 0 || canvas.height === 0) {
       toast.error('Attendi il caricamento immagine')
       return
     }
     setSaving(true)
     try {
+      // Carica l'immagine come blob per evitare CORS taint sul canvas
+      const imgBlob = await fetch(url, { mode: 'cors', cache: 'force-cache' })
+        .then(r => r.blob())
+        .catch(() => null)
+
       const out = document.createElement('canvas')
       out.width = canvas.width
       out.height = canvas.height
       const ctx = out.getContext('2d')
-      ctx.drawImage(imgEl, 0, 0, out.width, out.height)
+
+      if (imgBlob) {
+        const bmp = await createImageBitmap(imgBlob)
+        ctx.drawImage(bmp, 0, 0, out.width, out.height)
+      }
       ctx.drawImage(canvas, 0, 0)
+
       out.toBlob(async (blob) => {
         if (!blob) { toast.error('Errore composizione immagine'); setSaving(false); return }
-        try {
-          await onSalva(blob)
-        } catch { toast.error('Errore salvataggio') }
+        try { await onSalva(blob) }
+        catch { toast.error('Errore salvataggio') }
         finally { setSaving(false) }
       }, 'image/jpeg', 0.9)
     } catch { setSaving(false) }
