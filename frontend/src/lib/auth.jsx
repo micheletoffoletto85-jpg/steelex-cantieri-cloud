@@ -10,7 +10,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
-      api.get('/auth/me')
+      api.get('/auth/me', { timeout: 8000 })
         .then(r => setUtente(r.data))
         .catch(() => localStorage.removeItem('token'))
         .finally(() => setLoading(false))
