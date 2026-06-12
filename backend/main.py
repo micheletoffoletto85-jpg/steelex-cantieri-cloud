@@ -18,6 +18,7 @@ from app.routers import note_campo as note_campo_router
 from app.routers import fornitori_rating as fornitori_rating_router
 from app.routers import artigiani as artigiani_router
 from app.routers import non_conformita as nc_router
+from app.routers import dashboard as dashboard_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -243,6 +244,7 @@ app.include_router(note_campo_router.router, prefix="/api/v1")
 app.include_router(fornitori_rating_router.router, prefix="/api/v1")
 app.include_router(artigiani_router.router, prefix="/api/v1")
 app.include_router(nc_router.router, prefix="/api/v1")
+app.include_router(dashboard_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():
