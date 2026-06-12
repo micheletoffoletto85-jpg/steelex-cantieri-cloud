@@ -479,17 +479,15 @@ function useAuthImage(url) {
     setError(false)
     setSrc(null)
 
-    // URL pubblica R2 — usa direttamente
-    if (url.startsWith('http')) {
-      setSrc(url)
-      setLoading(false)
-      return
-    }
+    // URL R2 (http): fetch diretto senza token
+    // URL locale (/api/v1/...): fetch con Bearer token via api
+    const fetcher = url.startsWith('http')
+      ? fetch(url).then(r => r.blob())
+      : api.get(url, { responseType: 'blob' }).then(r => r.data)
 
-    // URL locale — fetch con Bearer token
-    api.get(url, { responseType: 'blob' })
-      .then(r => {
-        objectUrl = URL.createObjectURL(r.data)
+    fetcher
+      .then(blob => {
+        objectUrl = URL.createObjectURL(blob)
         setSrc(objectUrl)
       })
       .catch(() => setError(true))
