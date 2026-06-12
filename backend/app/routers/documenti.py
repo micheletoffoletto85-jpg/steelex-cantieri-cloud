@@ -406,6 +406,82 @@ async def upload_foto_pin(
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc
 
+@router.delete("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/foto", response_model=DocumentoOut)
+async def elimina_foto_pin(
+    cantiere_id: int, doc_id: int, pin_id: int,
+    idx: int,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    """Elimina una foto dal pin per indice."""
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_contribute(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pin = _get_pin(doc, pin_id)
+    if not pin:
+        raise HTTPException(status_code=404, detail="Pin non trovato")
+    urls = list(pin.get("foto_urls") or [])
+    if idx < 0 or idx >= len(urls):
+        raise HTTPException(status_code=400, detail="Indice foto non valido")
+    urls.pop(idx)
+    pin["foto_urls"] = urls
+    _salva_pin_dati(doc, doc.pin_dati, db)
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
+    return doc
+
+
+@router.post("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/annota", response_model=DocumentoOut)
+async def annota_foto_pin(
+    cantiere_id: int, doc_id: int, pin_id: int,
+    idx: int,
+    overlay: UploadFile = File(...),
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    """Composita overlay (PNG trasparente) con la foto originale lato server."""
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    if not _can_contribute(user):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pin = _get_pin(doc, pin_id)
+    if not pin:
+        raise HTTPException(status_code=404, detail="Pin non trovato")
+    urls = list(pin.get("foto_urls") or [])
+    if idx < 0 or idx >= len(urls):
+        raise HTTPException(status_code=400, detail="Indice foto non valido")
+
+    try:
+        from PIL import Image as PILImage
+        import io, httpx
+        orig_url = urls[idx]
+        # Scarica immagine originale (R2 pubblica o locale)
+        if orig_url.startswith("http"):
+            resp = httpx.get(orig_url, timeout=15)
+            orig_bytes = resp.content
+        else:
+            from app.storage import leggi_file
+            orig_bytes, _ = leggi_file(orig_url.lstrip("/uploads/"))
+        overlay_bytes = await overlay.read()
+        base = PILImage.open(io.BytesIO(orig_bytes)).convert("RGBA")
+        over = PILImage.open(io.BytesIO(overlay_bytes)).convert("RGBA")
+        over = over.resize(base.size, PILImage.LANCZOS)
+        base.alpha_composite(over)
+        out = io.BytesIO()
+        base.convert("RGB").save(out, format="JPEG", quality=90)
+        url_nuova, _ = salva_file(out.getvalue(), f"pin-foto/{cantiere_id}", ".jpg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore compositing: {e}")
+
+    urls[idx] = url_nuova
+    pin["foto_urls"] = urls
+    _salva_pin_dati(doc, doc.pin_dati, db)
+    doc.pin_dati = _filtra_pin(doc.pin_dati, user)
+    return doc
+
+
 # ─── PIN REPORT ──────────────────────────────────────────────────────────────
 
 @router.post("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/report", response_model=DocumentoOut)

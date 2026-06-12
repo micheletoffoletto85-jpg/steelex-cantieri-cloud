@@ -515,14 +515,11 @@ const STATO_PIN = {
 const ASSEGNATO_LABEL = { admin:'Admin', capo_cantiere:'Capo Cantiere', fornitore:'Fornitore', cliente:'Cliente' }
 
 /* ─── ANNOTATORE FOTO ─── */
-function AnnotaFoto({ url, onSalva, onChiudi }) {
-  // Usa il src diretto per display (veloce)
+function AnnotaFoto({ url, fotoIdx, pinId, docId, cantiereId, onSalva, onChiudi }) {
   const { src: displaySrc, loading: imgLoading } = useAuthImage(url)
-  // Per il canvas compositing, serve sempre un blob URL (evita CORS taint)
-  const [canvasBlobSrc, setCanvasBlobSrc] = useState(null)
   const canvasRef = useRef(null)
   const imgRef = useRef(null)
-  const [tool, setTool] = useState('pen') // pen | text | eraser
+  const [tool, setTool] = useState('pen')
   const [color, setColor] = useState('#ef4444')
   const [size, setSize] = useState(4)
   const [drawing, setDrawing] = useState(false)
@@ -532,30 +529,13 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   const [textPos, setTextPos] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  // Converte in blob URL per canvas (supporta sia R2 che URL locali)
-  useEffect(() => {
-    if (!displaySrc) return
-    let objUrl = null
-    if (displaySrc.startsWith('blob:')) {
-      setCanvasBlobSrc(displaySrc)
-      return
-    }
-    fetch(displaySrc, { mode: 'cors', cache: 'force-cache' })
-      .then(r => r.blob())
-      .then(b => { objUrl = URL.createObjectURL(b); setCanvasBlobSrc(objUrl) })
-      .catch(() => setCanvasBlobSrc(displaySrc)) // fallback: prova comunque
-    return () => { if (objUrl) URL.revokeObjectURL(objUrl) }
-  }, [displaySrc])
-
-  // Inizializza canvas quando l'immagine è pronta
   const onImgLoad = () => {
     const canvas = canvasRef.current
     const img = imgRef.current
     if (!canvas || !img) return
     canvas.width = img.naturalWidth || img.offsetWidth
     canvas.height = img.naturalHeight || img.offsetHeight
-    const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
   }
 
   const getPos = (e) => {
@@ -637,35 +617,22 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   const salva = async () => {
     const canvas = canvasRef.current
     if (!canvas || canvas.width === 0 || canvas.height === 0) {
-      toast.error('Attendi il caricamento immagine')
-      return
+      toast.error('Attendi il caricamento immagine'); return
     }
     setSaving(true)
     try {
-      const out = document.createElement('canvas')
-      out.width = canvas.width
-      out.height = canvas.height
-      const ctx = out.getContext('2d')
-      // Carica sfondo dal blob URL canvas-safe
-      if (canvasBlobSrc) {
-        await new Promise(resolve => {
-          const bg = new window.Image()
-          bg.onload = () => { ctx.drawImage(bg, 0, 0, out.width, out.height); resolve() }
-          bg.onerror = resolve
-          bg.src = canvasBlobSrc
-        })
-      } else {
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, out.width, out.height)
-      }
-      ctx.drawImage(canvas, 0, 0)
-      out.toBlob(async (blob) => {
-        if (!blob) { toast.error('Errore composizione immagine'); setSaving(false); return }
-        try { await onSalva(blob) }
-        catch { toast.error('Errore salvataggio') }
-        finally { setSaving(false) }
-      }, 'image/jpeg', 0.9)
-    } catch { setSaving(false) }
+      // Invia solo il layer disegno (PNG trasparente) — compositing lato server
+      const overlayBlob = await new Promise(res => canvas.toBlob(res, 'image/png'))
+      if (!overlayBlob) { toast.error('Errore canvas'); setSaving(false); return }
+      const fd = new FormData()
+      fd.append('overlay', overlayBlob, 'overlay.png')
+      await api.post(
+        `/cantieri/${cantiereId}/documenti/${docId}/pin/${pinId}/annota?idx=${fotoIdx}`,
+        fd, { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      await onSalva()
+    } catch { toast.error('Errore salvataggio') }
+    finally { setSaving(false) }
   }
 
   const COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ffffff','#000000']
@@ -746,7 +713,7 @@ function MappeTab({ cantiereId }) {
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
   const [lightboxUrl, setLightboxUrl] = useState(null) // foto aperta a schermo intero
-  const [annotaUrl, setAnnotaUrl] = useState(null) // foto aperta nell'annotatore
+  const [annotaState, setAnnotaState] = useState(null) // { url, idx }
   const [confirmPending, setConfirmPending] = useState(null) // { messaggio, onConfirm }
   const [pinSelezionato, setPinSelezionato] = useState(null)
   const [editPinMode, setEditPinMode] = useState(false)
@@ -1188,10 +1155,21 @@ function MappeTab({ cantiereId }) {
                             <img src={url} onClick={() => setLightboxUrl(url)}
                               className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
                             {canContrib && (
-                              <button onClick={() => setAnnotaUrl(url)}
-                                className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[9px] px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                                <Pen size={9}/>Annota
-                              </button>
+                              <div className="absolute bottom-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => setAnnotaState({ url, idx: i })}
+                                  className="bg-black/60 text-white text-[9px] px-1 py-0.5 rounded flex items-center gap-0.5">
+                                  <Pen size={9}/>Annota
+                                </button>
+                                <button onClick={async () => {
+                                  if (!window.confirm('Eliminare questa foto?')) return
+                                  const r = await api.delete(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/foto?idx=${i}`)
+                                  setDocSelezionato(r.data)
+                                  qc.invalidateQueries(['documenti', cantiereId])
+                                }}
+                                  className="bg-red-600/80 text-white text-[9px] px-1 py-0.5 rounded flex items-center gap-0.5">
+                                  <Trash2 size={9}/>
+                                </button>
+                              </div>
                             )}
                           </div>
                         ))}
@@ -1427,27 +1405,19 @@ function MappeTab({ cantiereId }) {
       )}
 
       {/* ── Annotazione foto ── */}
-      {annotaUrl && (
+      {annotaState && (
         <AnnotaFoto
-          url={annotaUrl}
-          onSalva={async (blob) => {
-            try {
-              const fd = new FormData()
-              fd.append('file', blob, 'annotazione.jpg')
-              const r = await api.post(
-                `/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/foto`,
-                fd,
-                { headers: { 'Content-Type': 'multipart/form-data' } }
-              )
-              setDocSelezionato(r.data)
-              qc.invalidateQueries(['documenti', cantiereId])
-              toast.success('Annotazione salvata')
-            } catch {
-              toast.error('Errore salvataggio annotazione')
-            }
-            setAnnotaUrl(null)
+          url={annotaState.url}
+          fotoIdx={annotaState.idx}
+          pinId={pinSelezionato?.id}
+          docId={docSelezionato?.id}
+          cantiereId={cantiereId}
+          onSalva={async () => {
+            await qc.invalidateQueries(['documenti', cantiereId])
+            toast.success('Annotazione salvata')
+            setAnnotaState(null)
           }}
-          onChiudi={() => setAnnotaUrl(null)}
+          onChiudi={() => setAnnotaState(null)}
         />
       )}
     </div>
