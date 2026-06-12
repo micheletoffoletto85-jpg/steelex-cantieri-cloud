@@ -519,8 +519,6 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   const { src: blobSrc, loading: imgLoading } = useAuthImage(url)
   const canvasRef = useRef(null)
   const imgRef = useRef(null)
-  // imgBitmap viene disegnata sul canvas di output al salvataggio
-  const imgBitmapRef = useRef(null)
   const [tool, setTool] = useState('pen') // pen | text | eraser
   const [color, setColor] = useState('#ef4444')
   const [size, setSize] = useState(4)
@@ -531,20 +529,16 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   const [textPos, setTextPos] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (!blobSrc) return
+  // Inizializza canvas quando l'immagine è pronta
+  const onImgLoad = () => {
     const canvas = canvasRef.current
-    if (!canvas) return
-    const img = new window.Image()
-    img.onload = () => {
-      imgBitmapRef.current = img
-      canvas.width = img.naturalWidth || img.width
-      canvas.height = img.naturalHeight || img.height
-      const ctx = canvas.getContext('2d')
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-    }
-    img.src = blobSrc
-  }, [blobSrc])
+    const img = imgRef.current
+    if (!canvas || !img) return
+    canvas.width = img.naturalWidth || img.offsetWidth
+    canvas.height = img.naturalHeight || img.offsetHeight
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
 
   const getPos = (e) => {
     const canvas = canvasRef.current
@@ -623,20 +617,26 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
   }
 
   const salva = async () => {
+    const imgEl = imgRef.current
+    const canvas = canvasRef.current
+    if (!imgEl || !canvas || canvas.width === 0 || canvas.height === 0) {
+      toast.error('Attendi il caricamento immagine')
+      return
+    }
     setSaving(true)
     try {
-      const imgEl = imgBitmapRef.current
-      const canvas = canvasRef.current
       const out = document.createElement('canvas')
       out.width = canvas.width
       out.height = canvas.height
       const ctx = out.getContext('2d')
-      if (imgEl) ctx.drawImage(imgEl, 0, 0, out.width, out.height)
+      ctx.drawImage(imgEl, 0, 0, out.width, out.height)
       ctx.drawImage(canvas, 0, 0)
       out.toBlob(async (blob) => {
+        if (!blob) { toast.error('Errore composizione immagine'); setSaving(false); return }
         try {
           await onSalva(blob)
-        } finally { setSaving(false) }
+        } catch { toast.error('Errore salvataggio') }
+        finally { setSaving(false) }
       }, 'image/jpeg', 0.9)
     } catch { setSaving(false) }
   }
@@ -685,7 +685,7 @@ function AnnotaFoto({ url, onSalva, onChiudi }) {
           </div>
         )}
         <div className="relative" style={{ display: imgLoading ? 'none' : 'inline-block' }}>
-          <img src={blobSrc || ''} alt="" className="max-w-full max-h-[calc(100vh-100px)] block" style={{ userSelect: 'none' }} />
+          <img ref={imgRef} src={blobSrc || ''} alt="" className="max-w-full max-h-[calc(100vh-100px)] block" style={{ userSelect: 'none' }} onLoad={onImgLoad} />
           <canvas ref={canvasRef}
             className="absolute inset-0 w-full h-full"
             style={{ cursor: tool === 'eraser' ? 'cell' : tool === 'text' ? 'text' : 'crosshair', touchAction: 'none' }}
