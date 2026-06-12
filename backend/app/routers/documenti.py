@@ -464,9 +464,12 @@ async def annota_foto_pin(
         else:
             from app.storage import leggi_file
             orig_bytes, _ = leggi_file(orig_url.lstrip("/uploads/"))
+        from PIL import ImageOps
         overlay_bytes = await overlay.read()
-        base = PILImage.open(io.BytesIO(orig_bytes)).convert("RGBA")
+        # exif_transpose applica la rotazione EXIF ai pixel → allinea con ciò che il browser mostra
+        base = ImageOps.exif_transpose(PILImage.open(io.BytesIO(orig_bytes))).convert("RGBA")
         over = PILImage.open(io.BytesIO(overlay_bytes)).convert("RGBA")
+        # l'overlay ha già le dimensioni del browser (post-EXIF), quindi il resize è corretto
         over = over.resize(base.size, PILImage.LANCZOS)
         base.alpha_composite(over)
         out = io.BytesIO()
