@@ -23,7 +23,11 @@ def _verifica_api_key(x_api_key: str = Header(...)):
 def dashboard_summary(db: Session = Depends(get_db)):
     """Riepilogo cantieri per il Cruscotto Michele."""
     cantieri = db.query(Cantiere).filter(
-        Cantiere.stato != StatoCantiere.archiviato
+        Cantiere.stato.in_([
+            StatoCantiere.preventivo,
+            StatoCantiere.in_corso,
+            StatoCantiere.sospeso,
+        ])
     ).order_by(Cantiere.creato_il.desc()).all()
 
     # Ricalcola avanzamento da fasi
