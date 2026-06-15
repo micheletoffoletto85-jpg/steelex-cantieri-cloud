@@ -62,6 +62,25 @@ def _solo_economia(user: Utente):
     if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
         raise HTTPException(403, "Modulo economico riservato ad admin e capo cantiere STEELEX")
 
+def _economia_o_dl(user: Utente):
+    """Lettura economia — admin, capo_cantiere + direzione_lavori (prezzi cliente only)."""
+    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.direzione_lavori):
+        raise HTTPException(403, "Accesso non autorizzato")
+
+def _is_dl(user: Utente) -> bool:
+    return user.ruolo == RuoloUtente.direzione_lavori
+
+def _filtra_voce_per_dl(voce: dict) -> dict:
+    """Rimuove dati di costo interno — il DL vede solo prezzi cliente."""
+    return {k: v for k, v in voce.items() if k not in ('costo_unitario', 'ricarico_perc', 'totale_costo')}
+
+def _preventivo_per_dl(prev) -> dict:
+    """Restituisce il preventivo con voci filtrate per il DL."""
+    d = {c.name: getattr(prev, c.name) for c in prev.__table__.columns}
+    d['voci'] = [_filtra_voce_per_dl(v) for v in (prev.voci or [])]
+    d['costo_totale'] = None
+    return d
+
 def _blocca_cliente(user: Utente):
     if user.ruolo == RuoloUtente.cliente:
         raise HTTPException(403, "Dati economici non accessibili al cliente")
@@ -79,10 +98,10 @@ class RiepilogoOut(BaseModel):
     da_incassare: float
     spese_per_categoria: dict
 
-@router.get("/{cantiere_id}/economia", response_model=RiepilogoOut)
+@router.get("/{cantiere_id}/economia")
 def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
-    _solo_economia(user)  # solo admin e capo_cantiere STEELEX
+    _economia_o_dl(user)
 
     preventivi = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).all()
     spese = db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).all()
@@ -104,6 +123,17 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         cat = s.categoria or "altro"
         cat_totali[cat] = cat_totali.get(cat, 0) + s.importo
 
+    if _is_dl(user):
+        return RiepilogoOut(
+            budget_preventivo=budget,
+            budget_iva=budget_iva,
+            totale_speso=0,
+            margine_atteso=0,
+            totale_sal_emessi=sal_emessi,
+            totale_sal_pagati=sal_pagati,
+            da_incassare=sal_emessi - sal_pagati,
+            spese_per_categoria={},
+        )
     return RiepilogoOut(
         budget_preventivo=budget,
         budget_iva=budget_iva,
@@ -158,11 +188,10 @@ def _ricalcola(prev, voci, iva_perc, acconto_perc):
     prev.acconto_perc = acconto_perc
     prev.acconto_importo = round(totale * acconto_perc / 100, 2)
 
-@router.get("/{cantiere_id}/preventivi", response_model=List[PreventivoOut])
+@router.get("/{cantiere_id}/preventivi")
 def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    _check(cantiere_id, db, user); _solo_economia(user)
+    _check(cantiere_id, db, user); _economia_o_dl(user)
     records = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).order_by(PreventivoCantiere.creato_il.desc()).all()
-    # Ricalcola al volo i computi salvati con vecchio codice (totale=0 ma voci presenti)
     changed = False
     for prev in records:
         voci = prev.voci or []
@@ -170,10 +199,10 @@ def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Uten
             _ricalcola(prev, voci, prev.iva_perc, prev.acconto_perc)
             changed = True
     if changed:
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
+        try: db.commit()
+        except Exception: db.rollback()
+    if _is_dl(user):
+        return [_preventivo_per_dl(p) for p in records]
     return records
 
 @router.post("/{cantiere_id}/preventivi", response_model=PreventivoOut, status_code=201)
@@ -258,6 +287,18 @@ def aggiungi_voce_extra(
     _ricalcola(prev, voci, prev.iva_perc, prev.acconto_perc)
     flag_modified(prev, "voci")
     db.commit(); db.refresh(prev)
+    try:
+        importo_str = f"€ {prezzo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["direzione_lavori"],
+            titolo="⚠️ Extra preventivo aggiunto al computo",
+            corpo=f"{body.descrizione[:80]} — {importo_str} (prezzo cliente)",
+            escludi_id=user.id,
+            tipo="extra_preventivo",
+        )
+    except Exception: pass
+    if _is_dl(user):
+        return _preventivo_per_dl(prev)
     return prev
 
 @router.post("/{cantiere_id}/preventivi/{prev_id}/pdf", response_model=PreventivoOut)

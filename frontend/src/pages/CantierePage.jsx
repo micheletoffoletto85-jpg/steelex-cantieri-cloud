@@ -85,7 +85,7 @@ export default function CantierePage() {
         const ruolo = utente?.ruolo
         const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
         const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
-        const puoVedereEconomia = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+        const puoVedereEconomia = ['admin','capo_cantiere','amministrazione','direzione_lavori'].includes(ruolo)
 
         const tabs = [
           ['info','Info',null],

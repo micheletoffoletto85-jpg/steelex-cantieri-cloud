@@ -31,11 +31,16 @@ const SEZIONI = [
 export default function EconomiaTab({ cantiereId }) {
   const { utente } = useAuth()
   const qc = useQueryClient()
-  const [sezione, setSezione] = useState('riepilogo')
+  const isDL = utente?.ruolo === 'direzione_lavori'
   const canWrite = ['admin','capo_cantiere'].includes(utente?.ruolo)
+  const [sezione, setSezione] = useState('riepilogo')
 
-  // Quando si cambia sezione, invalida subito economia e preventivi
-  // così il Riepilogo è sempre fresco quando ci si torna
+  const SEZIONI_DL = [
+    ['riepilogo', 'Riepilogo', BarChart2],
+    ['computo',   'Computo',   ClipboardList],
+    ['sal',       'SAL',       TrendingUp],
+  ]
+
   const cambiaSezione = (k) => {
     setSezione(k)
     if (k === 'riepilogo') {
@@ -49,10 +54,18 @@ export default function EconomiaTab({ cantiereId }) {
     }
   }
 
+  const sezioniVisibili = isDL ? SEZIONI_DL : SEZIONI
+
   return (
     <div className="space-y-3">
+      {isDL && (
+        <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-700">
+          <AlertCircle size={13} />
+          <span>Vista Direzione Lavori — prezzi cliente, nessun dato di costo interno.</span>
+        </div>
+      )}
       <div className="flex gap-1 overflow-x-auto pb-1">
-        {SEZIONI.map(([k,l,Icon]) => (
+        {sezioniVisibili.map(([k,l,Icon]) => (
           <button key={k} onClick={() => cambiaSezione(k)}
             className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${sezione===k ? 'bg-steelex-orange text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             <Icon size={12} />{l}
@@ -60,26 +73,30 @@ export default function EconomiaTab({ cantiereId }) {
         ))}
       </div>
 
-      {/* Tutte le sezioni sempre montate — visibilità CSS per non perdere lo stato
-          e per permettere l'aggiornamento live delle query in background */}
       <div style={{ display: sezione === 'riepilogo' ? 'block' : 'none' }}>
-        <RiepilogoSection cantiereId={cantiereId} attiva={sezione === 'riepilogo'} />
+        <RiepilogoSection cantiereId={cantiereId} attiva={sezione === 'riepilogo'} isDL={isDL} />
       </div>
       <div style={{ display: sezione === 'computo' ? 'block' : 'none' }}>
-        <ComputoSection cantiereId={cantiereId} canWrite={canWrite} />
+        <ComputoSection cantiereId={cantiereId} canWrite={canWrite} isDL={isDL} />
       </div>
-      <div style={{ display: sezione === 'spese' ? 'block' : 'none' }}>
-        <SpeseSection cantiereId={cantiereId} canWrite={canWrite} />
-      </div>
-      <div style={{ display: sezione === 'fatture' ? 'block' : 'none' }}>
-        <FattureSection cantiereId={cantiereId} canWrite={canWrite} />
-      </div>
+      {!isDL && (
+        <>
+          <div style={{ display: sezione === 'spese' ? 'block' : 'none' }}>
+            <SpeseSection cantiereId={cantiereId} canWrite={canWrite} />
+          </div>
+          <div style={{ display: sezione === 'fatture' ? 'block' : 'none' }}>
+            <FattureSection cantiereId={cantiereId} canWrite={canWrite} />
+          </div>
+        </>
+      )}
       <div style={{ display: sezione === 'sal' ? 'block' : 'none' }}>
-        <SALSection cantiereId={cantiereId} canWrite={canWrite} />
+        <SALSection cantiereId={cantiereId} canWrite={canWrite} isDL={isDL} />
       </div>
-      <div style={{ display: sezione === 'ore' ? 'block' : 'none' }}>
-        <OreExtraSection cantiereId={cantiereId} canWrite={canWrite} />
-      </div>
+      {!isDL && (
+        <div style={{ display: sezione === 'ore' ? 'block' : 'none' }}>
+          <OreExtraSection cantiereId={cantiereId} canWrite={canWrite} />
+        </div>
+      )}
     </div>
   )
 }
@@ -103,7 +120,7 @@ function MiniRiepilogoLive({ cantiereId }) {
 }
 
 /* ─── RIEPILOGO ─── */
-function RiepilogoSection({ cantiereId, attiva }) {
+function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
   const { data: rv, isLoading, dataUpdatedAt } = useQuery(
     ['economia', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/economia`).then(r => r.data),
@@ -168,25 +185,29 @@ function RiepilogoSection({ cantiereId, attiva }) {
           <p className="text-lg font-bold text-steelex-orange">{fmt(rv.budget_preventivo)}</p>
           <p className="text-xs text-gray-400">+ IVA: {fmt(rv.budget_iva)}</p>
         </div>
-        <div className="card">
-          <p className="text-xs text-gray-400 mb-1">Totale speso</p>
-          <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_speso)}</p>
-          <p className="text-xs text-gray-400">{Math.round(percSpeso)}% del budget</p>
-        </div>
-        <div className="card">
-          <p className="text-xs text-gray-400 mb-1">Margine atteso</p>
-          <p className={`text-lg font-bold ${marginePositivo ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_atteso)}</p>
-          <p className="text-xs text-gray-400">{rv.budget_preventivo > 0 ? Math.round((rv.margine_atteso / rv.budget_preventivo)*100) : 0}%</p>
-        </div>
-        <div className="card">
+        {!isDL && (
+          <div className="card">
+            <p className="text-xs text-gray-400 mb-1">Totale speso</p>
+            <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_speso)}</p>
+            <p className="text-xs text-gray-400">{Math.round(percSpeso)}% del budget</p>
+          </div>
+        )}
+        {!isDL && (
+          <div className="card">
+            <p className="text-xs text-gray-400 mb-1">Margine atteso</p>
+            <p className={`text-lg font-bold ${marginePositivo ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_atteso)}</p>
+            <p className="text-xs text-gray-400">{rv.budget_preventivo > 0 ? Math.round((rv.margine_atteso / rv.budget_preventivo)*100) : 0}%</p>
+          </div>
+        )}
+        <div className={isDL ? 'card col-span-2' : 'card'}>
           <p className="text-xs text-gray-400 mb-1">Da incassare</p>
           <p className="text-lg font-bold text-blue-600">{fmt(rv.da_incassare)}</p>
           <p className="text-xs text-gray-400">Incassato: {fmt(rv.totale_sal_pagati)}</p>
         </div>
       </div>
 
-      {/* Barra budget */}
-      {rv.budget_preventivo > 0 && (
+      {/* Barra budget — solo admin/capo */}
+      {!isDL && rv.budget_preventivo > 0 && (
         <div className="card space-y-2">
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Utilizzo budget costi</p>
           <div className="w-full bg-gray-100 rounded-full h-3">
@@ -199,8 +220,8 @@ function RiepilogoSection({ cantiereId, attiva }) {
         </div>
       )}
 
-      {/* Spese per categoria */}
-      {Object.keys(rv.spese_per_categoria || {}).length > 0 && (
+      {/* Spese per categoria — solo admin/capo */}
+      {!isDL && Object.keys(rv.spese_per_categoria || {}).length > 0 && (
         <div className="card space-y-2">
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Spese per categoria</p>
           {Object.entries(rv.spese_per_categoria).sort((a,b) => b[1]-a[1]).map(([cat, tot]) => (
@@ -221,7 +242,7 @@ function RiepilogoSection({ cantiereId, attiva }) {
 /* ─── COMPUTO ─── */
 const COLORI_VOCE_PRESET = ['#FF6B00','#3b82f6','#22c55e','#ef4444','#8b5cf6','#f59e0b']
 
-function ComputoSection({ cantiereId, canWrite }) {
+function ComputoSection({ cantiereId, canWrite, isDL = false }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
@@ -964,8 +985,8 @@ function ComputoSection({ cantiereId, canWrite }) {
             <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(_pSubtotale(p))}</p><p className="text-xs text-gray-400">+ IVA {p.iva_perc}%: {fmt(_pTotale(p) - _pSubtotale(p))}</p></div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
-            <div><span className="text-gray-400 block">Costo base</span><span className="font-medium">{fmt(p.costo_totale)}</span></div>
-            <div><span className="text-gray-400 block">Margine</span><span className={`font-medium ${(_pSubtotale(p)-p.costo_totale)>=0?'text-green-600':'text-red-600'}`}>{fmt(_pSubtotale(p)-p.costo_totale)}</span></div>
+            {!isDL && <div><span className="text-gray-400 block">Costo base</span><span className="font-medium">{fmt(p.costo_totale)}</span></div>}
+            {!isDL && <div><span className="text-gray-400 block">Margine</span><span className={`font-medium ${(_pSubtotale(p)-p.costo_totale)>=0?'text-green-600':'text-red-600'}`}>{fmt(_pSubtotale(p)-p.costo_totale)}</span></div>}
             <div><span className="text-gray-400 block">Acc. ricevuto</span><span className="font-medium text-blue-600">{fmt(p.acconto_ricevuto)}</span></div>
           </div>
           <div className="flex items-center justify-between gap-2">
@@ -1374,7 +1395,7 @@ function SpeseSection({ cantiereId, canWrite }) {
 }
 
 /* ─── SAL ─── */
-function SALSection({ cantiereId, canWrite }) {
+function SALSection({ cantiereId, canWrite, isDL = false }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ titolo:'', percentuale:'', importo:'', data:'', note:'' })
