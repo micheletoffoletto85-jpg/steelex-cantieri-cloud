@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle, Clock, UserCheck, Pencil } from 'lucide-react'
+import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle, Clock, UserCheck, Pencil, MapPin } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -43,6 +43,9 @@ export default function EconomiaTab({ cantiereId }) {
       qc.invalidateQueries(['preventivi', cantiereId])
       qc.invalidateQueries(['spese', cantiereId])
       qc.invalidateQueries(['sal', cantiereId])
+    }
+    if (k === 'spese') {
+      qc.invalidateQueries(['extra-preventivo', cantiereId])
     }
   }
 
@@ -1005,6 +1008,7 @@ function SpeseSection({ cantiereId, canWrite }) {
   const [editSpesaId, setEditSpesaId] = useState(null)
   const [uploadingFor, setUploadingFor] = useState(null)
   const [analizzando, setAnalizzando] = useState(false)
+  const [pinDaImportare, setPinDaImportare] = useState(null)
   const [form, setForm] = useState({ descrizione:'', fornitore:'', categoria:'materiali', importo:'', data:'', note:'' })
   const set = (k,v) => setForm(f => ({...f,[k]:v}))
 
@@ -1013,7 +1017,7 @@ function SpeseSection({ cantiereId, canWrite }) {
     setForm({ descrizione: s.descrizione, fornitore: s.fornitore||'', categoria: s.categoria||'materiali', importo: String(s.importo), data: s.data||'', note: s.note||'' })
     setShowForm(true)
   }
-  const chiudiFormSpesa = () => { setShowForm(false); setEditSpesaId(null); setForm({ descrizione:'', fornitore:'', categoria:'materiali', importo:'', data:'', note:'' }) }
+  const chiudiFormSpesa = () => { setShowForm(false); setEditSpesaId(null); setPinDaImportare(null); setForm({ descrizione:'', fornitore:'', categoria:'materiali', importo:'', data:'', note:'' }) }
 
   const analizzaFottura = async (file) => {
     setAnalizzando(true)
@@ -1041,6 +1045,8 @@ function SpeseSection({ cantiereId, canWrite }) {
   }
 
   const { data: spese = [], isLoading } = useQuery(['spese', cantiereId], () => api.get(`/cantieri/${cantiereId}/spese`).then(r => r.data), { staleTime: 0 })
+  const { data: extraPin = [] } = useQuery(['extra-preventivo', cantiereId], () => api.get(`/cantieri/${cantiereId}/extra-preventivo`).then(r => r.data), { staleTime: 0 })
+  const extraDaImportare = extraPin.filter(p => !p.importato_in_spese)
 
   const totale = spese.reduce((s,sp) => s+sp.importo, 0)
 
@@ -1058,10 +1064,37 @@ function SpeseSection({ cantiereId, canWrite }) {
     id => api.delete(`/cantieri/${cantiereId}/spese/${id}`),
     { onSuccess: () => { qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); toast.success('Eliminata') } }
   )
-  const salvaSpesa = () => {
+  const importaPinMutation = useMutation(
+    async ({ pin, spesaPayload }) => {
+      await api.post(`/cantieri/${cantiereId}/spese`, spesaPayload)
+      await api.put(`/cantieri/${cantiereId}/documenti/${pin.doc_id}/pin/${pin.id}/importato`)
+    },
+    { onSuccess: () => {
+        qc.invalidateQueries(['spese', cantiereId])
+        qc.invalidateQueries(['extra-preventivo', cantiereId])
+        qc.invalidateQueries(['economia', cantiereId])
+        toast.success('Voce importata nelle spese!')
+      },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore importazione')
+    }
+  )
+  const salvaSpesa = async () => {
     const payload = {...form, importo: parseFloat(form.importo)||0, data: form.data||null}
-    if (editSpesaId) updateSpesaMutation.mutate({id: editSpesaId, d: payload})
-    else createMutation.mutate(payload)
+    if (editSpesaId) {
+      updateSpesaMutation.mutate({id: editSpesaId, d: payload})
+    } else {
+      try {
+        await api.post(`/cantieri/${cantiereId}/spese`, payload)
+        if (pinDaImportare) {
+          await api.put(`/cantieri/${cantiereId}/documenti/${pinDaImportare.doc_id}/pin/${pinDaImportare.id}/importato`)
+          qc.invalidateQueries(['extra-preventivo', cantiereId])
+        }
+        qc.invalidateQueries(['spese', cantiereId])
+        qc.invalidateQueries(['economia', cantiereId])
+        chiudiFormSpesa()
+        toast.success('Spesa registrata!')
+      } catch(e) { toast.error(e.response?.data?.detail||'Errore') }
+    }
   }
   const uploadAllegato = async (spesaId, file) => {
     setUploadingFor(spesaId)
@@ -1101,10 +1134,68 @@ function SpeseSection({ cantiereId, canWrite }) {
         </div>
       )}
 
+      {/* Voci extra preventivo da mappa non ancora importate */}
+      {extraDaImportare.length > 0 && (
+        <div className="card border-2 border-orange-300 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-orange-500 flex-shrink-0" />
+            <h3 className="font-bold text-sm text-orange-800">Extra Preventivo da Mappa</h3>
+            <span className="ml-auto bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{extraDaImportare.length}</span>
+          </div>
+          <p className="text-xs text-orange-700">Questi pin sono stati segnalati sulla mappa ma non ancora registrati nelle spese.</p>
+          {extraDaImportare.map(pin => (
+            <div key={pin.id} className="bg-orange-50 rounded-xl p-3 space-y-2 border border-orange-200">
+              <div className="flex items-start gap-2">
+                <MapPin size={14} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 line-clamp-2">{pin.nota}</p>
+                  <div className="flex gap-2 text-xs text-gray-500 mt-0.5 flex-wrap">
+                    <span>📄 {pin.doc_nome}</span>
+                    <span>👤 {pin.autore}</span>
+                    {pin.creato_il && <span>{fmtD(pin.creato_il)}</span>}
+                  </div>
+                </div>
+                {pin.importo != null && (
+                  <span className="text-sm font-bold text-orange-700 flex-shrink-0">{fmt(pin.importo)}</span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    set('descrizione', pin.nota || '')
+                    set('importo', pin.importo != null ? String(pin.importo) : '')
+                    set('data', pin.creato_il ? pin.creato_il.slice(0,10) : dayjs().format('YYYY-MM-DD'))
+                    set('note', `Da pin su "${pin.doc_nome}"`)
+                    set('categoria', 'altro')
+                    setEditSpesaId(null)
+                    setShowForm(true)
+                    setPinDaImportare(pin)
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-orange-500 text-white text-xs font-medium hover:bg-orange-600 active:scale-95 transition-all">
+                  <Plus size={13} /> Importa in Spese
+                </button>
+                <button
+                  onClick={() => importaPinMutation.mutate({ pin, spesaPayload: { descrizione: pin.nota || 'Extra preventivo', importo: pin.importo || 0, data: pin.creato_il ? pin.creato_il.slice(0,10) : null, categoria: 'altro', note: `Da pin su "${pin.doc_nome}"` } })}
+                  disabled={importaPinMutation.isLoading}
+                  className="px-3 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-medium hover:bg-gray-200 active:scale-95 transition-all"
+                  title="Importa con i valori del pin senza modifiche">
+                  ↗ Importa diretto
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {showForm && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between"><h3 className="font-bold">{editSpesaId ? 'Modifica Spesa' : 'Nuova Spesa'}</h3><button onClick={chiudiFormSpesa}><X size={16} /></button></div>
-          {form.descrizione && (
+          {pinDaImportare && (
+            <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg p-2 text-xs text-orange-700">
+              <MapPin size={12} /><span>Pre-compilato da pin su mappa — verifica importo e categoria prima di salvare</span>
+            </div>
+          )}
+          {!pinDaImportare && form.descrizione && (
             <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg p-2 text-xs text-purple-700">
               <Sparkles size={12} /><span>Dati pre-compilati da Claude — verifica prima di salvare</span>
             </div>

@@ -710,7 +710,7 @@ function MappeTab({ cantiereId }) {
   const qc = useQueryClient()
   const [docSelezionato, setDocSelezionato] = useState(null)
   const [modalPin, setModalPin] = useState(null)
-  const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
+  const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', importo: null, assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
   const [lightboxUrl, setLightboxUrl] = useState(null) // foto aperta a schermo intero
   const [annotaState, setAnnotaState] = useState(null) // { url, idx }
@@ -841,6 +841,8 @@ function MappeTab({ cantiereId }) {
       }
       setFotePinModal([])
       setModalPin(null)
+      setPinForm(f => ({ ...f, importo: null, nota: '' }))
+      qc.invalidateQueries(['extra-preventivo', cantiereId])
       toast.success('Pin aggiunto!')
     } catch (e) { toast.error(e.response?.data?.detail || 'Errore') }
   }
@@ -1266,8 +1268,22 @@ function MappeTab({ cantiereId }) {
               ))}
             </div>
             {pinForm.tipo === 'extra_preventivo' && (
-              <div className="bg-orange-50 border border-orange-300 rounded-xl p-3 text-xs text-orange-800">
-                ⚠️ <strong>Extra preventivo</strong>: verrà inviata una notifica al direttore dei lavori e all'amministrazione. Ricorda di aggiungere la voce nelle spese.
+              <div className="space-y-2">
+                <div className="bg-orange-50 border border-orange-300 rounded-xl p-3 text-xs text-orange-800">
+                  ⚠️ <strong>Extra preventivo</strong>: verrà inviata una notifica al direttore dei lavori e all'amministrazione. La voce apparirà nella sezione Spese → Extra Preventivo.
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Importo stimato (€)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="es. 1.500,00"
+                    className="input-field"
+                    value={pinForm.importo || ''}
+                    onChange={e => setPinForm(f => ({ ...f, importo: e.target.value ? parseFloat(e.target.value) : null }))}
+                  />
+                </div>
               </div>
             )}
             {/* Descrizione + Registrazione vocale */}

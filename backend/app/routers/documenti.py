@@ -113,6 +113,7 @@ class PinCreate(BaseModel):
     y: float
     tipo: str = "lavorazione"
     nota: str
+    importo: Optional[float] = None             # importo stimato (solo extra_preventivo)
     assegnato_a: str = "capo_cantiere"          # ruolo generico
     assegnato_a_user_id: Optional[int] = None   # utente specifico (opzionale)
     assegnato_a_nome: Optional[str] = None       # nome visualizzato
@@ -259,6 +260,7 @@ def aggiungi_pin(
         "id": int(datetime.now().timestamp() * 1000),
         "x": data.x, "y": data.y,
         "tipo": data.tipo, "nota": data.nota,
+        "importo": data.importo,
         "autore": f"{user.nome} {user.cognome}",
         "ruolo_autore": user.ruolo.value,
         "assegnato_a": data.assegnato_a,
@@ -269,6 +271,7 @@ def aggiungi_pin(
         "creato_il": datetime.now().isoformat(),
         "foto_urls": [],
         "reports": [],
+        "importato_in_spese": False,
     }
     pins = list(doc.pin_dati or [])
     pins.append(pin)
@@ -296,6 +299,44 @@ def aggiungi_pin(
     except Exception: pass
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)
     return doc
+
+@router.get("/{cantiere_id}/extra-preventivo")
+def get_extra_preventivo(
+    cantiere_id: int,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    """Restituisce tutti i pin di tipo extra_preventivo del cantiere (da tutti i documenti)."""
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    docs = db.query(Documento).filter(Documento.cantiere_id == cantiere_id).all()
+    result = []
+    for doc in docs:
+        for pin in (doc.pin_dati or []):
+            if pin.get("tipo") == "extra_preventivo":
+                result.append({
+                    **pin,
+                    "doc_id": doc.id,
+                    "doc_nome": doc.nome,
+                })
+    result.sort(key=lambda p: p.get("creato_il", ""), reverse=True)
+    return result
+
+@router.put("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/importato")
+def segna_pin_importato(
+    cantiere_id: int, doc_id: int, pin_id: int,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    """Segna un pin extra_preventivo come già importato nelle spese."""
+    _get_cantiere_con_accesso(cantiere_id, db, user)
+    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.cantiere_id == cantiere_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    pins = list(doc.pin_dati or [])
+    pin = _get_pin(doc, pin_id)
+    if not pin:
+        raise HTTPException(status_code=404, detail="Pin non trovato")
+    pin["importato_in_spese"] = True
+    _salva_pin_dati(doc, pins, db)
+    return {"ok": True}
 
 @router.put("/{cantiere_id}/documenti/{doc_id}/pin/{pin_id}/stato", response_model=DocumentoOut)
 def aggiorna_stato_pin(
