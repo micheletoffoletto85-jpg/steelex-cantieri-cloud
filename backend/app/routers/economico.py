@@ -219,6 +219,47 @@ def aggiorna_preventivo(cantiere_id: int, prev_id: int, body: PreventivoUpdate, 
     db.commit(); db.refresh(prev)
     return prev
 
+class VoceExtraBody(BaseModel):
+    descrizione: str
+    importo: float = 0.0
+    categoria: str = "Altro"
+    um: str = "corpo"
+    ricarico_perc: float = 0.0
+
+@router.post("/{cantiere_id}/preventivi/{prev_id}/voce-extra", response_model=PreventivoOut)
+def aggiungi_voce_extra(
+    cantiere_id: int, prev_id: int, body: VoceExtraBody,
+    db: Session = Depends(get_db), user: Utente = Depends(get_current_user),
+):
+    """Aggiunge una voce extra preventivo al computo senza riaprire il form completo."""
+    from sqlalchemy.orm.attributes import flag_modified
+    _check(cantiere_id, db, user); _solo_economia(user)
+    prev = db.query(PreventivoCantiere).filter(
+        PreventivoCantiere.id == prev_id, PreventivoCantiere.cantiere_id == cantiere_id
+    ).first()
+    if not prev:
+        raise HTTPException(404, "Preventivo non trovato")
+    costo = round(body.importo, 2)
+    prezzo = round(costo * (1 + body.ricarico_perc / 100), 2)
+    voce = {
+        "id": int(datetime.now().timestamp() * 1000),
+        "descrizione": f"⚠ EXTRA — {body.descrizione}",
+        "categoria": body.categoria,
+        "qt": 1,
+        "um": body.um,
+        "costo_unitario": costo,
+        "ricarico_perc": round(body.ricarico_perc, 2),
+        "prezzo_unitario": prezzo,
+        "totale_costo": costo,
+        "totale_cliente": prezzo,
+    }
+    voci = list(prev.voci or [])
+    voci.append(voce)
+    _ricalcola(prev, voci, prev.iva_perc, prev.acconto_perc)
+    flag_modified(prev, "voci")
+    db.commit(); db.refresh(prev)
+    return prev
+
 @router.post("/{cantiere_id}/preventivi/{prev_id}/pdf", response_model=PreventivoOut)
 async def upload_pdf_preventivo(cantiere_id: int, prev_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user); _solo_economia(user)

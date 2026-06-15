@@ -1046,7 +1046,12 @@ function SpeseSection({ cantiereId, canWrite }) {
 
   const { data: spese = [], isLoading } = useQuery(['spese', cantiereId], () => api.get(`/cantieri/${cantiereId}/spese`).then(r => r.data), { staleTime: 0 })
   const { data: extraPin = [] } = useQuery(['extra-preventivo', cantiereId], () => api.get(`/cantieri/${cantiereId}/extra-preventivo`).then(r => r.data), { staleTime: 0 })
+  const { data: preventivi = [] } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 60000 })
   const extraDaImportare = extraPin.filter(p => !p.importato_in_spese)
+
+  const [pinComputoOpts, setPinComputoOpts] = useState({})
+  const getPinOpt = (pinId) => pinComputoOpts[pinId] || { aggiungiComputo: preventivi.length > 0, prevId: preventivi[0]?.id || null }
+  const setPinOpt = (pinId, k, v) => setPinComputoOpts(o => ({ ...o, [pinId]: { ...getPinOpt(pinId), [k]: v } }))
 
   const totale = spese.reduce((s,sp) => s+sp.importo, 0)
 
@@ -1065,15 +1070,24 @@ function SpeseSection({ cantiereId, canWrite }) {
     { onSuccess: () => { qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); toast.success('Eliminata') } }
   )
   const importaPinMutation = useMutation(
-    async ({ pin, spesaPayload }) => {
+    async ({ pin, spesaPayload, aggiungiComputo, prevId, ricarico }) => {
       await api.post(`/cantieri/${cantiereId}/spese`, spesaPayload)
+      if (aggiungiComputo && prevId) {
+        await api.post(`/cantieri/${cantiereId}/preventivi/${prevId}/voce-extra`, {
+          descrizione: pin.nota || spesaPayload.descrizione,
+          importo: spesaPayload.importo || 0,
+          categoria: spesaPayload.categoria || 'Altro',
+          ricarico_perc: ricarico || 0,
+        })
+      }
       await api.put(`/cantieri/${cantiereId}/documenti/${pin.doc_id}/pin/${pin.id}/importato`)
     },
-    { onSuccess: () => {
+    { onSuccess: (_, vars) => {
         qc.invalidateQueries(['spese', cantiereId])
         qc.invalidateQueries(['extra-preventivo', cantiereId])
         qc.invalidateQueries(['economia', cantiereId])
-        toast.success('Voce importata nelle spese!')
+        if (vars.aggiungiComputo && vars.prevId) qc.invalidateQueries(['preventivi', cantiereId])
+        toast.success(vars.aggiungiComputo && vars.prevId ? 'Importato in Spese e Computo!' : 'Voce importata nelle spese!')
       },
       onError: e => toast.error(e.response?.data?.detail || 'Errore importazione')
     }
@@ -1086,13 +1100,24 @@ function SpeseSection({ cantiereId, canWrite }) {
       try {
         await api.post(`/cantieri/${cantiereId}/spese`, payload)
         if (pinDaImportare) {
+          const opt = getPinOpt(pinDaImportare.id)
+          if (opt.aggiungiComputo && opt.prevId) {
+            await api.post(`/cantieri/${cantiereId}/preventivi/${opt.prevId}/voce-extra`, {
+              descrizione: pinDaImportare.nota || payload.descrizione,
+              importo: payload.importo,
+              categoria: payload.categoria || 'Altro',
+              ricarico_perc: opt.ricarico || 0,
+            })
+            qc.invalidateQueries(['preventivi', cantiereId])
+          }
           await api.put(`/cantieri/${cantiereId}/documenti/${pinDaImportare.doc_id}/pin/${pinDaImportare.id}/importato`)
           qc.invalidateQueries(['extra-preventivo', cantiereId])
         }
         qc.invalidateQueries(['spese', cantiereId])
         qc.invalidateQueries(['economia', cantiereId])
         chiudiFormSpesa()
-        toast.success('Spesa registrata!')
+        const opt2 = pinDaImportare ? getPinOpt(pinDaImportare.id) : null
+        toast.success(opt2?.aggiungiComputo && opt2?.prevId ? 'Importato in Spese e Computo!' : 'Spesa registrata!')
       } catch(e) { toast.error(e.response?.data?.detail||'Errore') }
     }
   }
@@ -1160,6 +1185,41 @@ function SpeseSection({ cantiereId, canWrite }) {
                 )}
               </div>
               <div className="flex gap-2">
+              {/* Opzioni computo */}
+              {preventivi.length > 0 && (() => {
+                const opt = getPinOpt(pin.id)
+                return (
+                  <div className="border-t border-orange-200 pt-2 space-y-1.5">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={opt.aggiungiComputo}
+                        onChange={e => setPinOpt(pin.id, 'aggiungiComputo', e.target.checked)}
+                        className="accent-orange-500" />
+                      <span className="text-xs font-medium text-gray-700">Aggiungi voce anche al Computo</span>
+                    </label>
+                    {opt.aggiungiComputo && (
+                      <div className="flex gap-2">
+                        <select className="input-field text-xs flex-1"
+                          value={opt.prevId || ''}
+                          onChange={e => setPinOpt(pin.id, 'prevId', parseInt(e.target.value))}>
+                          {preventivi.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.numero ? `Prev. ${p.numero}` : `Preventivo #${p.id}`} — {p.stato}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-1">
+                          <input type="number" min="0" step="1" placeholder="Ric.%" className="input-field text-xs w-20"
+                            value={opt.ricarico || ''}
+                            onChange={e => setPinOpt(pin.id, 'ricarico', parseFloat(e.target.value)||0)}
+                            title="Ricarico % sul costo" />
+                          <span className="text-xs text-gray-400">%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+              <div className="flex gap-2">
                 <button
                   onClick={() => {
                     set('descrizione', pin.nota || '')
@@ -1172,13 +1232,22 @@ function SpeseSection({ cantiereId, canWrite }) {
                     setPinDaImportare(pin)
                   }}
                   className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-orange-500 text-white text-xs font-medium hover:bg-orange-600 active:scale-95 transition-all">
-                  <Plus size={13} /> Importa in Spese
+                  <Plus size={13} /> Compila e Importa
                 </button>
                 <button
-                  onClick={() => importaPinMutation.mutate({ pin, spesaPayload: { descrizione: pin.nota || 'Extra preventivo', importo: pin.importo || 0, data: pin.creato_il ? pin.creato_il.slice(0,10) : null, categoria: 'altro', note: `Da pin su "${pin.doc_nome}"` } })}
+                  onClick={() => {
+                    const opt = getPinOpt(pin.id)
+                    importaPinMutation.mutate({
+                      pin,
+                      spesaPayload: { descrizione: pin.nota || 'Extra preventivo', importo: pin.importo || 0, data: pin.creato_il ? pin.creato_il.slice(0,10) : null, categoria: 'altro', note: `Da pin su "${pin.doc_nome}"` },
+                      aggiungiComputo: opt.aggiungiComputo,
+                      prevId: opt.prevId,
+                      ricarico: opt.ricarico || 0,
+                    })
+                  }}
                   disabled={importaPinMutation.isLoading}
-                  className="px-3 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-medium hover:bg-gray-200 active:scale-95 transition-all"
-                  title="Importa con i valori del pin senza modifiche">
+                  className="px-3 py-2 rounded-lg bg-gray-700 text-white text-xs font-medium hover:bg-gray-800 active:scale-95 transition-all"
+                  title="Importa subito con i valori del pin">
                   ↗ Importa diretto
                 </button>
               </div>
@@ -1190,11 +1259,45 @@ function SpeseSection({ cantiereId, canWrite }) {
       {showForm && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between"><h3 className="font-bold">{editSpesaId ? 'Modifica Spesa' : 'Nuova Spesa'}</h3><button onClick={chiudiFormSpesa}><X size={16} /></button></div>
-          {pinDaImportare && (
-            <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg p-2 text-xs text-orange-700">
-              <MapPin size={12} /><span>Pre-compilato da pin su mappa — verifica importo e categoria prima di salvare</span>
-            </div>
-          )}
+          {pinDaImportare && (() => {
+            const opt = getPinOpt(pinDaImportare.id)
+            return (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-orange-700">
+                  <MapPin size={12} /><span>Pre-compilato da pin su mappa — verifica importo e categoria prima di salvare</span>
+                </div>
+                {preventivi.length > 0 && (
+                  <div className="space-y-1.5 pt-1 border-t border-orange-200">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={opt.aggiungiComputo}
+                        onChange={e => setPinOpt(pinDaImportare.id, 'aggiungiComputo', e.target.checked)}
+                        className="accent-orange-500" />
+                      <span className="text-xs font-medium text-gray-700">Aggiungi voce anche al Computo</span>
+                    </label>
+                    {opt.aggiungiComputo && (
+                      <div className="flex gap-2">
+                        <select className="input-field text-xs flex-1"
+                          value={opt.prevId || ''}
+                          onChange={e => setPinOpt(pinDaImportare.id, 'prevId', parseInt(e.target.value))}>
+                          {preventivi.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.numero ? `Prev. ${p.numero}` : `Preventivo #${p.id}`} — {p.stato}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-1">
+                          <input type="number" min="0" step="1" placeholder="Ric.%" className="input-field text-xs w-20"
+                            value={opt.ricarico || ''}
+                            onChange={e => setPinOpt(pinDaImportare.id, 'ricarico', parseFloat(e.target.value)||0)} />
+                          <span className="text-xs text-gray-400">%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           {!pinDaImportare && form.descrizione && (
             <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg p-2 text-xs text-purple-700">
               <Sparkles size={12} /><span>Dati pre-compilati da Claude — verifica prima di salvare</span>
