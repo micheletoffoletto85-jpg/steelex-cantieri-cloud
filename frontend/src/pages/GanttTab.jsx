@@ -426,11 +426,12 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
   // Ref per accesso sincrono dentro i listener (evita stale closure)
   const dragRef = useRef(null)
   const fasiRef = useRef(fasi)
+  const dragPreviewRef = useRef({}) // cache live senza triggherare re-render
+  const rafRef = useRef(null)       // requestAnimationFrame handle
   useEffect(() => { fasiRef.current = fasi }, [fasi])
 
   const getPxPerDay = () => {
     if (!ganttAreaRef.current) return 10
-    // offsetWidth = larghezza logica intera anche se la div eccede il viewport
     return (ganttAreaRef.current.offsetWidth || ganttAreaRef.current.getBoundingClientRect().width) / totalDays
   }
 
@@ -439,7 +440,9 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
     e.preventDefault()
     e.stopPropagation()
     const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    const ds = { type, faseId: fase.id, startX: clientX, origInizio: fase.data_inizio, origFine: fase.data_fine_prevista || fase.data_fine_reale }
+    // pxPerDay calcolato UNA SOLA VOLTA all'inizio, non ad ogni pixel
+    const pxPerDay = getPxPerDay()
+    const ds = { type, faseId: fase.id, startX: clientX, pxPerDay, origInizio: fase.data_inizio, origFine: fase.data_fine_prevista || fase.data_fine_reale }
     dragRef.current = ds
     setDragState(ds)
   }
@@ -451,7 +454,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
       if (!ds) return
       if (e.cancelable) e.preventDefault()
       const clientX = e.touches ? e.touches[0].clientX : e.clientX
-      const pxPerDay = getPxPerDay()
+      const pxPerDay = ds.pxPerDay // usa il valore cachato, nessun getBoundingClientRect
       if (pxPerDay === 0) return
       const deltaDays = Math.round((clientX - ds.startX) / pxPerDay)
       let inizio = ds.origInizio
@@ -466,22 +469,30 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
         inizio = inizio ? dayjs(inizio).add(deltaDays,'day').format('YYYY-MM-DD') : null
         if (inizio && fine && inizio > fine) inizio = fine
       }
-      setDragPreview(prev => ({ ...prev, [ds.faseId]: { data_inizio: inizio, data_fine_prevista: fine } }))
+      // Aggiorna ref subito (nessun re-render), poi schedula re-render a 60fps
+      dragPreviewRef.current = { ...dragPreviewRef.current, [ds.faseId]: { data_inizio: inizio, data_fine_prevista: fine } }
+      if (!rafRef.current) {
+        rafRef.current = requestAnimationFrame(() => {
+          setDragPreview({ ...dragPreviewRef.current })
+          rafRef.current = null
+        })
+      }
     }
     const onUp = () => {
       const ds = dragRef.current
       if (!ds) return
-      setDragPreview(prev => {
-        const preview = prev[ds.faseId]
-        if (preview) {
-          const fase = fasiRef.current.find(f => f.id === ds.faseId)
-          const fineOrig = fase?.data_fine_prevista || fase?.data_fine_reale
-          if (fase && (preview.data_inizio !== fase.data_inizio || preview.data_fine_prevista !== fineOrig)) {
-            onUpdate(ds.faseId, { data_inizio: preview.data_inizio, data_fine_prevista: preview.data_fine_prevista })
-          }
+      // Cancella eventuale frame pendente
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+      const preview = dragPreviewRef.current[ds.faseId]
+      if (preview) {
+        const fase = fasiRef.current.find(f => f.id === ds.faseId)
+        const fineOrig = fase?.data_fine_prevista || fase?.data_fine_reale
+        if (fase && (preview.data_inizio !== fase.data_inizio || preview.data_fine_prevista !== fineOrig)) {
+          onUpdate(ds.faseId, { data_inizio: preview.data_inizio, data_fine_prevista: preview.data_fine_prevista })
         }
-        const n = { ...prev }; delete n[ds.faseId]; return n
-      })
+      }
+      dragPreviewRef.current = {}
+      setDragPreview({})
       dragRef.current = null
       setDragState(null)
       document.body.style.cursor = ''
