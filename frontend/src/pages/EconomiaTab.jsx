@@ -1205,7 +1205,6 @@ function SpeseSection({ cantiereId, canWrite }) {
                   <span className="text-sm font-bold text-orange-700 flex-shrink-0">{fmt(pin.importo)}</span>
                 )}
               </div>
-              <div className="flex gap-2">
               {/* Opzioni computo */}
               {preventivi.length > 0 && (() => {
                 const opt = getPinOpt(pin.id)
