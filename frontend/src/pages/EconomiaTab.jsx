@@ -1173,7 +1173,7 @@ function SpeseSection({ cantiereId, canWrite }) {
             title="Scatta foto o carica screenshot di fattura/bolla — Claude compila il form automaticamente">
             {analizzando ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
             {analizzando ? 'Analisi...' : 'Foto AI'}
-            <input type="file" accept="image/*,.pdf" capture="environment" className="hidden"
+            <input type="file" accept="image/*,.pdf" className="hidden"
               disabled={analizzando}
               onChange={e => e.target.files[0] && analizzaFottura(e.target.files[0])} />
           </label>
@@ -1376,7 +1376,7 @@ function SpeseSection({ cantiereId, canWrite }) {
               <div className="ml-auto flex gap-1">
                 <label className={`p-1 text-gray-400 hover:text-steelex-orange cursor-pointer ${uploadingFor===s.id?'opacity-50':''}`} title="Allega foto o PDF">
                   {uploadingFor===s.id ? <span className="text-xs">...</span> : <Camera size={14} />}
-                  <input type="file" accept="image/*,.pdf" capture="environment" className="hidden"
+                  <input type="file" accept="image/*,.pdf" className="hidden"
                     onChange={e => e.target.files[0] && uploadAllegato(s.id, e.target.files[0])} disabled={uploadingFor===s.id} />
                 </label>
                 <label className="p-1 text-gray-400 hover:text-steelex-orange cursor-pointer" title="Allega PDF">

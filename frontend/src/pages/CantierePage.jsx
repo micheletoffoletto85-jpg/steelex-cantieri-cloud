@@ -1954,7 +1954,7 @@ function DiarioTab({ cantiereId, utente }) {
           <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor===d.id?'opacity-50':''}`}>
               <Camera size={16} />
               {uploadingFor===d.id ? 'Caricamento...' : 'Aggiungi foto'}
-              <input type="file" accept="image/*" capture="environment" className="hidden"
+              <input type="file" accept="image/*" className="hidden"
                 onChange={e => e.target.files[0] && uploadFoto(d.id, e.target.files[0])} disabled={uploadingFor===d.id} />
             </label>
           </div>
