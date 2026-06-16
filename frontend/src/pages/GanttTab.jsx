@@ -4,7 +4,7 @@
  */
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users } from 'lucide-react'
+import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users, GripVertical } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -20,7 +20,7 @@ const STATO_FASE = {
   sospesa:      { label: 'Sospesa',      color: '#f59e0b', bg: 'bg-yellow-100 text-yellow-700',icon: PauseCircle },
 }
 
-const COLORI_PRESET = ['#FF6B00','#3b82f6','#22c55e','#ef4444','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#6b7280']
+const COLORI_PRESET = ['#1C1C1C','#3b82f6','#22c55e','#ef4444','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#6b7280']
 const CATEGORIE = ['lavorazione','fornitura','collaudo','amministrativo','impianti','struttura','finiture']
 
 const fmtD = d => d ? dayjs(d).format('DD/MM') : '—'
@@ -34,7 +34,7 @@ export default function GanttTab({ cantiereId }) {
   const [editId, setEditId] = useState(null)
   const [vista, setVista] = useState(() => window.innerWidth < 640 ? 'lista' : 'gantt')
   const [tooltipFase, setTooltipFase] = useState(null) // fase selezionata nel Gantt
-  const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#FF6B00', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'', visibile_cliente: false })
+  const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#1C1C1C', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'', visibile_cliente: false })
   const setF = (k,v) => setForm(f => ({...f, [k]:v}))
   const [importando, setImportando] = useState(false)
   const [fasiImportate, setFasiImportate] = useState(null)
@@ -73,8 +73,12 @@ export default function GanttTab({ cantiereId }) {
     id => api.delete(`/cantieri/${cantiereId}/fasi/${id}`),
     { onSuccess: () => { qc.invalidateQueries(['fasi', cantiereId]); toast.success('Eliminata') } }
   )
+  const reorderMutation = useMutation(
+    items => api.patch(`/cantieri/${cantiereId}/fasi/riordina`, items),
+    { onSuccess: () => qc.invalidateQueries(['fasi', cantiereId]) }
+  )
 
-  const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#FF6B00',data_inizio:'',data_fine_prevista:'',sal_id:'',percentuale:0,stato:'pianificata',note:'',visibile_cliente:false }) }
+  const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#1C1C1C',data_inizio:'',data_fine_prevista:'',sal_id:'',percentuale:0,stato:'pianificata',note:'',visibile_cliente:false }) }
 
   // Elimina con dialogo React (no confirm() nativo — bloccato su iOS PWA)
   const richiediElimina = (ids, testo) => setConfirmDialog({ ids: Array.isArray(ids) ? ids : [ids], testo: testo || 'Eliminare questa fase?' })
@@ -103,7 +107,7 @@ export default function GanttTab({ cantiereId }) {
         await api.post(`/cantieri/${cantiereId}/fasi`, {
           nome: f.nome,
           categoria: f.categoria || 'lavorazione',
-          colore: f.colore || '#FF6B00',
+          colore: f.colore || '#1C1C1C',
           ordine: f.ordine || 0,
           data_inizio: f.data_inizio || null,
           data_fine_prevista: f.data_fine_prevista || null,
@@ -121,7 +125,7 @@ export default function GanttTab({ cantiereId }) {
 
   const apriModifica = (f) => {
     setEditId(f.id)
-    setForm({ nome:f.nome, categoria:f.categoria||'lavorazione', colore:f.colore||'#FF6B00', data_inizio:f.data_inizio||'', data_fine_prevista:f.data_fine_prevista||'', sal_id:f.sal_id||'', percentuale:f.percentuale||0, stato:f.stato||'pianificata', note:f.note||'', visibile_cliente: f.visibile_cliente || false })
+    setForm({ nome:f.nome, categoria:f.categoria||'lavorazione', colore:f.colore||'#1C1C1C', data_inizio:f.data_inizio||'', data_fine_prevista:f.data_fine_prevista||'', sal_id:f.sal_id||'', percentuale:f.percentuale||0, stato:f.stato||'pianificata', note:f.note||'', visibile_cliente: f.visibile_cliente || false })
     setShowForm(true)
   }
 
@@ -248,7 +252,7 @@ export default function GanttTab({ cantiereId }) {
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Avanzamento %</label>
               <div className="flex items-center gap-2">
-                <input type="range" min="0" max="100" step="5" value={form.percentuale} onChange={e => setF('percentuale', e.target.value)} className="flex-1 accent-steelex-orange" />
+                <input type="range" min="0" max="100" step="5" value={form.percentuale} onChange={e => setF('percentuale', e.target.value)} className="flex-1 accent-fr-charcoal" />
                 <span className="text-sm font-bold text-steelex-orange w-10">{form.percentuale}%</span>
               </div>
             </div>
@@ -263,7 +267,7 @@ export default function GanttTab({ cantiereId }) {
           {/* Visibilità cliente */}
           <label className="flex items-center gap-2 cursor-pointer select-none py-1">
             <input type="checkbox" checked={!!form.visibile_cliente} onChange={e => setF('visibile_cliente', e.target.checked)}
-              className="w-4 h-4 accent-steelex-orange" />
+              className="w-4 h-4 accent-fr-charcoal" />
             <span className="text-sm text-gray-600">Mostra questa fase al cliente</span>
           </label>
 
@@ -314,6 +318,7 @@ export default function GanttTab({ cantiereId }) {
             onEdit={apriModifica}
             onDelete={id => richiediElimina(id)}
             onUpdate={(id, data) => updateMutation.mutate({id, data})}
+            onReorder={items => reorderMutation.mutate(items)}
             onToggleCliente={(id, val) => updateMutation.mutate({ id, data: { visibile_cliente: val } })}
             tooltipFase={tooltipFase} setTooltipFase={setTooltipFase} />
         </>
@@ -329,7 +334,7 @@ export default function GanttTab({ cantiereId }) {
 }
 
 /* ─── DIAGRAMMA DI GANTT ─── */
-function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onToggleCliente, tooltipFase, setTooltipFase }) {
+function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReorder, onToggleCliente, tooltipFase, setTooltipFase }) {
   const oggi = dayjs()
   const [zoom, setZoom] = useState('auto') // 'mesi' | 'settimane' | 'giorni' | 'auto'
 
@@ -428,6 +433,13 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
   const fasiRef = useRef(fasi)
   const dragPreviewRef = useRef({}) // cache live senza triggherare re-render
   const rafRef = useRef(null)       // requestAnimationFrame handle
+  // Sort verticale righe
+  const sortRef = useRef(null)              // { faseId, startIndex }
+  const sortOverRef = useRef(null)          // indice drop target live
+  const rowsContainerRef = useRef(null)
+  const [sortDrag, setSortDrag] = useState(null)     // { faseId } — per rendering
+  const [sortOverIndex, setSortOverIndex] = useState(null)
+  const ROW_H = 48
   useEffect(() => { fasiRef.current = fasi }, [fasi])
 
   const getPxPerDay = () => {
@@ -469,6 +481,23 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
         inizio = inizio ? dayjs(inizio).add(deltaDays,'day').format('YYYY-MM-DD') : null
         if (inizio && fine && inizio > fine) inizio = fine
       }
+      // Sort verticale: aggiorna indice drop target
+      const ss = sortRef.current
+      if (ss && rowsContainerRef.current) {
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY
+        const rect = rowsContainerRef.current.getBoundingClientRect()
+        let idx = Math.round((clientY - rect.top) / ROW_H)
+        idx = Math.max(0, Math.min(fasiRef.current.length, idx))
+        sortOverRef.current = idx
+        if (!rafRef.current) {
+          rafRef.current = requestAnimationFrame(() => {
+            setSortOverIndex(sortOverRef.current)
+            rafRef.current = null
+          })
+        }
+        return // non processare drag orizzontale se stiamo sortando
+      }
+
       // Aggiorna ref subito (nessun re-render), poi schedula re-render a 60fps
       dragPreviewRef.current = { ...dragPreviewRef.current, [ds.faseId]: { data_inizio: inizio, data_fine_prevista: fine } }
       if (!rafRef.current) {
@@ -479,6 +508,27 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
       }
     }
     const onUp = () => {
+      // Sort verticale
+      const ss = sortRef.current
+      if (ss) {
+        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+        const overIdx = sortOverRef.current
+        if (overIdx !== null && overIdx !== ss.startIndex && overIdx !== ss.startIndex + 1) {
+          const newFasi = [...fasiRef.current]
+          const [moved] = newFasi.splice(ss.startIndex, 1)
+          const insertAt = overIdx > ss.startIndex ? overIdx - 1 : overIdx
+          newFasi.splice(insertAt, 0, moved)
+          onReorder(newFasi.map((f, i) => ({ id: f.id, ordine: i })))
+        }
+        sortRef.current = null
+        sortOverRef.current = null
+        setSortDrag(null)
+        setSortOverIndex(null)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        return
+      }
+
       const ds = dragRef.current
       if (!ds) return
       // Cancella eventuale frame pendente
@@ -510,18 +560,18 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cursore globale durante il drag
+  // Cursore globale durante il drag orizzontale o sort verticale
   useEffect(() => {
-    if (!dragState) return
-    document.body.style.cursor = dragState.type === 'move' ? 'grabbing' : 'ew-resize'
+    if (!dragState && !sortDrag) return
+    document.body.style.cursor = sortDrag ? 'grabbing' : (dragState?.type === 'move' ? 'grabbing' : 'ew-resize')
     document.body.style.userSelect = 'none'
-  }, [dragState])
+  }, [dragState, sortDrag])
 
   return (
     <div className="card overflow-hidden p-0">
       {/* Tooltip nome completo al tap (mobile) */}
       {tooltipFase && (
-        <div className="mx-3 mt-3 mb-0 bg-steelex-dark text-white rounded-xl p-3 flex items-start justify-between gap-2">
+        <div className="mx-3 mt-3 mb-0 bg-fr-dark text-white rounded-xl p-3 flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className="w-3 h-3 rounded-sm flex-shrink-0 mt-0.5" style={{ background: tooltipFase.colore || '#ccc' }} />
             <div className="flex-1 min-w-0">
@@ -574,7 +624,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                   <span className="text-xs font-bold text-white px-2 truncate uppercase tracking-wider">{m.label}</span>
                 </div>
               ))}
-              <div className="absolute top-0 bottom-0 z-10" style={{ left: `${todayPct}%`, width: 2, background: '#FF6B00' }} />
+              <div className="absolute top-0 bottom-0 z-10" style={{ left: `${todayPct}%`, width: 2, background: '#1C1C1C' }} />
             </div>
             {/* Spacer uguale alla colonna % del corpo — mantiene allineamento */}
             <div className="flex-shrink-0 w-14" style={{ background: '#1e293b' }} />
@@ -589,10 +639,10 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                   <div key={i}
                     className={`absolute inset-y-0 flex items-center justify-center
                       ${g.isMonday ? 'border-l-2 border-gray-400' : 'border-l border-gray-200'}
-                      ${g.isWeekend ? 'bg-orange-100' : ''}`}
+                      ${g.isWeekend ? 'bg-gray-100' : ''}`}
                     style={{ left: `${g.pct}%`, width: `${100/totalDays}%` }}>
                     <span className={`font-semibold leading-none select-none
-                      ${g.isWeekend ? 'text-orange-500' : 'text-gray-600'}`}
+                      ${g.isWeekend ? 'text-gray-400' : 'text-gray-600'}`}
                       style={{ fontSize: 10 }}>
                       {g.label}
                     </span>
@@ -609,8 +659,8 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                   </div>
                 ))
               }
-              <div className="absolute top-0 bottom-0 z-10" style={{ left: `${todayPct}%`, width: 2, background: '#FF6B00' }}>
-                <div className="absolute top-0.5 left-1 font-bold whitespace-nowrap" style={{ fontSize: 9, color: '#FF6B00' }}>oggi</div>
+              <div className="absolute top-0 bottom-0 z-10" style={{ left: `${todayPct}%`, width: 2, background: '#1C1C1C' }}>
+                <div className="absolute top-0.5 left-1 font-bold whitespace-nowrap" style={{ fontSize: 9, color: '#1C1C1C' }}>oggi</div>
               </div>
             </div>
             {/* Spacer uguale alla colonna % del corpo */}
@@ -618,7 +668,13 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
           </div>
 
           {/* ── RIGHE FASI ───────────────────────────────────────────────── */}
-          {fasi.map(f => {
+          <div ref={rowsContainerRef} className="relative">
+          {/* Linea drop indicator durante sort verticale */}
+          {sortOverIndex !== null && (
+            <div className="absolute left-0 right-0 z-40 pointer-events-none"
+              style={{ top: sortOverIndex * ROW_H, height: 2, background: '#3b82f6', boxShadow: '0 0 4px #3b82f6' }} />
+          )}
+          {fasi.map((f, _fi) => {
             // Usa dragPreview se disponibile per posizione live
             const preview = dragPreview[f.id]
             const dataInizio = preview?.data_inizio || f.data_inizio
@@ -630,16 +686,29 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
             const sal = f.sal_id ? salMap[f.sal_id] : null
             const isSelected = tooltipFase?.id === f.id
             const isDragging = dragState?.faseId === f.id
+            const isSorting = sortDrag?.faseId === f.id
 
             return (
               <div key={f.id}
-                className={`relative flex items-center border-b border-gray-100 group cursor-pointer transition-colors ${isSelected ? 'bg-orange-50' : 'hover:bg-gray-50'}`}
-                style={{ height: 48 }}
-                onClick={() => !isDragging && setTooltipFase(isSelected ? null : f)}>
+                className={`relative flex items-center border-b border-gray-100 group cursor-pointer transition-colors ${isSelected ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                style={{ height: 48, opacity: isSorting ? 0.4 : 1 }}
+                onClick={() => !isDragging && !isSorting && setTooltipFase(isSelected ? null : f)}>
 
                 {/* Label sinistra */}
                 <div style={{ width: LABEL_W, background: isSelected ? '#fff7ed' : undefined }}
                   className="flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden border-r-2 border-gray-200">
+                  {canWrite && (
+                    <GripVertical size={13}
+                      className="flex-shrink-0 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing hidden group-hover:block"
+                      onMouseDown={e => {
+                        e.stopPropagation(); e.preventDefault()
+                        const rowIndex = fasiRef.current.findIndex(f2 => f2.id === f.id)
+                        sortRef.current = { faseId: f.id, startIndex: rowIndex }
+                        sortOverRef.current = rowIndex
+                        setSortDrag({ faseId: f.id })
+                        document.body.style.userSelect = 'none'
+                      }} />
+                  )}
                   <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: f.colore || '#ccc' }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-gray-800 leading-tight"
@@ -660,7 +729,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                   {/* 1. Bande weekend (sotto tutto) */}
                   {zoomEff === 'giorni' && giorniLabels.filter(g => g.isWeekend).map((g, i) => (
                     <div key={i} className="absolute top-0 bottom-0"
-                      style={{ left:`${g.pct}%`, width:`${100/totalDays}%`, background:'rgba(251,146,60,0.08)' }} />
+                      style={{ left:`${g.pct}%`, width:`${100/totalDays}%`, background:'rgba(28,28,28,0.06)' }} />
                   ))}
                   {/* 2. Linee griglia: settimanali più spesse, giornaliere sottili */}
                   {zoomEff === 'giorni'
@@ -675,7 +744,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
                   }
                   {/* 3. Linea oggi — arancione piena */}
                   <div className="absolute top-0 bottom-0 z-10"
-                    style={{ left:`${todayPct}%`, width:2, background:'#FF6B00' }} />
+                    style={{ left:`${todayPct}%`, width:2, background:'#1C1C1C' }} />
 
                   {/* Barra fase con drag & resize */}
                   {width !== null && startPct !== null && (
@@ -741,6 +810,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onTog
               </div>
             )
           })}
+          </div>{/* fine rowsContainerRef */}
 
           {/* Legenda SAL */}
           {salList.filter(s => s.data).length > 0 && (
@@ -801,7 +871,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
 
       {/* Card principale */}
       <div
-        className={`bg-white rounded-2xl space-y-2 select-none p-4 transition-transform duration-200 ${swiped ? '-translate-x-20' : 'translate-x-0'} ${selezionato ? 'ring-2 ring-steelex-orange' : ''}`}
+        className={`bg-white rounded-2xl space-y-2 select-none p-4 transition-transform duration-200 ${swiped ? '-translate-x-20' : 'translate-x-0'} ${selezionato ? 'ring-2 ring-fr-charcoal' : ''}`}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onClick={() => { if (modalitaSelect) onSelect(f.id) }}
@@ -810,7 +880,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
           {/* Checkbox selezione multipla */}
           {modalitaSelect && canWrite && (
             <input type="checkbox" checked={!!selezionato} onChange={() => onSelect(f.id)}
-              className="w-5 h-5 accent-steelex-orange flex-shrink-0 mt-0.5" onClick={e => e.stopPropagation()} />
+              className="w-5 h-5 accent-fr-charcoal flex-shrink-0 mt-0.5" onClick={e => e.stopPropagation()} />
           )}
 
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -838,7 +908,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
               <>
                 <button
                   onClick={e => { e.stopPropagation(); onEdit(f) }}
-                  className="p-1.5 text-gray-400 hover:text-steelex-orange hover:bg-orange-50 rounded-lg transition-colors"
+                  className="p-1.5 text-gray-400 hover:text-steelex-orange hover:bg-gray-50 rounded-lg transition-colors"
                 >
                   <Edit2 size={15} />
                 </button>
@@ -860,7 +930,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
             <span className={`font-medium ${ritardo ? 'text-red-500' : 'text-steelex-orange'}`}>{f.percentuale}%</span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-2">
-            <div className="h-2 rounded-full transition-all" style={{ width: `${f.percentuale}%`, background: f.colore || '#FF6B00' }} />
+            <div className="h-2 rounded-full transition-all" style={{ width: `${f.percentuale}%`, background: f.colore || '#1C1C1C' }} />
           </div>
           {ritardo && <p className="text-xs text-red-500">⚠️ In ritardo di {oggi.diff(dayjs(f.data_fine_prevista), 'day')} giorni</p>}
         </div>
