@@ -462,11 +462,29 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReo
   // Listener registrati UNA sola volta — usano dragRef per leggere lo stato corrente
   useEffect(() => {
     const onMove = (e) => {
+      // Sort verticale: ha priorità, gestito prima del drag orizzontale
+      const ss = sortRef.current
+      if (ss && rowsContainerRef.current) {
+        if (e.cancelable) e.preventDefault()
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY
+        const rect = rowsContainerRef.current.getBoundingClientRect()
+        let idx = Math.round((clientY - rect.top) / ROW_H)
+        idx = Math.max(0, Math.min(fasiRef.current.length, idx))
+        sortOverRef.current = idx
+        if (!rafRef.current) {
+          rafRef.current = requestAnimationFrame(() => {
+            setSortOverIndex(sortOverRef.current)
+            rafRef.current = null
+          })
+        }
+        return
+      }
+
       const ds = dragRef.current
       if (!ds) return
       if (e.cancelable) e.preventDefault()
       const clientX = e.touches ? e.touches[0].clientX : e.clientX
-      const pxPerDay = ds.pxPerDay // usa il valore cachato, nessun getBoundingClientRect
+      const pxPerDay = ds.pxPerDay
       if (pxPerDay === 0) return
       const deltaDays = Math.round((clientX - ds.startX) / pxPerDay)
       let inizio = ds.origInizio
@@ -480,22 +498,6 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReo
       } else if (ds.type === 'resize-l') {
         inizio = inizio ? dayjs(inizio).add(deltaDays,'day').format('YYYY-MM-DD') : null
         if (inizio && fine && inizio > fine) inizio = fine
-      }
-      // Sort verticale: aggiorna indice drop target
-      const ss = sortRef.current
-      if (ss && rowsContainerRef.current) {
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY
-        const rect = rowsContainerRef.current.getBoundingClientRect()
-        let idx = Math.round((clientY - rect.top) / ROW_H)
-        idx = Math.max(0, Math.min(fasiRef.current.length, idx))
-        sortOverRef.current = idx
-        if (!rafRef.current) {
-          rafRef.current = requestAnimationFrame(() => {
-            setSortOverIndex(sortOverRef.current)
-            rafRef.current = null
-          })
-        }
-        return // non processare drag orizzontale se stiamo sortando
       }
 
       // Aggiorna ref subito (nessun re-render), poi schedula re-render a 60fps
