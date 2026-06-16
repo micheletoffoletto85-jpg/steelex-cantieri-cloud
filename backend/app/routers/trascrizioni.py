@@ -14,6 +14,35 @@ LINGUE_SUPPORTATE = {
     "pl": "polacco", "uk": "ucraino", "ar": "arabo",
 }
 
+# Prompt unico che fa tutto: capisce il parlato, traduce, e produce il rapportino
+PROMPT_RAPPORTINO = """Sei un assistente esperto di cantieri edili italiani con anni di esperienza nel settore delle costruzioni in acciaio e LSF (Light Steel Frame).
+
+Ricevi la trascrizione grezza di un audio registrato da un operaio o artigiano di cantiere che parla in {lingua_nome}.
+La trascrizione è generata automaticamente e può contenere:
+- Frasi spezzate, incomplete o ripetute
+- Parole di riempimento (ehm, allora, tipo, cioè, quindi...)
+- Gergo e termini tecnici detti in modo informale o abbreviato
+- Errori fonetici tipici della trascrizione automatica
+- Costruzioni grammaticali del parlato spontaneo
+
+Il tuo compito è produrre una NOTA DI RAPPORTINO DI CANTIERE in italiano professionale.
+
+Regole FONDAMENTALI:
+1. CAPISCI il significato reale — non tradurre letteralmente parola per parola, ma comprendi COSA vuole comunicare l'operaio
+2. RICOSTRUISCI il senso anche se le frasi sono confuse o incomplete
+3. STRUTTURA logica: prima le lavorazioni eseguite, poi eventuali problemi o blocchi, poi materiali usati o necessari
+4. USA la terminologia tecnica edile italiana corretta (es. "posa dei montanti", "coibentazione", "trave IPE", non traduzioni letterali)
+5. SINTESI: elimina tutto il ridondante, mantieni solo i fatti utili
+6. NON aggiungere titoli, elenchi puntati, markdown o commenti
+7. NON inventare informazioni che non ci sono nell'audio
+8. Scrivi come una nota professionale che un capo cantiere scriverebbe nel registro giornaliero
+
+Trascrizione originale ({lingua_nome}):
+{testo_originale}
+
+Nota rapportino in italiano:"""
+
+
 @router.post("")
 async def trascrivi_audio(
     file: UploadFile = File(...),
@@ -23,7 +52,6 @@ async def trascrivi_audio(
     if not settings.OPENAI_API_KEY:
         raise HTTPException(status_code=503, detail="OpenAI API key non configurata. Aggiungila su Railway.")
 
-    # Salva audio in file temporaneo
     suffix = os.path.splitext(file.filename or "audio.webm")[1] or ".webm"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(await file.read())
@@ -33,7 +61,7 @@ async def trascrivi_audio(
         from openai import OpenAI
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-        # Trascrivi con Whisper (rileva lingua automaticamente)
+        # Step 1: Whisper trascrive e rileva la lingua
         with open(tmp_path, "rb") as audio_file:
             risposta = client.audio.transcriptions.create(
                 model="whisper-1",
@@ -45,60 +73,31 @@ async def trascrivi_audio(
         lingua_rilevata = getattr(risposta, "language", "it") or "it"
         lingua_nome = LINGUE_SUPPORTATE.get(lingua_rilevata, lingua_rilevata)
 
-        # Se Whisper non ha trascritto nulla, l'audio era silenzio o non udibile
         if not testo_originale:
-            raise HTTPException(status_code=422, detail="Non ho sentito nulla. Prova ad avvicinarti al microfono e parla più chiaramente.")
+            raise HTTPException(
+                status_code=422,
+                detail="Non ho sentito nulla. Prova ad avvicinarti al microfono e parla più chiaramente."
+            )
 
-        # Traduci + riorganizza con Claude (solo se il testo è abbastanza lungo)
-        testo_italiano = testo_originale
-        SOGLIA_CLAUDE = 8  # parole minime per attivare la riorganizzazione
+        # Step 2: Claude capisce, traduce e genera il rapportino in un unico step
+        testo_italiano = testo_originale  # fallback se Claude non è configurato
+        n_parole = len(testo_originale.split())
 
-        if settings.ANTHROPIC_API_KEY:
+        if settings.ANTHROPIC_API_KEY and n_parole >= 5:
             import anthropic
             claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-            # Step 1: traduzione (solo se non è già italiano)
-            if lingua_rilevata != "it":
-                msg = claude.messages.create(
-                    model="claude-haiku-4-5",
-                    max_tokens=1024,
-                    messages=[{
-                        "role": "user",
-                        "content": (
-                            f"Sei un assistente per cantieri edili.\n"
-                            f"Traduci il seguente testo da {lingua_nome} a italiano.\n"
-                            f"Mantieni il senso tecnico. Rispondi solo con la traduzione, senza aggiunte.\n\n"
-                            f"Testo: {testo_originale}"
-                        )
-                    }]
-                )
-                testo_italiano = msg.content[0].text.strip()
+            prompt = PROMPT_RAPPORTINO.format(
+                lingua_nome=lingua_nome,
+                testo_originale=testo_originale,
+            )
 
-            # Step 2: riorganizza solo se il testo è abbastanza lungo
-            n_parole = len(testo_italiano.split())
-            if n_parole >= SOGLIA_CLAUDE:
-                msg2 = claude.messages.create(
-                    model="claude-haiku-4-5",
-                    max_tokens=1024,
-                    messages=[{
-                        "role": "user",
-                        "content": (
-                            "Sei un assistente esperto di cantieri edili.\n"
-                            "Ricevi una nota vocale trascritta da un operaio o artigiano di cantiere.\n"
-                            "Il testo può essere disordinato, ripetitivo o parlato in modo informale.\n\n"
-                            "Il tuo compito:\n"
-                            "1. Riorganizza il contenuto in modo chiaro e logico\n"
-                            "2. Elimina ripetizioni e parole di riempimento\n"
-                            "3. Usa un linguaggio tecnico ma diretto, come si usa in cantiere\n"
-                            "4. Se ci sono più argomenti distinti, separali con un punto o a capo\n"
-                            "5. NON aggiungere titoli, intestazioni, bullet point o markdown\n"
-                            "6. NON aggiungere informazioni che non ci sono\n"
-                            "7. Rispondi SOLO con il testo riorganizzato, niente altro\n\n"
-                            f"Testo da riorganizzare:\n{testo_italiano}"
-                        )
-                    }]
-                )
-                testo_italiano = msg2.content[0].text.strip()
+            msg = claude.messages.create(
+                model="claude-sonnet-4-6",  # Sonnet per qualità ottimale su funzione critica
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            testo_italiano = msg.content[0].text.strip()
 
         return {
             "testo_originale": testo_originale,
@@ -107,6 +106,8 @@ async def trascrivi_audio(
             "testo_italiano": testo_italiano,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore trascrizione: {str(e)}")
     finally:
