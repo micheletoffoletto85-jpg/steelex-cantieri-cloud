@@ -14,28 +14,34 @@ LINGUE_SUPPORTATE = {
     "pl": "polacco", "uk": "ucraino", "ar": "arabo",
 }
 
-# Prompt unico che fa tutto: capisce il parlato, traduce, e produce il rapportino
-PROMPT_RAPPORTINO = """Sei un traduttore e trascrittore per cantieri edili.
+# Step A: riordina nella lingua originale
+PROMPT_RIORDINA = """Ricevi la trascrizione grezza di un audio registrato da un operaio di cantiere che parla in {lingua_nome}.
+È parlato spontaneo: può essere disordinato, ripetitivo, spezzato.
 
-Ricevi la trascrizione grezza di un audio registrato da un operaio che parla in {lingua_nome}.
-La trascrizione può essere disordinata, ripetitiva o spezzata — è parlato spontaneo.
+Riscrivi il contenuto nella stessa lingua {lingua_nome}, in modo chiaro e ordinato:
+- Elimina ripetizioni e parole di riempimento
+- Metti in ordine logico: prima cosa ha fatto, poi eventuali problemi, poi materiali
+- Usa le stesse parole semplici che avrebbe usato lui
+- NON tradurre, NON aggiungere dettagli, NON inventare nulla
+- Solo testo scorrevole, niente elenchi o titoli
 
-Il tuo compito è scrivere una nota di rapportino in italiano chiaro e semplice.
-
-Regole:
-1. Traduci e riassumi quello che l'operaio ha detto — niente di più, niente di meno
-2. Usa parole semplici e dirette, come le userebbe l'operaio stesso in italiano
-3. NON usare termini tecnici specialistici se l'operaio non li ha usati
-4. NON inventare dettagli, NON interpretare oltre quello che è stato detto
-5. Se qualcosa non si capisce bene, riportalo in modo generico senza indovinare
-6. Elimina le ripetizioni e le parole di riempimento
-7. Niente titoli, elenchi, markdown — solo testo scorrevole
-8. Lunghezza: proporzionale a quello che ha detto l'operaio, né più corta né più lunga
-
-Trascrizione originale ({lingua_nome}):
+Trascrizione grezza:
 {testo_originale}
 
-Nota rapportino in italiano:"""
+Testo ordinato in {lingua_nome}:"""
+
+# Step B: traduce in italiano il testo già ordinato
+PROMPT_TRADUCI = """Traduci in italiano questo testo scritto in {lingua_nome} da un operaio di cantiere.
+
+Regole:
+- Traduci fedelmente, senza aggiungere né togliere nulla
+- Usa parole semplici e dirette, come le userebbe l'operaio in italiano
+- Solo testo scorrevole, niente titoli o elenchi
+
+Testo in {lingua_nome}:
+{testo_ordinato}
+
+Traduzione in italiano:"""
 
 
 @router.post("")
@@ -74,7 +80,8 @@ async def trascrivi_audio(
                 detail="Non ho sentito nulla. Prova ad avvicinarti al microfono e parla più chiaramente."
             )
 
-        # Step 2: Claude capisce, traduce e genera il rapportino in un unico step
+        # Step 2a: Claude riordina nella lingua originale
+        # Step 2b: Claude traduce in italiano il testo già ordinato
         testo_italiano = testo_originale  # fallback se Claude non è configurato
         n_parole = len(testo_originale.split())
 
@@ -82,17 +89,36 @@ async def trascrivi_audio(
             import anthropic
             claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-            prompt = PROMPT_RAPPORTINO.format(
-                lingua_nome=lingua_nome,
-                testo_originale=testo_originale,
-            )
+            if lingua_rilevata == "it":
+                # Solo riordina, nessuna traduzione
+                msg = claude.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": PROMPT_RIORDINA.format(
+                        lingua_nome=lingua_nome, testo_originale=testo_originale
+                    )}]
+                )
+                testo_italiano = msg.content[0].text.strip()
+            else:
+                # Step A: riordina nella lingua originale (Haiku — veloce)
+                msg_a = claude.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": PROMPT_RIORDINA.format(
+                        lingua_nome=lingua_nome, testo_originale=testo_originale
+                    )}]
+                )
+                testo_ordinato = msg_a.content[0].text.strip()
 
-            msg = claude.messages.create(
-                model="claude-sonnet-4-6",  # Sonnet per qualità ottimale su funzione critica
-                max_tokens=1024,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            testo_italiano = msg.content[0].text.strip()
+                # Step B: traduce in italiano (Sonnet — qualità)
+                msg_b = claude.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": PROMPT_TRADUCI.format(
+                        lingua_nome=lingua_nome, testo_ordinato=testo_ordinato
+                    )}]
+                )
+                testo_italiano = msg_b.content[0].text.strip()
 
         return {
             "testo_originale": testo_originale,

@@ -8,6 +8,8 @@ from app.models.diario import DiarioGiornaliero, OreExtra
 from app.models.cantiere import Cantiere
 from app.models.utente import Utente
 from app.schemas.diario import DiarioCreate, DiarioOut, DiarioUpdate, OreExtraOut, OreExtraCreate, OreExtraUpdate
+
+foto_router = APIRouter(prefix="/cantieri", tags=["Foto Cantiere"])
 from app.auth import get_current_user
 from app.config import settings
 from app.storage import salva_file
@@ -274,6 +276,96 @@ Testo trascritto:
             )
         except Exception: pass
         return _diario_out(diario)
+
+
+# ─── TAB FOTO CANTIERE ────────────────────────────────────────────────────────
+
+@foto_router.get("/{cantiere_id}/foto")
+def lista_foto_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Aggrega tutte le foto del cantiere: dal diario e dai pin sui documenti."""
+    from app.models.documento import Documento
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+
+    foto = []
+
+    # Foto dai diari giornalieri
+    diari = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.cantiere_id == cantiere_id).order_by(DiarioGiornaliero.data.desc()).all()
+    for d in diari:
+        for url in (d.foto_urls or []):
+            foto.append({
+                "url": url,
+                "fonte": "diario",
+                "fonte_id": d.id,
+                "fonte_label": f"Diario {d.data.strftime('%d/%m/%Y') if d.data else ''}",
+                "autore": f"{d.autore.nome} {d.autore.cognome}" if d.autore else None,
+                "data": str(d.data) if d.data else None,
+            })
+
+    # Foto dai pin sui documenti
+    docs = db.query(Documento).filter(Documento.cantiere_id == cantiere_id).all()
+    for doc in docs:
+        for pin in (doc.pin_dati or []):
+            for url in (pin.get("foto_urls") or []):
+                foto.append({
+                    "url": url,
+                    "fonte": "pin",
+                    "fonte_id": doc.id,
+                    "fonte_label": f"Pin su {doc.nome}",
+                    "autore": pin.get("autore"),
+                    "data": pin.get("creato_il", "")[:10] if pin.get("creato_il") else None,
+                    "nota": pin.get("nota"),
+                })
+
+    # Ordina per data decrescente
+    foto.sort(key=lambda f: f.get("data") or "", reverse=True)
+    return foto
+
+
+@foto_router.post("/{cantiere_id}/foto")
+async def upload_foto_cantiere(
+    cantiere_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Carica una foto direttamente nel cantiere — crea una nota diario per contenerla."""
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+
+    _ct_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic"}
+    ext = os.path.splitext(file.filename or "")[1].lower() or _ct_map.get((file.content_type or "").split(";")[0].strip(), "") or ".jpg"
+    url, _ = salva_file(await file.read(), f"foto/{cantiere_id}", ext)
+
+    # Inserisce in una nota diario di oggi (o ne crea una nuova dedicata)
+    oggi = date_today.today()
+    diario = db.query(DiarioGiornaliero).filter(
+        DiarioGiornaliero.cantiere_id == cantiere_id,
+        DiarioGiornaliero.data == oggi,
+        DiarioGiornaliero.autore_id == user.id,
+        DiarioGiornaliero.fonte == "foto_diretta",
+    ).first()
+    if not diario:
+        diario = DiarioGiornaliero(
+            cantiere_id=cantiere_id,
+            data=oggi,
+            autore_id=user.id,
+            attivita="Foto caricate dalla tab Foto",
+            fonte="foto_diretta",
+            stato_validazione="pubblicata",
+            foto_urls=[],
+        )
+        db.add(diario)
+        db.flush()
+
+    urls = list(diario.foto_urls or [])
+    urls.append(url)
+    diario.foto_urls = urls
+    db.commit()
+
+    return {"url": url, "diario_id": diario.id}
 
     except Exception as e:
         raise HTTPException(500, f"Errore elaborazione: {e}")
