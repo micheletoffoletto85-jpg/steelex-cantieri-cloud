@@ -218,9 +218,13 @@ def _migra():
     ]
     for sql in migrazioni:
         try:
-            with engine.connect() as conn:
-                conn.execute(text(sql))
-                conn.commit()
+            if "ALTER TYPE" in sql and "ADD VALUE" in sql:
+                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                    conn.execute(text(sql))
+            else:
+                with engine.connect() as conn:
+                    conn.execute(text(sql))
+                    conn.commit()
         except Exception:
             pass  # colonna/tabella già presente
 
