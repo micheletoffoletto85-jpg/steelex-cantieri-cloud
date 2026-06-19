@@ -219,8 +219,14 @@ def _migra():
     for sql in migrazioni:
         try:
             if "ALTER TYPE" in sql and "ADD VALUE" in sql:
-                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                    conn.execute(text(sql))
+                raw = engine.raw_connection()
+                try:
+                    raw.set_isolation_level(0)  # AUTOCOMMIT
+                    cur = raw.cursor()
+                    cur.execute(sql)
+                    cur.close()
+                finally:
+                    raw.close()
             else:
                 with engine.connect() as conn:
                     conn.execute(text(sql))
