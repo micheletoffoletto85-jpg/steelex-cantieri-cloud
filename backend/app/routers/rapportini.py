@@ -17,7 +17,7 @@ from app.routers.notifiche import notifica_cantiere
 
 router = APIRouter(prefix="/rapportini", tags=["Rapportini Operativi"])
 
-RUOLI_OPERATIVO = {RuoloUtente.artigiano, RuoloUtente.operativo}
+RUOLI_OPERATIVO = {RuoloUtente.artigiano}
 RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
 
 # ── Prompt estrazione strutturata ──────────────────────────────────────────────

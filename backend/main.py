@@ -188,8 +188,6 @@ def _migra():
             creato_il        TIMESTAMPTZ DEFAULT NOW(),
             chiusa_il        TIMESTAMPTZ
         )""",
-        # Ruolo operativo interno
-        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'operativo'",
         # Rapportini operativi interni
         """CREATE TABLE IF NOT EXISTS rapportini_operativi (
             id                SERIAL PRIMARY KEY,
@@ -216,23 +214,29 @@ def _migra():
             note_admin        TEXT
         )""",
     ]
+    _u = engine.url
+    import psycopg2
+    pg_conn = psycopg2.connect(
+        host=_u.host, port=_u.port or 5432,
+        dbname=_u.database, user=_u.username, password=_u.password,
+        sslmode='require'
+    )
+    pg_conn.autocommit = True
+    pg_cur = pg_conn.cursor()
+
     for sql in migrazioni:
         try:
             if "ALTER TYPE" in sql and "ADD VALUE" in sql:
-                raw = engine.raw_connection()
-                try:
-                    raw.set_isolation_level(0)  # AUTOCOMMIT
-                    cur = raw.cursor()
-                    cur.execute(sql)
-                    cur.close()
-                finally:
-                    raw.close()
+                pg_cur.execute(sql)
             else:
                 with engine.connect() as conn:
                     conn.execute(text(sql))
                     conn.commit()
         except Exception:
             pass  # colonna/tabella già presente
+
+    pg_cur.close()
+    pg_conn.close()
 
 _migra()
 
