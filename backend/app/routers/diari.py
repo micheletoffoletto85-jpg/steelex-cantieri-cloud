@@ -374,12 +374,6 @@ async def upload_foto_cantiere(
 
     return {"url": url, "diario_id": diario.id}
 
-    except Exception as e:
-        raise HTTPException(500, f"Errore elaborazione: {e}")
-    finally:
-        try: os.unlink(tmp_path)
-        except Exception: pass
-
 
 # ─── ORE EXTRA ────────────────────────────────────────────────────────────────
 
