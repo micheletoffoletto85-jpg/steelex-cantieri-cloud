@@ -14,6 +14,7 @@ const RUOLO_LABEL = {
   responsabile_sicurezza: 'Resp. Sicurezza',
   amministrazione: 'Amministrazione',
   artigiano: 'Artigiano',
+  operativo: 'Operativo Interno',
   fornitore: 'Fornitore',
   cliente: 'Cliente',
 }
@@ -25,7 +26,8 @@ const RUOLO_DESC = {
   architetto: 'Solo lettura — no economia',
   responsabile_sicurezza: 'Solo lettura — no economia',
   amministrazione: 'Lettura + scrittura, sempre presente su tutti i cantieri',
-  artigiano: 'Inserisce note campo, vede sue attività',
+  artigiano: 'Subappaltatore esterno — inserisce note campo, vede sue attività',
+  operativo: 'Dipendente interno — solo rapportini vocali, dashboard semplificata',
   fornitore: 'Inserisce note campo, upload documenti assegnati',
   cliente: 'Solo avanzamento lavori',
 }
@@ -38,6 +40,7 @@ const RUOLO_ICON = {
   responsabile_sicurezza: Shield,
   amministrazione: Briefcase,
   artigiano: HardHat,
+  operativo: HardHat,
   fornitore: User,
   cliente: User,
 }
@@ -50,6 +53,7 @@ const RUOLO_COLOR = {
   responsabile_sicurezza: 'text-rose-600 bg-rose-50',
   amministrazione: 'text-emerald-600 bg-emerald-50',
   artigiano: 'text-orange-600 bg-orange-50',
+  operativo: 'text-teal-600 bg-teal-50',
   fornitore: 'text-purple-600 bg-purple-50',
   cliente: 'text-gray-600 bg-gray-50',
 }
@@ -171,7 +175,8 @@ export default function UtentiPage() {
               <option value="architetto">Architetto</option>
               <option value="responsabile_sicurezza">Resp. Sicurezza</option>
               <option value="amministrazione">Amministrazione</option>
-              <option value="artigiano">Artigiano</option>
+              <option value="artigiano">Artigiano (subappaltatore esterno)</option>
+              <option value="operativo">Operativo Interno (dipendente)</option>
               <option value="fornitore">Fornitore</option>
               <option value="cliente">Cliente</option>
               <option value="admin">Admin</option>
@@ -199,7 +204,7 @@ export default function UtentiPage() {
 
       {/* Form modifica */}
       {editando && (
-        <div className="card space-y-3 border-2 border-steelex-orange">
+        <div className="card space-y-3 border-2 border-fr-charcoal">
           <div className="flex items-center justify-between">
             <h2 className="font-bold text-lg">Modifica: {editando.nome} {editando.cognome}</h2>
             <button onClick={() => setEditando(null)} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
@@ -218,7 +223,8 @@ export default function UtentiPage() {
               <option value="architetto">Architetto</option>
               <option value="responsabile_sicurezza">Resp. Sicurezza</option>
               <option value="amministrazione">Amministrazione</option>
-              <option value="artigiano">Artigiano</option>
+              <option value="artigiano">Artigiano (subappaltatore esterno)</option>
+              <option value="operativo">Operativo Interno (dipendente)</option>
               <option value="fornitore">Fornitore</option>
               <option value="cliente">Cliente</option>
               <option value="admin">Admin</option>
@@ -287,11 +293,11 @@ export default function UtentiPage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${RUOLO_COLOR[u.ruolo] || 'text-gray-600 bg-gray-50'}`}>
                       {RUOLO_LABEL[u.ruolo] || u.ruolo}
                     </span>
-                    <button onClick={() => apriModifica(u)} className="p-1.5 text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica">
+                    <button onClick={() => apriModifica(u)} className="p-1.5 text-gray-400 hover:text-fr-charcoal transition-colors" title="Modifica">
                       <Edit2 size={16} />
                     </button>
                     <button onClick={() => toggleMutation.mutate({ id: u.id, attivo: !u.attivo })}
-                      className="text-gray-400 hover:text-steelex-orange transition-colors" title={u.attivo ? 'Disattiva' : 'Attiva'}>
+                      className="text-gray-400 hover:text-fr-charcoal transition-colors" title={u.attivo ? 'Disattiva' : 'Attiva'}>
                       {u.attivo ? <ToggleRight size={24} className="text-green-500" /> : <ToggleLeft size={24} />}
                     </button>
                     {!isSelf && (

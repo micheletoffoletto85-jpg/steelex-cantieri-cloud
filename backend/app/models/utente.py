@@ -13,6 +13,7 @@ class RuoloUtente(str, enum.Enum):
     responsabile_sicurezza = "responsabile_sicurezza"  # solo lettura, no economia
     amministrazione = "amministrazione"              # lettura + scrittura, sempre presente
     artigiano = "artigiano"
+    operativo = "operativo"                            # dipendente interno — solo rapportini
     fornitore = "fornitore"
     cliente = "cliente"
 

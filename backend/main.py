@@ -188,6 +188,8 @@ def _migra():
             creato_il        TIMESTAMPTZ DEFAULT NOW(),
             chiusa_il        TIMESTAMPTZ
         )""",
+        # Ruolo operativo interno
+        "ALTER TYPE ruoloutente ADD VALUE IF NOT EXISTS 'operativo'",
         # Rapportini operativi interni
         """CREATE TABLE IF NOT EXISTS rapportini_operativi (
             id                SERIAL PRIMARY KEY,
