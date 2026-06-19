@@ -276,6 +276,13 @@ Testo trascritto:
             )
         except Exception: pass
         return _diario_out(diario)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Errore elaborazione audio: {str(e)}")
+    finally:
+        try: os.unlink(tmp_path)
+        except: pass
 
 
 # ─── TAB FOTO CANTIERE ────────────────────────────────────────────────────────
