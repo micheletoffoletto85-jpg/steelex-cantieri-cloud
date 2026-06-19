@@ -66,14 +66,14 @@ function ClienteDashboard({ utente, cantieri }) {
       {/* Header */}
       <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
-          <div className="absolute -bottom-12 -left-4 w-32 h-32 rounded-full bg-steelex-orange" />
+          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-fr-charcoal" />
+          <div className="absolute -bottom-12 -left-4 w-32 h-32 rounded-full bg-fr-charcoal" />
         </div>
         <div className="relative">
           <img src="/logo-steelex.png" alt="Steelex" className="h-7 mb-4 opacity-80" />
           <p className="text-sm tracking-widest text-gray-400 uppercase mb-1">Benvenuto</p>
           <h1 className="text-2xl font-bold text-white">{utente?.nome}</h1>
-          <div className="mt-3 h-0.5 w-16 bg-steelex-orange rounded" />
+          <div className="mt-3 h-0.5 w-16 bg-fr-charcoal rounded" />
           {cantiere && <p className="text-gray-400 text-sm mt-3">Stai seguendo: <span className="text-white font-medium">{cantiere.nome}</span></p>}
         </div>
       </div>
@@ -91,7 +91,7 @@ function ClienteDashboard({ utente, cantieri }) {
           {/* Avanzamento + fasi calde nella stessa card */}
           {isLoading && (
             <div className="flex items-center justify-center py-8 text-gray-400 gap-3">
-              <div className="w-6 h-6 border-2 border-steelex-orange border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-fr-charcoal border-t-transparent rounded-full animate-spin" />
               <span className="text-sm">Caricamento aggiornamenti...</span>
             </div>
           )}
@@ -102,10 +102,10 @@ function ClienteDashboard({ utente, cantieri }) {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Avanzamento lavori</p>
-                  <span className="text-2xl font-bold text-steelex-orange">{data.avanzamento_globale}%</span>
+                  <span className="text-2xl font-bold text-fr-charcoal">{data.avanzamento_globale}%</span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-3">
-                  <div className="bg-steelex-orange h-3 rounded-full transition-all duration-1000"
+                  <div className="bg-fr-charcoal h-3 rounded-full transition-all duration-1000"
                     style={{ width: `${Math.min(100, data.avanzamento_globale)}%` }} />
                 </div>
               </div>
@@ -123,7 +123,7 @@ function ClienteDashboard({ utente, cantieri }) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-1">
                             <span className="text-sm font-medium text-gray-800 truncate">{f.nome}</span>
-                            <span className="text-xs font-bold text-steelex-orange flex-shrink-0">{f.percentuale}%</span>
+                            <span className="text-xs font-bold text-fr-charcoal flex-shrink-0">{f.percentuale}%</span>
                           </div>
                           <div className="w-full bg-gray-100 rounded-full h-1 mt-0.5">
                             <div className="h-1 rounded-full" style={{ width: `${f.percentuale}%`, backgroundColor: f.colore || '#FF6B00' }} />
@@ -169,7 +169,7 @@ function ClienteDashboard({ utente, cantieri }) {
             <div className="card space-y-3">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Ultime note dal cantiere</p>
               {data.note_condivise.slice(0, 3).map(n => (
-                <div key={n.id} className="border-l-2 border-steelex-orange pl-3 py-1 space-y-0.5">
+                <div key={n.id} className="border-l-2 border-fr-charcoal pl-3 py-1 space-y-0.5">
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-gray-400">{dayjs(n.data).format('D MMMM YYYY')}{n.meteo && <span className="ml-1">{n.meteo}</span>}</p>
                     {n.fonte === 'voce' && <Mic size={10} className="text-red-400" />}
@@ -182,7 +182,7 @@ function ClienteDashboard({ utente, cantieri }) {
 
           {/* CTA cantiere */}
           <Link to={`/cantieri/${cantiere.id}`}
-            className="block w-full text-center py-3 rounded-xl border-2 border-steelex-orange text-steelex-orange font-semibold text-sm hover:bg-orange-50 transition-colors">
+            className="block w-full text-center py-3 rounded-xl border-2 border-fr-charcoal text-fr-charcoal font-semibold text-sm hover:bg-orange-50 transition-colors">
             Cronoprogramma completo →
           </Link>
         </>
@@ -204,10 +204,10 @@ function ArtigianoDashboard({ utente, cantieri }) {
       {/* Header personale */}
       <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
+          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-fr-charcoal" />
         </div>
         <div className="relative">
-          <img src="/logo-steelex.png" alt="STEELEX" className="h-8 mb-4 opacity-80" />
+          <img src="/logo_fr.png" alt="Fontana Raffaele" className="h-10 mb-4 opacity-80" />
           <p className="text-gray-400 text-xs uppercase tracking-widest">{oggi}</p>
           <h1 className="text-2xl font-bold text-white mt-1">Ciao, {utente?.nome} 👋</h1>
         </div>
@@ -215,13 +215,13 @@ function ArtigianoDashboard({ utente, cantieri }) {
 
       {/* Pulsante principale — registra rapportino */}
       <a href="/rapportini"
-        className="flex items-center gap-4 w-full bg-steelex-orange text-white rounded-2xl p-5 shadow-lg hover:bg-orange-700 active:scale-98 transition-all">
+        className="flex items-center gap-4 w-full bg-fr-charcoal text-white rounded-2xl p-5 shadow-lg hover:bg-gray-800 active:scale-98 transition-all">
         <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center flex-shrink-0">
           <Mic size={28} />
         </div>
         <div>
           <p className="font-bold text-lg leading-tight">Registra rapportino</p>
-          <p className="text-sm text-orange-100 mt-0.5">Dicci cosa hai fatto oggi</p>
+          <p className="text-sm text-gray-300 mt-0.5">Dicci cosa hai fatto oggi</p>
         </div>
       </a>
 
@@ -240,7 +240,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
             </span>
           </div>
           {ultimoRapportino.cantiere_nome && (
-            <p className="text-xs text-steelex-orange font-medium">{ultimoRapportino.cantiere_nome}</p>
+            <p className="text-xs text-fr-charcoal font-medium">{ultimoRapportino.cantiere_nome}</p>
           )}
           {ultimoRapportino.data_lavoro && (
             <p className="text-xs text-gray-400">{dayjs(ultimoRapportino.data_lavoro).format('D MMMM YYYY')}</p>
@@ -254,7 +254,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">I tuoi cantieri</p>
           {cantieri.map(c => (
             <a key={c.id} href={`/cantieri/${c.id}`}
-              className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:border-steelex-orange transition-colors">
+              className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:border-fr-charcoal transition-colors">
               <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
                 <HardHat size={18} className="text-gray-500" />
               </div>
@@ -310,7 +310,7 @@ export default function DashboardPage() {
   const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
   if (isCliente) return <ClienteDashboard utente={utente} cantieri={cantieri} />
-  if (utente?.ruolo === 'operativo') return <ArtigianoDashboard utente={utente} cantieri={cantieri} />
+  if (utente?.ruolo === 'artigiano' && utente?.tipo_professione === 'Operativo Interno') return <ArtigianoDashboard utente={utente} cantieri={cantieri} />
 
   return (
     <div className="space-y-6">
@@ -339,10 +339,10 @@ export default function DashboardPage() {
           {!isCliente && (
             <div className="hidden lg:block card space-y-2">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Azioni rapide</p>
-              <Link to="/cantieri" className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
-                <HardHat size={16} className="text-steelex-orange" /> Vai ai cantieri
+              <Link to="/cantieri" className="flex items-center gap-2 text-sm text-gray-700 hover:text-fr-charcoal font-medium py-1.5 transition-colors">
+                <HardHat size={16} className="text-fr-charcoal" /> Vai ai cantieri
               </Link>
-              <Link to="/cantieri" state={{ nuovo: true }} className="flex items-center gap-2 text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
+              <Link to="/cantieri" state={{ nuovo: true }} className="flex items-center gap-2 text-sm text-gray-700 hover:text-fr-charcoal font-medium py-1.5 transition-colors">
                 <AlertCircle size={16} className="text-blue-500" /> Nuovo cantiere
               </Link>
             </div>
@@ -353,7 +353,7 @@ export default function DashboardPage() {
         <div className="lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-800">Cantieri Recenti</h2>
-            <Link to="/cantieri" className="text-steelex-orange text-sm font-medium">Vedi tutti →</Link>
+            <Link to="/cantieri" className="text-fr-charcoal text-sm font-medium">Vedi tutti →</Link>
           </div>
           {cantieri.length === 0 ? (
             <div className="card text-center py-8 text-gray-400">
@@ -363,7 +363,7 @@ export default function DashboardPage() {
               ) : (
                 <>
                   <p>Nessun cantiere ancora</p>
-                  <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
+                  <Link to="/cantieri" className="text-fr-charcoal text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
                 </>
               )}
             </div>
@@ -371,9 +371,9 @@ export default function DashboardPage() {
             <div className="space-y-2">
               {cantieriRecenti.map(c => (
                 <Link key={c.id} to={`/cantieri/${c.id}`}
-                  className="card flex items-center gap-3 hover:border-steelex-orange border-2 border-transparent transition-colors">
+                  className="card flex items-center gap-3 hover:border-fr-charcoal border-2 border-transparent transition-colors">
                   <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
-                    <HardHat size={18} className="text-steelex-orange" />
+                    <HardHat size={18} className="text-fr-charcoal" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
@@ -384,9 +384,9 @@ export default function DashboardPage() {
                       {STATO_LABEL_DASH[c.stato]}
                     </span>
                     <div className="text-right hidden sm:block w-16">
-                      <div className="text-steelex-orange font-bold text-sm">{c.avanzamento}%</div>
+                      <div className="text-fr-charcoal font-bold text-sm">{c.avanzamento}%</div>
                       <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                        <div className="bg-steelex-orange h-1.5 rounded-full transition-all" style={{ width: `${c.avanzamento}%` }} />
+                        <div className="bg-fr-charcoal h-1.5 rounded-full transition-all" style={{ width: `${c.avanzamento}%` }} />
                       </div>
                     </div>
                   </div>
@@ -429,12 +429,12 @@ function NotifichePanel() {
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Bell size={16} className="text-steelex-orange" />
+          <Bell size={16} className="text-fr-charcoal" />
           <h2 className="font-bold text-gray-800">Notifiche</h2>
           {nonLette > 0 && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold">{nonLette}</span>}
         </div>
         {nonLette > 0 && (
-          <button onClick={() => leggiTutte.mutate()} className="text-xs text-gray-400 hover:text-steelex-orange">
+          <button onClick={() => leggiTutte.mutate()} className="text-xs text-gray-400 hover:text-fr-charcoal">
             Segna tutte lette
           </button>
         )}
@@ -470,7 +470,7 @@ function NotifichePanel() {
 
 function StatCard({ icon: Icon, label, value, color }) {
   const colors = {
-    orange: 'bg-orange-50 text-orange-600',
+    orange: 'bg-orange-50 text-gray-700',
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-green-50 text-green-600',
     purple: 'bg-purple-50 text-purple-600',

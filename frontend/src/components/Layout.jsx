@@ -10,9 +10,22 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/cantieri', label: 'Cantieri', icon: HardHat, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','architetto','responsabile_sicurezza','artigiano','fornitore','cliente'] },
   { to: '/artigiani', label: 'Rubrica', icon: BookUser, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'] },
-  { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','artigiano','operativo'] },
+  { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','artigiano'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
 ]
+
+function filtraNav(items, utente) {
+  const isOperativo = utente?.ruolo === 'artigiano' && utente?.tipo_professione === 'Operativo Interno'
+  return items.filter(i => {
+    if (i.adminOnly) return utente?.ruolo === 'admin'
+    if (i.roles) return i.roles.includes(utente?.ruolo)
+    return true
+  }).filter(i => {
+    // operativo interno: solo dashboard e rapportini
+    if (isOperativo) return i.to === '/' || i.to === '/rapportini'
+    return true
+  })
+}
 
 export default function Layout() {
   const { utente, logout } = useAuth()
@@ -56,7 +69,7 @@ export default function Layout() {
 
       {/* Header mobile (sm e sotto) */}
       <header className="sm:hidden bg-steelex-dark text-white px-4 py-3 flex items-center justify-between shadow-lg sticky top-0 z-50">
-        <img src="/logo-steelex.png" alt="Steelex" className="h-12" />
+        <img src="/logo-steelex.png" alt="STEELEX" className="h-12" />
         <div className="flex items-center gap-1">
           {mostraNotificheBell && (
             <button onClick={toggleNotifiche}
@@ -76,11 +89,7 @@ export default function Layout() {
       {/* Menu mobile */}
       {menuOpen && (
         <div className="sm:hidden absolute top-14 left-0 right-0 bg-white border-b border-gray-200 p-3 z-40 flex flex-col gap-1 shadow-lg">
-          {navItems.filter(i => {
-            if (i.adminOnly) return utente?.ruolo === 'admin'
-            if (i.roles) return i.roles.includes(utente?.ruolo)
-            return true
-          }).map(({ to, label, icon: Icon, end }) => (
+          {filtraNav(navItems, utente).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={() => setMenuOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-colors ${isActive ? 'bg-steelex-orange text-white' : 'text-gray-700 hover:bg-gray-100'}`
@@ -99,16 +108,12 @@ export default function Layout() {
 
           {/* Logo */}
           <div className="px-4 py-5 border-b border-white/10">
-            <img src="/logo-steelex.png" alt="Steelex Cantieri" className="h-14 w-auto" />
+            <img src="/logo-steelex.png" alt="STEELEX Cantieri" className="h-14 w-auto" />
           </div>
 
           {/* Nav */}
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-            {navItems.filter(i => {
-              if (i.adminOnly) return utente?.ruolo === 'admin'
-              if (i.roles) return i.roles.includes(utente?.ruolo)
-              return true
-            }).map(({ to, label, icon: Icon, end }) => (
+            {filtraNav(navItems, utente).map(({ to, label, icon: Icon, end }) => (
               <NavLink key={to} to={to} end={end}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors text-sm ${

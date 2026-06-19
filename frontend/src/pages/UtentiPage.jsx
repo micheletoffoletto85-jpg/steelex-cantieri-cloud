@@ -20,14 +20,13 @@ const RUOLO_LABEL = {
 }
 const RUOLO_DESC = {
   admin: 'Accesso completo a tutto',
-  capo_cantiere: 'Staff STEELEX — accesso completo',
+  capo_cantiere: 'Staff FONTANA RAFFAELE — accesso completo',
   capo_cantiere_sub: 'Subappaltato — no economia, può aggiungere lavori',
   direzione_lavori: 'DL esterno — no economia',
   architetto: 'Solo lettura — no economia',
   responsabile_sicurezza: 'Solo lettura — no economia',
   amministrazione: 'Lettura + scrittura, sempre presente su tutti i cantieri',
-  artigiano: 'Subappaltatore esterno — inserisce note campo, vede sue attività',
-  operativo: 'Dipendente interno — solo rapportini vocali, dashboard semplificata',
+  artigiano: 'Artigiano/operativo — se tipo professione = "Operativo Interno" ha dashboard semplificata',
   fornitore: 'Inserisce note campo, upload documenti assegnati',
   cliente: 'Solo avanzamento lavori',
 }
@@ -59,6 +58,7 @@ const RUOLO_COLOR = {
 }
 
 const PROFESSIONI = [
+  'Operativo Interno',
   'Muratore', 'Carpentiere in legno', 'Carpentiere metallico',
   'Elettricista', 'Idraulico / Termoidraulico', 'Installatore serramenti',
   'Tinteggiatore / Decoratore', 'Piastrellista', 'Pavimentatore',
@@ -169,14 +169,13 @@ export default function UtentiPage() {
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={form.ruolo} onChange={e => set('ruolo', e.target.value)}>
-              <option value="capo_cantiere">Capo Cantiere (interno STEELEX)</option>
+              <option value="capo_cantiere">Capo Cantiere (interno FONTANA RAFFAELE)</option>
               <option value="capo_cantiere_sub">Capo Cantiere Subappaltato</option>
               <option value="direzione_lavori">Direzione Lavori</option>
               <option value="architetto">Architetto</option>
               <option value="responsabile_sicurezza">Resp. Sicurezza</option>
               <option value="amministrazione">Amministrazione</option>
-              <option value="artigiano">Artigiano (subappaltatore esterno)</option>
-              <option value="operativo">Operativo Interno (dipendente)</option>
+              <option value="artigiano">Artigiano / Operativo</option>
               <option value="fornitore">Fornitore</option>
               <option value="cliente">Cliente</option>
               <option value="admin">Admin</option>
@@ -217,14 +216,13 @@ export default function UtentiPage() {
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={editForm.ruolo} onChange={e => setE('ruolo', e.target.value)}>
-              <option value="capo_cantiere">Capo Cantiere (interno STEELEX)</option>
+              <option value="capo_cantiere">Capo Cantiere (interno FONTANA RAFFAELE)</option>
               <option value="capo_cantiere_sub">Capo Cantiere Subappaltato</option>
               <option value="direzione_lavori">Direzione Lavori</option>
               <option value="architetto">Architetto</option>
               <option value="responsabile_sicurezza">Resp. Sicurezza</option>
               <option value="amministrazione">Amministrazione</option>
-              <option value="artigiano">Artigiano (subappaltatore esterno)</option>
-              <option value="operativo">Operativo Interno (dipendente)</option>
+              <option value="artigiano">Artigiano / Operativo</option>
               <option value="fornitore">Fornitore</option>
               <option value="cliente">Cliente</option>
               <option value="admin">Admin</option>
