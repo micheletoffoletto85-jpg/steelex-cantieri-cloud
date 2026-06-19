@@ -3,12 +3,21 @@ from datetime import datetime
 from typing import Optional
 from app.models.utente import RuoloUtente
 
+RUOLI_VALIDI = {r.value for r in RuoloUtente}
+
 class UtenteBase(BaseModel):
     nome: str
     cognome: str
     email: str
-    ruolo: RuoloUtente = RuoloUtente.capo_cantiere
+    ruolo: str = "capo_cantiere"
     tipo_professione: Optional[str] = None
+
+    @field_validator("ruolo")
+    @classmethod
+    def ruolo_valido(cls, v: str) -> str:
+        if v not in RUOLI_VALIDI:
+            raise ValueError(f"Ruolo non valido: {v}. Valori ammessi: {', '.join(RUOLI_VALIDI)}")
+        return v
 
 class UtenteCreate(UtenteBase):
     password: str
@@ -27,10 +36,17 @@ class UtenteCreate(UtenteBase):
 class UtenteUpdate(BaseModel):
     nome: Optional[str] = None
     cognome: Optional[str] = None
-    ruolo: Optional[RuoloUtente] = None
+    ruolo: Optional[str] = None
     attivo: Optional[bool] = None
     password: Optional[str] = None
     tipo_professione: Optional[str] = None
+
+    @field_validator("ruolo")
+    @classmethod
+    def ruolo_valido(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in RUOLI_VALIDI:
+            raise ValueError(f"Ruolo non valido: {v}")
+        return v
 
 class UtenteOut(UtenteBase):
     id: int
