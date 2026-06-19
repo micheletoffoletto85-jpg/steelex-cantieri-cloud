@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Link } from 'react-router-dom'
-import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, ChevronRight, Calendar, Bell, BellOff } from 'lucide-react'
+import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, ChevronRight, Calendar, Bell, BellOff, ClipboardList } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import dayjs from 'dayjs'
@@ -191,6 +191,93 @@ function ClienteDashboard({ utente, cantieri }) {
   )
 }
 
+// ── Dashboard operativo interno (artigiano) ───────────────────────────────────
+function ArtigianoDashboard({ utente, cantieri }) {
+  const { data: miei = [] } = useQuery('rapportini-miei',
+    () => api.get('/rapportini/miei').then(r => r.data), { staleTime: 60000 })
+
+  const ultimoRapportino = miei[0]
+  const oggi = dayjs().format('dddd D MMMM')
+
+  return (
+    <div className="space-y-5 max-w-lg mx-auto">
+      {/* Header personale */}
+      <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
+        </div>
+        <div className="relative">
+          <img src="/logo-steelex.png" alt="STEELEX" className="h-8 mb-4 opacity-80" />
+          <p className="text-gray-400 text-xs uppercase tracking-widest">{oggi}</p>
+          <h1 className="text-2xl font-bold text-white mt-1">Ciao, {utente?.nome} 👋</h1>
+        </div>
+      </div>
+
+      {/* Pulsante principale — registra rapportino */}
+      <a href="/rapportini"
+        className="flex items-center gap-4 w-full bg-steelex-orange text-white rounded-2xl p-5 shadow-lg hover:bg-orange-700 active:scale-98 transition-all">
+        <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center flex-shrink-0">
+          <Mic size={28} />
+        </div>
+        <div>
+          <p className="font-bold text-lg leading-tight">Registra rapportino</p>
+          <p className="text-sm text-orange-100 mt-0.5">Dicci cosa hai fatto oggi</p>
+        </div>
+      </a>
+
+      {/* Ultimo rapportino inviato */}
+      {ultimoRapportino && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Ultimo rapportino</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-gray-800 leading-snug flex-1">{ultimoRapportino.riassunto}</p>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+              ultimoRapportino.stato === 'validato' ? 'bg-green-100 text-green-700'
+              : ultimoRapportino.stato === 'rifiutato' ? 'bg-red-100 text-red-700'
+              : 'bg-yellow-100 text-yellow-700'
+            }`}>
+              {ultimoRapportino.stato}
+            </span>
+          </div>
+          {ultimoRapportino.cantiere_nome && (
+            <p className="text-xs text-steelex-orange font-medium">{ultimoRapportino.cantiere_nome}</p>
+          )}
+          {ultimoRapportino.data_lavoro && (
+            <p className="text-xs text-gray-400">{dayjs(ultimoRapportino.data_lavoro).format('D MMMM YYYY')}</p>
+          )}
+        </div>
+      )}
+
+      {/* Cantieri assegnati (se ce ne sono) */}
+      {cantieri.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">I tuoi cantieri</p>
+          {cantieri.map(c => (
+            <a key={c.id} href={`/cantieri/${c.id}`}
+              className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:border-steelex-orange transition-colors">
+              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <HardHat size={18} className="text-gray-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-900 text-sm truncate">{c.nome}</p>
+                {c.indirizzo && <p className="text-xs text-gray-400 truncate">{c.indirizzo}</p>}
+              </div>
+              <ChevronRight size={16} className="text-gray-400 flex-shrink-0" />
+            </a>
+          ))}
+        </div>
+      )}
+
+      {cantieri.length === 0 && !ultimoRapportino && (
+        <div className="text-center py-8 text-gray-400">
+          <ClipboardList size={36} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm">Registra il tuo primo rapportino!</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const { utente } = useAuth()
   const isCliente = utente?.ruolo === 'cliente'
@@ -223,6 +310,7 @@ export default function DashboardPage() {
   const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
   if (isCliente) return <ClienteDashboard utente={utente} cantieri={cantieri} />
+  if (utente?.ruolo === 'artigiano') return <ArtigianoDashboard utente={utente} cantieri={cantieri} />
 
   return (
     <div className="space-y-6">

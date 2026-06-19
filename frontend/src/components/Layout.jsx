@@ -8,7 +8,7 @@ import api from '../lib/api'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/cantieri', label: 'Cantieri', icon: HardHat },
+  { to: '/cantieri', label: 'Cantieri', icon: HardHat, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','architetto','responsabile_sicurezza','fornitore','cliente'] },
   { to: '/artigiani', label: 'Rubrica', icon: BookUser, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'] },
   { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','artigiano'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
