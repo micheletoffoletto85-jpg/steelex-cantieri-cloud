@@ -1,0 +1,357 @@
+import os, tempfile, json as _json
+from datetime import datetime, date as date_today
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+
+from app.database import get_db
+from app.models.rapportino import RapportinoOperativo
+from app.models.utente import Utente, RuoloUtente
+from app.models.cantiere import Cantiere
+from app.models.diario import DiarioGiornaliero
+from app.auth import get_current_user
+from app.config import settings
+from app.storage import salva_file
+from app.routers.notifiche import notifica_cantiere
+
+router = APIRouter(prefix="/rapportini", tags=["Rapportini Operativi"])
+
+RUOLI_OPERATIVO = {RuoloUtente.artigiano}
+RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
+
+# ── Prompt estrazione strutturata ──────────────────────────────────────────────
+
+PROMPT_ESTRAI = """Analizza questo rapportino di lavoro scritto in italiano da un operaio edile.
+Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON, nessun altro testo.
+
+{{
+  "cantiere": "nome del cantiere o indirizzo menzionato (stringa), null se non specificato",
+  "data_lavoro": "data nel formato YYYY-MM-DD se menzionata, null altrimenti",
+  "ore": numero_decimale_ore_lavorate oppure null,
+  "lavorazioni": ["lista sintetica delle lavorazioni eseguite, max 5-6 parole ciascuna"],
+  "materiali": ["lista dei materiali usati, es: 'Cartongesso 12.5mm', 'Viti 25mm'"],
+  "criticita": "descrizione del problema emerso in una frase, null se nessuna criticità",
+  "spese_extra": [{{"descrizione": "cosa", "importo": numero_o_null}}],
+  "riassunto": "frase di max 2 righe che riassume la giornata di lavoro"
+}}
+
+Regole:
+- Se l'operaio cita un numero di ore (es. "otto ore", "7 ore e mezza"), estrailo come numero
+- Se cita materiali specifici, inseriscili nella lista materiali
+- Se cita un costo aggiuntivo o una spesa non prevista, inseriscila in spese_extra
+- Non inventare dati non presenti nel testo
+- I campi lavorazioni e materiali devono essere liste di stringhe brevi
+
+Rapportino:
+{testo}
+
+JSON:"""
+
+def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
+    """Chiama Claude per estrarre i dati strutturati dal testo del rapportino."""
+    if not settings.ANTHROPIC_API_KEY:
+        return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
+                "criticita": None, "spese_extra": [], "riassunto": testo[:200], "data_lavoro": None}
+    import anthropic
+    claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    hint_cantieri = ""
+    if cantieri_nomi:
+        hint_cantieri = f"\nCantieri attivi conosciuti (cerca la corrispondenza migliore): {', '.join(cantieri_nomi[:20])}\n"
+
+    prompt = PROMPT_ESTRAI.format(testo=testo) + hint_cantieri
+    msg = claude.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    raw = msg.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"): raw = raw[4:]
+    try:
+        return _json.loads(raw)
+    except Exception:
+        return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
+                "criticita": None, "spese_extra": [], "riassunto": testo[:200], "data_lavoro": None}
+
+
+def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[int]:
+    """Match fuzzy del nome cantiere rilevato con i cantieri nel DB."""
+    if not nome_rilevato:
+        return None
+    nome_lower = nome_rilevato.lower()
+    for c in cantieri:
+        if nome_lower in (c.nome or "").lower() or (c.nome or "").lower() in nome_lower:
+            return c.id
+        indirizzo = (c.indirizzo or "").lower()
+        if indirizzo and (nome_lower in indirizzo or indirizzo in nome_lower):
+            return c.id
+    return None
+
+
+def _rap_dict(r: RapportinoOperativo) -> dict:
+    return {
+        "id": r.id,
+        "operativo_id": r.operativo_id,
+        "operativo_nome": f"{r.operativo.nome} {r.operativo.cognome}" if r.operativo else None,
+        "cantiere_id": r.cantiere_id,
+        "cantiere_nome": r.cantiere.nome if r.cantiere else None,
+        "cantiere_rilevato": r.cantiere_rilevato,
+        "diario_id": r.diario_id,
+        "creato_il": r.creato_il.isoformat() if r.creato_il else None,
+        "data_lavoro": r.data_lavoro,
+        "testo_italiano": r.testo_italiano,
+        "lingua_originale": r.lingua_originale,
+        "ore_lavorate": r.ore_lavorate,
+        "lavorazioni": r.lavorazioni or [],
+        "materiali": r.materiali or [],
+        "criticita": r.criticita,
+        "spese_extra": r.spese_extra or [],
+        "riassunto": r.riassunto,
+        "stato": r.stato,
+        "fuori_cantiere": r.fuori_cantiere,
+        "validato_da": f"{r.validato_da.nome} {r.validato_da.cognome}" if r.validato_da else None,
+        "validato_il": r.validato_il.isoformat() if r.validato_il else None,
+        "note_admin": r.note_admin,
+    }
+
+
+# ── Endpoints ──────────────────────────────────────────────────────────────────
+
+@router.post("/invia")
+async def invia_rapportino(
+    file: UploadFile = File(None),
+    testo: str = Form(None),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Operativo invia rapportino (audio o testo). Claude estrae i dati strutturati."""
+    testo_originale = None
+    testo_elaborato = None
+    testo_ita       = None
+    lingua          = "it"
+
+    if file and file.filename:
+        # ── Audio: Whisper + Claude 2-step ────────────────────────────────────
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(503, "OpenAI API key non configurata")
+        suffix = os.path.splitext(file.filename or "audio.webm")[1] or ".webm"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(await file.read()); tmp_path = tmp.name
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            with open(tmp_path, "rb") as af:
+                risposta = client.audio.transcriptions.create(
+                    model="whisper-1", file=af, response_format="verbose_json")
+            testo_originale = risposta.text.strip()
+            lingua = getattr(risposta, "language", "it") or "it"
+        finally:
+            os.unlink(tmp_path)
+
+        if not testo_originale:
+            raise HTTPException(422, "Audio non udibile")
+
+        # Claude: riordina nella lingua originale poi traduce
+        if settings.ANTHROPIC_API_KEY and len(testo_originale.split()) >= 3:
+            import anthropic
+            claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            LINGUE = {"it":"italiano","ro":"rumeno","en":"inglese","de":"tedesco","fr":"francese","pl":"polacco","uk":"ucraino"}
+            lingua_nome = LINGUE.get(lingua, lingua)
+
+            RIORDINA = (
+                f"Ricevi la trascrizione grezza in {lingua_nome} di un operaio di cantiere.\n"
+                "Riscrivi nella stessa lingua, in modo chiaro, eliminando ripetizioni.\n"
+                "NON tradurre. Solo testo scorrevole.\n\nTrascrizione:\n{txt}\n\nTesto ordinato:"
+            )
+            msg_a = claude.messages.create(
+                model="claude-haiku-4-5-20251001", max_tokens=1024,
+                messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale)}])
+            testo_elaborato = msg_a.content[0].text.strip()
+
+            if lingua != "it":
+                TRADUCI = (
+                    f"Traduci in italiano questo testo in {lingua_nome} scritto da un operaio di cantiere.\n"
+                    "Traduci fedelmente, parole semplici, solo testo scorrevole.\n\n"
+                    f"Testo:\n{testo_elaborato}\n\nTraduzione:"
+                )
+                msg_b = claude.messages.create(
+                    model="claude-sonnet-4-6", max_tokens=1024,
+                    messages=[{"role":"user","content":TRADUCI}])
+                testo_ita = msg_b.content[0].text.strip()
+            else:
+                testo_ita = testo_elaborato
+        else:
+            testo_elaborato = testo_originale
+            testo_ita = testo_originale
+
+    elif testo:
+        # ── Testo diretto ─────────────────────────────────────────────────────
+        testo_originale = testo.strip()
+        testo_elaborato = testo_originale
+        testo_ita       = testo_originale
+        lingua          = "it"
+    else:
+        raise HTTPException(400, "Fornisci audio o testo")
+
+    # Carica lista cantieri attivi per il match
+    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso"])).all()
+    cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
+
+    # Claude estrae dati strutturati
+    dati = _estrai_dati(testo_ita, cantieri_nomi)
+
+    # Tenta match cantiere
+    cantiere_id = _match_cantiere(dati.get("cantiere"), cantieri_attivi)
+
+    rapportino = RapportinoOperativo(
+        operativo_id    = user.id,
+        cantiere_id     = cantiere_id,
+        data_lavoro     = dati.get("data_lavoro") or str(date_today.today()),
+        testo_originale = testo_originale,
+        testo_elaborato = testo_elaborato,
+        testo_italiano  = testo_ita,
+        lingua_originale = lingua,
+        cantiere_rilevato = dati.get("cantiere"),
+        ore_lavorate    = dati.get("ore"),
+        lavorazioni     = dati.get("lavorazioni") or [],
+        materiali       = dati.get("materiali") or [],
+        criticita       = dati.get("criticita"),
+        spese_extra     = dati.get("spese_extra") or [],
+        riassunto       = dati.get("riassunto") or testo_ita[:200],
+        stato           = "inviato",
+        fuori_cantiere  = cantiere_id is None,
+    )
+    db.add(rapportino); db.commit(); db.refresh(rapportino)
+
+    # Notifica admin
+    try:
+        admins = db.query(Utente).filter(Utente.ruolo.in_(["admin","capo_cantiere"])).all()
+        from app.routers.notifiche import invia_notifica
+        for a in admins:
+            invia_notifica(db, a.id, "📋 Nuovo rapportino", f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}")
+    except Exception: pass
+
+    return _rap_dict(rapportino)
+
+
+@router.get("/miei")
+def miei_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Operativo vede i propri rapportini."""
+    rs = db.query(RapportinoOperativo).filter(
+        RapportinoOperativo.operativo_id == user.id
+    ).order_by(RapportinoOperativo.creato_il.desc()).limit(50).all()
+    return [_rap_dict(r) for r in rs]
+
+
+@router.get("/da-validare")
+def da_validare(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Admin: rapportini in attesa di validazione."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    rs = db.query(RapportinoOperativo).filter(
+        RapportinoOperativo.stato == "inviato"
+    ).order_by(RapportinoOperativo.creato_il.desc()).all()
+    return [_rap_dict(r) for r in rs]
+
+
+@router.get("/fuori-cantiere")
+def fuori_cantiere(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Admin: rapportini validati senza cantiere assegnato."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    rs = db.query(RapportinoOperativo).filter(
+        RapportinoOperativo.fuori_cantiere == True,
+        RapportinoOperativo.stato == "validato",
+    ).order_by(RapportinoOperativo.creato_il.desc()).all()
+    return [_rap_dict(r) for r in rs]
+
+
+class ValidaBody(BaseModel):
+    cantiere_id: Optional[int] = None
+    note_admin: Optional[str] = None
+    rifiuta: bool = False
+
+
+@router.put("/{rapportino_id}/valida")
+def valida_rapportino(
+    rapportino_id: int,
+    body: ValidaBody,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Admin valida o rifiuta il rapportino. Se validato, crea una nota diario nel cantiere."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
+    if not r: raise HTTPException(404)
+
+    if body.rifiuta:
+        r.stato = "rifiutato"
+        r.note_admin = body.note_admin
+        r.validato_da_id = user.id
+        r.validato_il = datetime.utcnow()
+        db.commit()
+        return _rap_dict(r)
+
+    # Assegna cantiere se l'admin lo specifica (override del match automatico)
+    cantiere_id = body.cantiere_id or r.cantiere_id
+    r.cantiere_id = cantiere_id
+    r.fuori_cantiere = cantiere_id is None
+
+    # Crea nota diario nel cantiere (se assegnato)
+    if cantiere_id:
+        data_str = r.data_lavoro or str(date_today.today())
+        try:
+            data_obj = date_today.fromisoformat(data_str)
+        except Exception:
+            data_obj = date_today.today()
+
+        testo_diario = r.testo_italiano or r.riassunto
+        if r.materiali:
+            testo_diario += f"\n\nMateriali usati: {', '.join(r.materiali)}"
+        if r.criticita:
+            testo_diario += f"\n\n⚠️ Criticità: {r.criticita}"
+
+        diario = DiarioGiornaliero(
+            cantiere_id     = cantiere_id,
+            data            = data_obj,
+            autore_id       = r.operativo_id,
+            attivita        = testo_diario,
+            fonte           = "voce",
+            testo_originale = r.testo_originale,
+            lingua_originale = r.lingua_originale,
+            stato_validazione = "pubblicata",
+            foto_urls       = [],
+        )
+        db.add(diario); db.flush()
+        r.diario_id = diario.id
+
+    r.stato = "validato"
+    r.note_admin = body.note_admin
+    r.validato_da_id = user.id
+    r.validato_il = datetime.utcnow()
+    db.commit()
+
+    # Notifica l'operativo
+    try:
+        from app.routers.notifiche import invia_notifica
+        msg = "✅ Rapportino validato" if not body.rifiuta else "❌ Rapportino rifiutato"
+        invia_notifica(db, r.operativo_id, msg, body.note_admin or "")
+    except Exception: pass
+
+    return _rap_dict(r)
+
+
+@router.get("")
+def lista_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Admin: tutti i rapportini. Operativo: i propri."""
+    if user.ruolo in RUOLI_ADMIN:
+        rs = db.query(RapportinoOperativo).order_by(RapportinoOperativo.creato_il.desc()).limit(100).all()
+    else:
+        rs = db.query(RapportinoOperativo).filter(
+            RapportinoOperativo.operativo_id == user.id
+        ).order_by(RapportinoOperativo.creato_il.desc()).limit(50).all()
+    return [_rap_dict(r) for r in rs]

@@ -9,7 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp  # importa tutti i modelli
+from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp, rapportino  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
@@ -19,6 +19,7 @@ from app.routers import fornitori_rating as fornitori_rating_router
 from app.routers import artigiani as artigiani_router
 from app.routers import non_conformita as nc_router
 from app.routers import dashboard as dashboard_router
+from app.routers import rapportini as rapportini_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -187,6 +188,31 @@ def _migra():
             creato_il        TIMESTAMPTZ DEFAULT NOW(),
             chiusa_il        TIMESTAMPTZ
         )""",
+        # Rapportini operativi interni
+        """CREATE TABLE IF NOT EXISTS rapportini_operativi (
+            id                SERIAL PRIMARY KEY,
+            operativo_id      INTEGER NOT NULL REFERENCES utenti(id),
+            cantiere_id       INTEGER REFERENCES cantieri(id) ON DELETE SET NULL,
+            diario_id         INTEGER REFERENCES diari_giornalieri(id) ON DELETE SET NULL,
+            creato_il         TIMESTAMPTZ DEFAULT NOW(),
+            data_lavoro       VARCHAR(10),
+            testo_originale   TEXT,
+            testo_elaborato   TEXT,
+            testo_italiano    TEXT,
+            lingua_originale  VARCHAR(10) DEFAULT 'it',
+            cantiere_rilevato VARCHAR(300),
+            ore_lavorate      FLOAT,
+            lavorazioni       JSONB DEFAULT '[]',
+            materiali         JSONB DEFAULT '[]',
+            criticita         TEXT,
+            spese_extra       JSONB DEFAULT '[]',
+            riassunto         TEXT,
+            stato             VARCHAR(20) DEFAULT 'inviato',
+            fuori_cantiere    BOOLEAN DEFAULT FALSE,
+            validato_da_id    INTEGER REFERENCES utenti(id),
+            validato_il       TIMESTAMPTZ,
+            note_admin        TEXT
+        )""",
     ]
     for sql in migrazioni:
         try:
@@ -246,6 +272,7 @@ app.include_router(fornitori_rating_router.router, prefix="/api/v1")
 app.include_router(artigiani_router.router, prefix="/api/v1")
 app.include_router(nc_router.router, prefix="/api/v1")
 app.include_router(dashboard_router.router, prefix="/api/v1")
+app.include_router(rapportini_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():
