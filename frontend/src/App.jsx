@@ -9,6 +9,7 @@ import UtentiPage from './pages/UtentiPage'
 import ForniturePage from './pages/ForniturePage'
 import ArtigianiPage from './pages/ArtigianiPage'
 import RapportiniPage from './pages/RapportiniPage'
+import ProgrammazioneAdminPage from './pages/ProgrammazioneAdminPage'
 import Layout from './components/Layout'
 import SplashScreen from './components/SplashScreen'
 
@@ -48,6 +49,7 @@ function AppContent() {
           <Route path="fornitori" element={<ForniturePage />} />
           <Route path="artigiani" element={<ArtigianiPage />} />
           <Route path="rapportini" element={<RapportiniPage />} />
+          <Route path="programmazione" element={<ProgrammazioneAdminPage />} />
         </Route>
       </Routes>
     </>
