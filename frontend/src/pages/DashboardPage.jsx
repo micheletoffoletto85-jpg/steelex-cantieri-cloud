@@ -268,6 +268,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const [risultato, setRisultato] = useState(null)
   const [errore, setErrore] = useState(null)
   const [mostraTestuale, setMostraTestuale] = useState(false)
+  const [mostraIstruzioni, setMostraIstruzioni] = useState(true)
+  const [conferma, setConferma] = useState(null)
   const mediaRef = useRef(null)
   const chunksRef = useRef([])
   const fotoInputRef = useRef(null)
@@ -320,8 +322,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        setFase('processing')
-        inviaMutation.mutate(_buildFormData(blob))
+        setFase('idle')
+        setConferma({ tipo: 'voce', blob })
       }
       mr.start()
       mediaRef.current = mr
@@ -338,9 +340,15 @@ function ArtigianoDashboard({ utente, cantieri }) {
 
   const inviaTestuale = () => {
     if (!testoLibero.trim()) return
+    setConferma({ tipo: 'testo', blob: null })
+  }
+
+  const confermaInvio = () => {
+    const c = conferma
+    setConferma(null)
     setFase('processing')
     setErrore(null)
-    inviaMutation.mutate(_buildFormData(null))
+    inviaMutation.mutate(_buildFormData(c.blob))
   }
 
   const aggiungiAnteprima = (files) => {
@@ -350,6 +358,86 @@ function ArtigianoDashboard({ utente, cantieri }) {
 
   return (
     <div className="space-y-5 max-w-lg mx-auto">
+
+      {/* ── Modal istruzioni obbligatorie ── */}
+      {mostraIstruzioni && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 px-4 pb-4 sm:pb-0">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-steelex-orange flex items-center justify-center flex-shrink-0">
+                <ClipboardList size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="font-bold text-gray-900 text-lg">Come compilare il rapportino</p>
+                <p className="text-xs text-gray-400">Leggi prima di procedere</p>
+              </div>
+            </div>
+            <div className="space-y-2 text-sm text-gray-700">
+              <p className="font-semibold text-gray-900">Nel rapportino devi indicare:</p>
+              <ul className="space-y-1.5 ml-2">
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">1.</span> Il <strong>cantiere</strong> dove hai lavorato</li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">2.</span> Le <strong>attività svolte</strong> durante la giornata</li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">3.</span> I <strong>materiali utilizzati</strong> (se rilevanti)</li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">4.</span> Eventuali <strong>problemi o anomalie</strong> riscontrati</li>
+              </ul>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+              <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800">
+                <strong>Attenzione:</strong> il rapportino inviato costituisce una dichiarazione ufficiale del lavoro svolto e ha valore di responsabilità personale.
+              </p>
+            </div>
+            <button
+              onClick={() => setMostraIstruzioni(false)}
+              className="w-full py-3.5 bg-steelex-orange text-white rounded-xl font-bold text-sm hover:bg-orange-600 active:scale-98 transition-all">
+              Ho capito — procedi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal conferma invio ── */}
+      {conferma && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 px-4 pb-4 sm:pb-0">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={20} className="text-amber-600" />
+              </div>
+              <div>
+                <p className="font-bold text-gray-900 text-lg">Conferma invio</p>
+                <p className="text-xs text-gray-400">
+                  {conferma.tipo === 'voce' ? 'Rapportino vocale registrato' : 'Rapportino testuale scritto'}
+                </p>
+              </div>
+            </div>
+            {conferma.tipo === 'testo' && testoLibero && (
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+                <p className="text-sm text-gray-700 italic">"{testoLibero}"</p>
+              </div>
+            )}
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
+              <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-800">
+                <strong>Dichiarazione di responsabilità:</strong> confermando, attesti che le informazioni riportate sono veritiere e corrispondono al lavoro effettivamente svolto. Il rapportino verrà revisionato dal responsabile.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setConferma(null); setFase('idle') }}
+                className="flex-1 py-3 border-2 border-gray-200 text-gray-600 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors">
+                Annulla
+              </button>
+              <button
+                onClick={confermaInvio}
+                className="flex-1 py-3 bg-steelex-orange text-white rounded-xl font-bold text-sm hover:bg-orange-600 active:scale-98 transition-all">
+                Confermo e invio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header personale */}
       <div className="bg-steelex-dark rounded-2xl p-5 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
