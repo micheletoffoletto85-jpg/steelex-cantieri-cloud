@@ -218,30 +218,41 @@ function ProgrammazioneWidget() {
         <Calendar size={16}/>
         <p className="text-sm font-bold">Programmazione settimana {prog.settimana}</p>
       </div>
-      {/* Header colonne */}
-      <div className="grid grid-cols-[2.5rem_1fr_1fr] gap-2 px-4 py-1.5 bg-gray-50 border-b border-gray-100">
-        <span className="text-xs font-semibold text-gray-400 uppercase">Giorno</span>
-        <span className="text-xs font-semibold text-gray-400 uppercase">Dove</span>
-        <span className="text-xs font-semibold text-gray-400 uppercase">Lavorazione</span>
-      </div>
-      <div className="divide-y divide-gray-50">
-        {GIORNI_ORDINE_P.map(g => {
-          const info = prog.giorni?.[g]
-          const isOggi = g === giornoOggi
-          return (
-            <div key={g} className={`grid grid-cols-[2.5rem_1fr_1fr] gap-2 items-center px-4 py-2.5 ${isOggi ? 'bg-orange-50' : ''}`}>
-              <span className={`text-xs font-bold shrink-0 ${isOggi ? 'text-steelex-orange' : 'text-gray-400'}`}>
-                {GIORNI_LABEL_P[g]}{isOggi ? ' ●' : ''}
-              </span>
-              <p className={`text-sm truncate ${info?.cantiere_nome ? 'font-semibold text-gray-800' : 'text-gray-300 italic'}`}>
-                {info?.cantiere_nome || '—'}
-              </p>
-              <p className={`text-sm truncate ${info?.lavorazione ? 'text-gray-600' : 'text-gray-300 italic'}`}>
-                {info?.lavorazione || '—'}
-              </p>
-            </div>
-          )
-        })}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[320px] text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              <th className="px-3 py-1.5 text-left text-xs font-semibold text-gray-400 uppercase w-12">Giorno</th>
+              <th className="px-3 py-1.5 text-left text-xs font-semibold text-gray-400 uppercase">Dove</th>
+              <th className="px-3 py-1.5 text-left text-xs font-semibold text-gray-400 uppercase">Lavorazione</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {GIORNI_ORDINE_P.map(g => {
+              const info = prog.giorni?.[g]
+              const isOggi = g === giornoOggi
+              return (
+                <tr key={g} className={isOggi ? 'bg-orange-50' : ''}>
+                  <td className="px-3 py-2">
+                    <span className={`text-xs font-bold ${isOggi ? 'text-steelex-orange' : 'text-gray-400'}`}>
+                      {GIORNI_LABEL_P[g]}{isOggi ? ' ●' : ''}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <p className={`text-sm ${info?.cantiere_nome ? 'font-semibold text-gray-800' : 'text-gray-300 italic'}`}>
+                      {info?.cantiere_nome || '—'}
+                    </p>
+                  </td>
+                  <td className="px-3 py-2">
+                    <p className={`text-sm ${info?.lavorazione ? 'text-gray-600' : 'text-gray-300 italic'}`}>
+                      {info?.lavorazione || '—'}
+                    </p>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )

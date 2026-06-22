@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ChevronLeft, ChevronRight, Save, Trash2, Calendar, Upload, CheckCircle, Bell, AlertTriangle, X, FileText } from 'lucide-react'
 import api from '../lib/api'
+import { useAuth } from '../lib/auth'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 dayjs.extend(isoWeek)
@@ -124,6 +125,8 @@ function PreviewImport({ preview, cantieri, operativi, onConferma, onAnnulla }) 
 // ── Pagina principale ─────────────────────────────────────────────────────────
 export default function ProgrammazioneAdminPage() {
   const qc = useQueryClient()
+  const { utente } = useAuth()
+  const puoModificare = ['admin', 'amministrazione'].includes(utente?.ruolo)
   const oggi = dayjs()
   const [anno, setAnno] = useState(oggi.year())
   const [sett, setSett] = useState(oggi.isoWeek())
@@ -254,28 +257,30 @@ export default function ProgrammazioneAdminPage() {
           <Calendar size={22} className="text-steelex-orange" />
           <h1 className="text-xl font-bold text-gray-900">Programmazione settimana</h1>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Import PDF */}
-          <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={onFileSelected} />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importando}
-            className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors">
-            <Upload size={15} />
-            {importando ? 'Analisi in corso...' : 'Importa tabella / foto'}
-          </button>
-          {/* Pubblica e notifica */}
-          {programmazione.length > 0 && (
+        {puoModificare && (
+          <div className="flex items-center gap-2">
+            {/* Import PDF */}
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={onFileSelected} />
             <button
-              onClick={() => pubblicaMutation.mutate()}
-              disabled={pubblicaMutation.isLoading}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                pubblicato ? 'bg-green-100 text-green-700' : 'bg-steelex-orange text-white hover:bg-orange-600'
-              }`}>
-              {pubblicato ? <><CheckCircle size={15}/> Notifiche inviate!</> : <><Bell size={15}/> Pubblica e notifica</>}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importando}
+              className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+              <Upload size={15} />
+              {importando ? 'Analisi in corso...' : 'Importa tabella / foto'}
             </button>
-          )}
-        </div>
+            {/* Pubblica e notifica */}
+            {programmazione.length > 0 && (
+              <button
+                onClick={() => pubblicaMutation.mutate()}
+                disabled={pubblicaMutation.isLoading}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                  pubblicato ? 'bg-green-100 text-green-700' : 'bg-steelex-orange text-white hover:bg-orange-600'
+                }`}>
+                {pubblicato ? <><CheckCircle size={15}/> Notifiche inviate!</> : <><Bell size={15}/> Pubblica e notifica</>}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {importErr && (
@@ -327,15 +332,17 @@ export default function ProgrammazioneAdminPage() {
                   <p className="font-semibold text-gray-900">{u.nome} {u.cognome}</p>
                   <p className="text-xs text-gray-400 capitalize">{u.ruolo?.replace(/_/g, ' ')}</p>
                 </div>
-                <button
-                  onClick={() => salva(u.id)}
-                  disabled={salvaMutation.isLoading}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                    salvato[u.id] ? 'bg-green-100 text-green-700' : 'bg-steelex-orange text-white hover:bg-orange-600'
-                  }`}>
-                  <Save size={14} />
-                  {salvato[u.id] ? 'Salvato!' : 'Salva'}
-                </button>
+                {puoModificare && (
+                  <button
+                    onClick={() => salva(u.id)}
+                    disabled={salvaMutation.isLoading}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                      salvato[u.id] ? 'bg-green-100 text-green-700' : 'bg-steelex-orange text-white hover:bg-orange-600'
+                    }`}>
+                    <Save size={14} />
+                    {salvato[u.id] ? 'Salvato!' : 'Salva'}
+                  </button>
+                )}
               </div>
 
               <div className="p-3 space-y-2">
