@@ -256,13 +256,13 @@ export default function ProgrammazioneAdminPage() {
         </div>
         <div className="flex items-center gap-2">
           {/* Import PDF */}
-          <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={onFileSelected} />
+          <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={onFileSelected} />
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importando}
             className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors">
             <Upload size={15} />
-            {importando ? 'Lettura PDF...' : 'Importa PDF'}
+            {importando ? 'Analisi in corso...' : 'Importa tabella / foto'}
           </button>
           {/* Pubblica e notifica */}
           {programmazione.length > 0 && (

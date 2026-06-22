@@ -202,40 +202,56 @@ async def importa_da_pdf(
     content_type = (file.content_type or "").lower()
 
     import anthropic
+    from PIL import Image
+    import io as _io
+
     claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     img_b64 = None
-    img_mime = "image/png"
     testo_pdf = ""
 
-    # Rileva se è immagine diretta
-    is_image = content_type.startswith("image/") or any(filename.endswith(x) for x in (".jpg", ".jpeg", ".png", ".webp", ".gif"))
+    def _to_png_b64(data: bytes) -> str:
+        """Converte qualsiasi immagine in PNG base64 usando Pillow."""
+        img = Image.open(_io.BytesIO(data))
+        buf = _io.BytesIO()
+        img.convert("RGB").save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode()
+
+    # Rileva se è immagine (screenshot iPhone, JPG, PNG, WebP, ecc.)
+    is_image = content_type.startswith("image/") or any(
+        filename.endswith(x) for x in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".bmp")
+    )
 
     if is_image:
-        img_b64 = base64.b64encode(contenuto).decode()
-        img_mime = content_type if content_type.startswith("image/") else "image/jpeg"
+        try:
+            img_b64 = _to_png_b64(contenuto)
+        except Exception as e:
+            raise HTTPException(422, detail=f"Impossibile leggere l'immagine: {e}")
     else:
-        # Prova estrazione testo con PyMuPDF
+        # PDF: prova estrazione testo
         try:
             import fitz
             doc = fitz.open(stream=contenuto, filetype="pdf")
             for page in doc:
                 testo_pdf += page.get_text("text") + "\n"
             doc.close()
-        except Exception as e:
-            raise HTTPException(422, detail=f"Impossibile aprire il file come PDF: {e}. Prova a caricare un'immagine (JPG/PNG) della tabella.")
+        except Exception:
+            # Non è un PDF valido — prova come immagine con Pillow
+            try:
+                img_b64 = _to_png_b64(contenuto)
+            except Exception as e:
+                raise HTTPException(422, detail=f"File non riconosciuto. Carica un PDF, una foto o uno screenshot della tabella.")
 
-        # Se testo scarso → renderizza prima pagina come immagine
-        if len(testo_pdf.strip()) < 50:
+        # PDF con poco testo → renderizza come immagine
+        if not img_b64 and len(testo_pdf.strip()) < 50:
             try:
                 import fitz
                 doc = fitz.open(stream=contenuto, filetype="pdf")
                 pix = doc[0].get_pixmap(dpi=150)
                 img_b64 = base64.b64encode(pix.tobytes("png")).decode()
-                img_mime = "image/png"
                 doc.close()
-            except Exception as e:
-                raise HTTPException(422, detail=f"PDF non leggibile e conversione immagine fallita: {e}")
+            except Exception:
+                pass  # usa il testo scarso comunque
 
     # Chiama Claude
     try:
@@ -246,7 +262,7 @@ async def importa_da_pdf(
                 messages=[{
                     "role": "user",
                     "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": img_mime, "data": img_b64}},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
                         {"type": "text", "text": PROMPT_ESTRAI_TABELLA.format(testo="[vedi immagine allegata]")},
                     ]
                 }]
@@ -258,7 +274,7 @@ async def importa_da_pdf(
                 messages=[{"role": "user", "content": PROMPT_ESTRAI_TABELLA.format(testo=testo_pdf)}]
             )
     except Exception as e:
-        raise HTTPException(502, detail=f"Errore chiamata Claude AI: {e}")
+        raise HTTPException(502, detail=f"Errore Claude AI: {str(e)[:200]}")
 
     raw = msg.content[0].text.strip()
     if raw.startswith("```"):
