@@ -14,7 +14,7 @@ from app.config import settings
 
 router = APIRouter(prefix="/programmazione", tags=["Programmazione"])
 
-RUOLI_ADMIN = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
+RUOLI_ADMIN = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub, RuoloUtente.amministrazione}
 
 GIORNI_ORDINE = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"]
 

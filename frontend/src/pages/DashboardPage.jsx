@@ -604,6 +604,9 @@ export default function DashboardPage() {
             <StatCard icon={TrendingUp} label="Avanz. Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
           </div>
 
+          {/* Programmazione settimana — per capo cantiere */}
+          {['capo_cantiere','capo_cantiere_sub','artigiano'].includes(utente?.ruolo) && <ProgrammazioneWidget />}
+
           {/* Notifiche */}
           <NotifichePanel />
 
@@ -698,40 +701,40 @@ function NotifichePanel() {
   }
 
   return (
-    <div className="card space-y-3">
+    <div className="card p-3 space-y-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bell size={16} className="text-fr-charcoal" />
-          <h2 className="font-bold text-gray-800">Notifiche</h2>
+        <div className="flex items-center gap-1.5">
+          <Bell size={14} className="text-steelex-orange" />
+          <h2 className="text-sm font-semibold text-gray-800">Notifiche</h2>
           {nonLette > 0 && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold">{nonLette}</span>}
         </div>
         {nonLette > 0 && (
-          <button onClick={() => leggiTutte.mutate()} className="text-xs text-gray-400 hover:text-fr-charcoal">
-            Segna tutte lette
+          <button onClick={() => leggiTutte.mutate()} className="text-xs text-gray-400 hover:text-steelex-orange">
+            Tutte lette
           </button>
         )}
       </div>
-      {isLoading && <div className="text-center py-4 text-gray-400 text-sm">Caricamento...</div>}
+      {isLoading && <div className="text-center py-2 text-gray-400 text-xs">Caricamento...</div>}
       {!isLoading && notifiche.length === 0 && (
-        <div className="text-center py-6 text-gray-400">
-          <BellOff size={28} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">Nessuna notifica</p>
+        <div className="text-center py-3 text-gray-400">
+          <BellOff size={20} className="mx-auto mb-1 opacity-30" />
+          <p className="text-xs">Nessuna notifica</p>
         </div>
       )}
-      <div className="space-y-2 max-h-80 overflow-y-auto">
+      <div className="space-y-1 max-h-48 overflow-y-auto">
         {notifiche.map(n => (
           <div key={n.id}
-            className={`border-l-4 rounded-r-xl px-3 py-2 cursor-pointer transition-opacity ${TIPO_COLOR[n.tipo] || TIPO_COLOR.info} ${n.letta ? 'opacity-50' : ''}`}
+            className={`border-l-4 rounded-r-lg px-2 py-1.5 cursor-pointer transition-opacity ${TIPO_COLOR[n.tipo] || TIPO_COLOR.info} ${n.letta ? 'opacity-50' : ''}`}
             onClick={() => {
               if (!n.letta) leggi.mutate(n.id)
               if (n.url) window.location.href = n.url
             }}>
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium ${n.letta ? 'text-gray-500' : 'text-gray-900'}`}>{n.titolo}</p>
-                {n.corpo && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.corpo}</p>}
+                <p className={`text-xs font-medium ${n.letta ? 'text-gray-500' : 'text-gray-900'} truncate`}>{n.titolo}</p>
+                {n.corpo && <p className="text-xs text-gray-400 truncate">{n.corpo}</p>}
               </div>
-              <span className="text-xs text-gray-400 flex-shrink-0">{dayjs(n.creato_il).fromNow()}</span>
+              <span className="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">{dayjs(n.creato_il).fromNow()}</span>
             </div>
           </div>
         ))}
