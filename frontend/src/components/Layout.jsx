@@ -138,13 +138,29 @@ export default function Layout() {
           {/* Footer sidebar: utente + azioni */}
           <div className="p-3 border-t border-white/10 space-y-1">
             {mostraNotificheBell && (
-              <button onClick={toggleNotifiche}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                  notifiche ? 'text-steelex-orange hover:bg-white/10' : 'text-gray-400 hover:bg-white/10 hover:text-white'
-                }`}>
-                {notifiche ? <Bell size={18} /> : <BellOff size={18} />}
-                {notifiche ? 'Notifiche attive' : 'Attiva notifiche'}
-              </button>
+              <>
+                <button onClick={toggleNotifiche}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                    notifiche ? 'text-steelex-orange hover:bg-white/10' : 'text-gray-400 hover:bg-white/10 hover:text-white'
+                  }`}>
+                  {notifiche ? <Bell size={18} /> : <BellOff size={18} />}
+                  {notifiche ? 'Notifiche attive' : 'Attiva notifiche'}
+                </button>
+                {notifiche && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const r = await api.post('/notifiche/test-push')
+                        alert(r.data.ok ? '✅ Push inviata! Dovresti riceverla a breve.' : '⚠️ ' + r.data.dettaglio)
+                      } catch {
+                        alert('❌ Errore invio test push')
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-gray-500 hover:bg-white/10 hover:text-white transition-colors">
+                    <Star size={14} /> Test notifica push
+                  </button>
+                )}
+              </>
             )}
             <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/10 cursor-pointer group" onClick={handleLogout}>
               <div className="w-7 h-7 rounded-full bg-steelex-orange flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
