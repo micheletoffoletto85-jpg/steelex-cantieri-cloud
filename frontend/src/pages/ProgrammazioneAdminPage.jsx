@@ -217,9 +217,7 @@ export default function ProgrammazioneAdminPage() {
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await api.post('/programmazione/importa-pdf', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      const res = await api.post('/programmazione/importa-pdf', fd)
       setPreview(res.data.preview)
     } catch (err) {
       setImportErr(err?.response?.data?.detail || 'Errore import PDF')
