@@ -2,6 +2,7 @@ import os, tempfile, json as _json
 from datetime import datetime, date as date_today
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from typing import List as TypingList
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -112,6 +113,7 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
         "riassunto": r.riassunto,
         "stato": r.stato,
         "fuori_cantiere": r.fuori_cantiere,
+        "foto_urls": r.foto_urls or [],
         "validato_da": f"{r.validato_da.nome} {r.validato_da.cognome}" if r.validato_da else None,
         "validato_il": r.validato_il.isoformat() if r.validato_il else None,
         "note_admin": r.note_admin,
@@ -124,6 +126,8 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
 async def invia_rapportino(
     file: UploadFile = File(None),
     testo: str = Form(None),
+    cantiere_id: Optional[int] = Form(None),
+    foto: TypingList[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
@@ -197,14 +201,34 @@ async def invia_rapportino(
         raise HTTPException(400, "Fornisci audio o testo")
 
     # Carica lista cantieri attivi per il match
-    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso"])).all()
+    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso","preventivo","sospeso"])).all()
     cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
 
     # Claude estrae dati strutturati
     dati = _estrai_dati(testo_ita, cantieri_nomi)
 
-    # Tenta match cantiere
-    cantiere_id = _match_cantiere(dati.get("cantiere"), cantieri_attivi)
+    # Se l'operativo ha selezionato manualmente il cantiere, usa quello; altrimenti tenta match automatico
+    if cantiere_id:
+        # Verifica che l'operativo sia assegnato a quel cantiere
+        cantiere_obj = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+        if not cantiere_obj:
+            cantiere_id = None
+    else:
+        cantiere_id = _match_cantiere(dati.get("cantiere"), cantieri_attivi)
+
+    # Salva foto allegate
+    foto_urls = []
+    if foto:
+        for f in foto:
+            if f and f.filename:
+                try:
+                    ext = os.path.splitext(f.filename)[1].lower() or ".jpg"
+                    contenuto = await f.read()
+                    url, _ = salva_file(contenuto, "rapportini", ext)
+                    if url:
+                        foto_urls.append(url)
+                except Exception:
+                    pass
 
     rapportino = RapportinoOperativo(
         operativo_id    = user.id,
@@ -223,6 +247,7 @@ async def invia_rapportino(
         riassunto       = dati.get("riassunto") or testo_ita[:200],
         stato           = "inviato",
         fuori_cantiere  = cantiere_id is None,
+        foto_urls       = foto_urls,
     )
     db.add(rapportino); db.commit(); db.refresh(rapportino)
 

@@ -30,6 +30,9 @@ class RapportinoOperativo(Base):
     spese_extra       = Column(JSON, default=list)   # [{"descrizione": "...", "importo": 0}]
     riassunto         = Column(Text)
 
+    # Foto allegate
+    foto_urls         = Column(JSON, default=list)
+
     # Stato validazione
     stato             = Column(String(20), default="inviato")  # inviato | validato | rifiutato
     fuori_cantiere    = Column(Boolean, default=False)

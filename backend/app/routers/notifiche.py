@@ -101,6 +101,41 @@ def segna_tutte_lette(
     return {"ok": True}
 
 
+@router.get("/diagnostica")
+def diagnostica_push(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Diagnostica push notification per l'utente corrente."""
+    subs = db.query(PushSubscription).filter(PushSubscription.user_id == user.id).all()
+    try:
+        from pywebpush import webpush
+        pywebpush_ok = True
+    except ImportError:
+        pywebpush_ok = False
+    return {
+        "subscriptions_trovate": len(subs),
+        "endpoints": [s.endpoint[:80] + "..." for s in subs],
+        "vapid_public_key_ok": bool(settings.VAPID_PUBLIC_KEY),
+        "vapid_private_key_ok": bool(settings.VAPID_PRIVATE_KEY),
+        "vapid_email": settings.VAPID_EMAIL,
+        "pywebpush_ok": pywebpush_ok,
+    }
+
+
+@router.post("/test-push")
+def test_push(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Invia una push di test a se stesso."""
+    subs = db.query(PushSubscription).filter(PushSubscription.user_id == user.id).all()
+    if not subs:
+        return {"ok": False, "dettaglio": "Nessuna subscription trovata. Attiva le notifiche dal campanello."}
+    invia_notifica(db, [user.id], "🔔 Test notifica", "Se vedi questo, le push funzionano!", "/")
+    return {"ok": True, "subscriptions_trovate": len(subs)}
+
+
 @router.delete("/unsubscribe")
 def unsubscribe(
     endpoint: str,
@@ -184,6 +219,7 @@ def invia_notifica(
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
+        print("[PUSH] ❌ pywebpush non installato")
         return
 
     payload = json.dumps({
@@ -205,12 +241,23 @@ def invia_notifica(
                 },
                 data=payload,
                 vapid_private_key=private_key,
-                vapid_claims={"sub": settings.VAPID_EMAIL},
+                vapid_claims={
+                    "sub": settings.VAPID_EMAIL,
+                    "aud": sub.endpoint.split("/")[0] + "//" + sub.endpoint.split("/")[2],
+                },
+                ttl=86400,
             )
-        except Exception:
-            # Subscription scaduta o non valida — rimuovi silenziosamente
-            try:
-                db.delete(sub)
-                db.commit()
-            except Exception:
-                pass
+            print(f"[PUSH] ✅ Inviata a user_id={sub.user_id} endpoint={sub.endpoint[:60]}...")
+        except WebPushException as ex:
+            status = ex.response.status_code if ex.response is not None else "N/A"
+            print(f"[PUSH] ❌ WebPushException status={status} user_id={sub.user_id}: {ex}")
+            # Rimuovi solo se la subscription non è più valida (Gone / Not Found)
+            if ex.response is not None and ex.response.status_code in (404, 410):
+                try:
+                    db.delete(sub)
+                    db.commit()
+                    print(f"[PUSH] 🗑️ Subscription rimossa (HTTP {ex.response.status_code})")
+                except Exception:
+                    pass
+        except Exception as ex:
+            print(f"[PUSH] ❌ Errore generico user_id={sub.user_id}: {type(ex).__name__}: {ex}")

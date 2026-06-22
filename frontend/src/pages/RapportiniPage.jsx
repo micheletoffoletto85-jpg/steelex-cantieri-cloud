@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Mic, MicOff, Send, Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -116,6 +117,18 @@ function RapportinoCard({ r, isAdmin, onValida }) {
                 ))}
               </div>
             )}
+            {r.foto_urls?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-1">Foto allegate</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {r.foto_urls.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                      <img src={url} alt="" className="w-16 h-16 object-cover rounded-lg border border-gray-200 hover:opacity-80 transition-opacity" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
             {r.note_admin && (
               <div className="bg-gray-50 p-2 rounded text-xs text-gray-600">
                 <span className="font-semibold">Note admin: </span>{r.note_admin}
@@ -136,153 +149,6 @@ function RapportinoCard({ r, isAdmin, onValida }) {
             className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition-colors">
             <XCircle size={15} /> Rifiuta
           </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Vista operativo ───────────────────────────────────────────────────────────
-function VistaOperativo() {
-  const qc = useQueryClient()
-  const [fase, setFase] = useState('idle') // idle | recording | processing | done | error
-  const [testo, setTesto] = useState('')
-  const [risultato, setRisultato] = useState(null)
-  const [errore, setErrore] = useState(null)
-  const mediaRef = useRef(null)
-  const chunksRef = useRef([])
-
-  const { data: miei = [] } = useQuery('rapportini-miei', () =>
-    api.get('/rapportini/miei').then(r => r.data), { staleTime: 30000 })
-
-  const inviaMutation = useMutation(
-    async (formData) => {
-      const res = await api.post('/rapportini/invia', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
-      return res.data
-    },
-    {
-      onSuccess: (data) => {
-        setRisultato(data)
-        setFase('done')
-        setTesto('')
-        qc.invalidateQueries('rapportini-miei')
-      },
-      onError: (err) => {
-        setErrore(err?.response?.data?.detail || 'Errore invio')
-        setFase('error')
-      }
-    }
-  )
-
-  const startRec = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-      chunksRef.current = []
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        const fd = new FormData()
-        fd.append('file', blob, 'rapportino.webm')
-        setFase('processing')
-        inviaMutation.mutate(fd)
-      }
-      mr.start()
-      mediaRef.current = mr
-      setFase('recording')
-      setErrore(null)
-    } catch {
-      setErrore('Microfono non disponibile')
-    }
-  }
-
-  const stopRec = () => {
-    if (mediaRef.current?.state === 'recording') mediaRef.current.stop()
-  }
-
-  const inviaTestuale = () => {
-    if (!testo.trim()) return
-    const fd = new FormData()
-    fd.append('testo', testo.trim())
-    setFase('processing')
-    setErrore(null)
-    inviaMutation.mutate(fd)
-  }
-
-  return (
-    <div className="max-w-lg mx-auto space-y-6">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900">Il mio rapportino</h1>
-        <p className="text-sm text-gray-500 mt-1">Registra o scrivi cosa hai fatto oggi</p>
-      </div>
-
-      {/* Pulsante microfono */}
-      <div className="flex flex-col items-center gap-4">
-        {fase === 'idle' || fase === 'done' || fase === 'error' ? (
-          <button
-            onClick={startRec}
-            className="w-32 h-32 rounded-full bg-steelex-orange text-white flex items-center justify-center shadow-xl hover:bg-orange-700 active:scale-95 transition-all">
-            <Mic size={48} />
-          </button>
-        ) : fase === 'recording' ? (
-          <button
-            onClick={stopRec}
-            className="w-32 h-32 rounded-full bg-red-600 text-white flex items-center justify-center shadow-xl animate-pulse hover:bg-red-700 active:scale-95 transition-all">
-            <MicOff size={48} />
-          </button>
-        ) : (
-          <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center">
-            <div className="animate-spin w-10 h-10 border-4 border-fr-charcoal border-t-transparent rounded-full" />
-          </div>
-        )}
-
-        <p className="text-sm font-medium text-gray-600">
-          {fase === 'idle' && 'Tocca per registrare'}
-          {fase === 'recording' && '🔴 Registrazione in corso — tocca per fermare'}
-          {fase === 'processing' && 'Elaborazione in corso...'}
-          {fase === 'done' && '✅ Inviato!'}
-          {fase === 'error' && '❌ Errore'}
-        </p>
-      </div>
-
-      {errore && (
-        <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm text-center">{errore}</div>
-      )}
-
-      {risultato && fase === 'done' && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-2">
-          <p className="font-semibold text-green-800 text-sm">{risultato.riassunto}</p>
-          <Chips rapportino={risultato} />
-          <button onClick={() => setFase('idle')} className="text-xs text-green-600 underline">Nuovo rapportino</button>
-        </div>
-      )}
-
-      {/* Invio testuale */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Oppure scrivi</p>
-        <textarea
-          value={testo}
-          onChange={e => setTesto(e.target.value)}
-          rows={4}
-          placeholder="Descrivi cosa hai fatto oggi, i materiali usati, eventuali problemi..."
-          className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange"
-        />
-        <button
-          onClick={inviaTestuale}
-          disabled={!testo.trim() || fase === 'processing'}
-          className="w-full flex items-center justify-center gap-2 py-3 bg-steelex-orange text-white rounded-xl font-semibold text-sm hover:bg-orange-700 disabled:opacity-40 transition-colors">
-          <Send size={16} /> Invia rapportino
-        </button>
-      </div>
-
-      {/* I miei ultimi rapportini */}
-      {miei.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="font-semibold text-gray-700 text-sm">I tuoi ultimi rapportini</h2>
-          {miei.map(r => <RapportinoCard key={r.id} r={r} isAdmin={false} />)}
         </div>
       )}
     </div>
@@ -366,10 +232,18 @@ function VistaAdmin() {
 // ── Entry point ───────────────────────────────────────────────────────────────
 export default function RapportiniPage() {
   const { utente } = useAuth()
+  const navigate = useNavigate()
   const isAdmin = RUOLI_ADMIN.includes(utente?.ruolo)
+
+  // Operativi usano la dashboard (la registrazione è lì)
+  if (!isAdmin) {
+    navigate('/', { replace: true })
+    return null
+  }
+
   return (
     <div className="p-4 max-w-2xl mx-auto">
-      {isAdmin ? <VistaAdmin /> : <VistaOperativo />}
+      <VistaAdmin />
     </div>
   )
 }

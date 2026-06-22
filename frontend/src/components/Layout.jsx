@@ -21,8 +21,8 @@ function filtraNav(items, utente) {
     if (i.roles) return i.roles.includes(utente?.ruolo)
     return true
   }).filter(i => {
-    // operativo interno: solo dashboard e rapportini
-    if (isOperativo) return i.to === '/' || i.to === '/rapportini'
+    // operativo interno: solo dashboard (la registrazione è integrata nella dashboard)
+    if (isOperativo) return i.to === '/'
     return true
   })
 }

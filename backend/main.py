@@ -213,6 +213,7 @@ def _migra():
             validato_il       TIMESTAMPTZ,
             note_admin        TEXT
         )""",
+        "ALTER TABLE rapportini_operativi ADD COLUMN IF NOT EXISTS foto_urls JSONB DEFAULT '[]'",
     ]
     _u = engine.url
     import psycopg2
