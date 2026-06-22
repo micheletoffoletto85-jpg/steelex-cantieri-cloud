@@ -15,39 +15,10 @@ from datetime import datetime
 router = APIRouter(prefix="/notifiche", tags=["Notifiche"])
 
 
-def _converti_vapid_key(raw: str) -> str:
-    """
-    Converte la chiave privata VAPID in formato PEM compatibile con pywebpush 2.x.
-    Accetta sia PEM già pronto sia base64url raw (32 byte, formato tipico dei generatori web-push).
-    """
-    raw = raw.replace('\\n', '\n').strip()
-    if not raw:
-        return raw
-    # Già PEM — restituisci così com'è
-    if '-----' in raw:
-        return raw
-    # Base64url raw → converti in PEM EC P-256
-    import base64
-    from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, derive_private_key
-    from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
-    from cryptography.hazmat.backends import default_backend
-    try:
-        # Aggiunge padding se necessario
-        padded = raw + '=' * (-len(raw) % 4)
-        key_bytes = base64.urlsafe_b64decode(padded)
-        if len(key_bytes) == 32:
-            private_int = int.from_bytes(key_bytes, 'big')
-            ec_key = derive_private_key(private_int, SECP256R1(), default_backend())
-            pem = ec_key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption())
-            return pem.decode()
-        # Se non è 32 byte, prova come DER
-        from cryptography.hazmat.primitives.serialization import load_der_private_key
-        ec_key = load_der_private_key(key_bytes, password=None, backend=default_backend())
-        pem = ec_key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption())
-        return pem.decode()
-    except Exception as ex:
-        logger.warning(f"[PUSH] _converti_vapid_key fallback raw: {ex}")
-        return raw  # Restituisce la chiave originale come fallback
+def _get_vapid_key() -> str:
+    """Restituisce la chiave privata VAPID normalizzata per pywebpush 1.x."""
+    raw = (settings.VAPID_PRIVATE_KEY or '').replace('\\n', '\n').strip()
+    return raw
 
 
 class SubscribeRequest(BaseModel):
@@ -188,7 +159,7 @@ def test_push(
     if not vapid_ok:
         return {"ok": False, "dettaglio": "VAPID non configurato", "subscriptions": len(subs)}
 
-    private_key = _converti_vapid_key(settings.VAPID_PRIVATE_KEY or '')
+    private_key = _get_vapid_key(settings.VAPID_PRIVATE_KEY or '')
     vapid_sub = settings.VAPID_EMAIL
     if vapid_sub and not vapid_sub.startswith("mailto:"):
         vapid_sub = f"mailto:{vapid_sub}"
@@ -211,7 +182,6 @@ def test_push(
                 vapid_private_key=private_key,
                 vapid_claims={"sub": vapid_sub, "aud": aud},
                 ttl=86400,
-                content_encoding="aes128gcm",
             )
             sc = getattr(resp, 'status_code', '?')
             risultati.append({"tipo": tipo, "ok": True, "status": sc, "endpoint": sub.endpoint[:50] + "..."})
@@ -318,7 +288,7 @@ def invia_notifica(
         "icon": "/icons/icon-192.png",
     })
 
-    private_key = _converti_vapid_key(settings.VAPID_PRIVATE_KEY or '')
+    private_key = _get_vapid_key(settings.VAPID_PRIVATE_KEY or '')
 
     # Apple e altri richiedono mailto: nel sub claim
     vapid_sub = settings.VAPID_EMAIL
@@ -337,7 +307,6 @@ def invia_notifica(
                 vapid_private_key=private_key,
                 vapid_claims={"sub": vapid_sub, "aud": aud},
                 ttl=86400,
-                content_encoding="aes128gcm",
             )
             status_code = getattr(resp, 'status_code', '?')
             logger.info(f"[PUSH] ✅ Inviata a endpoint={sub.endpoint[:60]} status={status_code}")
