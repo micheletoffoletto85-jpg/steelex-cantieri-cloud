@@ -152,7 +152,15 @@ export default function Layout() {
                     onClick={async () => {
                       try {
                         const r = await api.post('/notifiche/test-push')
-                        alert(r.data.ok ? '✅ Push inviata! Dovresti riceverla a breve.' : '⚠️ ' + r.data.dettaglio)
+                        const d = r.data
+                        let msg = `Subscription: ${d.subscriptions}\nVAPID sub: ${d.vapid_sub || '?'}\n\n`
+                        if (d.risultati?.length) {
+                          d.risultati.forEach(r => {
+                            msg += `${r.ok ? '✅' : '❌'} ${(r.tipo||'').toUpperCase()} status=${r.status??'?'}\n`
+                            if (!r.ok) msg += `  → ${r.errore||''}\n  → ${r.risposta||''}\n`
+                          })
+                        } else { msg += d.dettaglio || 'Nessuna subscription' }
+                        alert(msg)
                       } catch {
                         alert('❌ Errore invio test push')
                       }

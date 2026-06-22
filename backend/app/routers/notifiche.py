@@ -1,5 +1,6 @@
-import json
+import json, logging
 from fastapi import APIRouter, Depends, HTTPException
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.notifica import PushSubscription
@@ -101,41 +102,6 @@ def segna_tutte_lette(
     return {"ok": True}
 
 
-@router.get("/diagnostica")
-def diagnostica_push(
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
-):
-    """Diagnostica push notification per l'utente corrente."""
-    subs = db.query(PushSubscription).filter(PushSubscription.user_id == user.id).all()
-    try:
-        from pywebpush import webpush
-        pywebpush_ok = True
-    except ImportError:
-        pywebpush_ok = False
-    return {
-        "subscriptions_trovate": len(subs),
-        "endpoints": [s.endpoint[:80] + "..." for s in subs],
-        "vapid_public_key_ok": bool(settings.VAPID_PUBLIC_KEY),
-        "vapid_private_key_ok": bool(settings.VAPID_PRIVATE_KEY),
-        "vapid_email": settings.VAPID_EMAIL,
-        "pywebpush_ok": pywebpush_ok,
-    }
-
-
-@router.post("/test-push")
-def test_push(
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
-):
-    """Invia una push di test a se stesso."""
-    subs = db.query(PushSubscription).filter(PushSubscription.user_id == user.id).all()
-    if not subs:
-        return {"ok": False, "dettaglio": "Nessuna subscription trovata. Attiva le notifiche dal campanello."}
-    invia_notifica(db, [user.id], "🔔 Test notifica", "Se vedi questo, le push funzionano!", "/")
-    return {"ok": True, "subscriptions_trovate": len(subs)}
-
-
 @router.delete("/unsubscribe")
 def unsubscribe(
     endpoint: str,
@@ -148,6 +114,91 @@ def unsubscribe(
     ).delete()
     db.commit()
     return {"ok": True}
+
+
+@router.get("/diagnostica")
+def diagnostica_push(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Diagnostica push: quante subscription, VAPID ok, pywebpush installato."""
+    subs = db.query(PushSubscription).filter(PushSubscription.user_id == user.id).all()
+    try:
+        from pywebpush import webpush
+        pw_ok = True
+    except ImportError:
+        pw_ok = False
+    return {
+        "user_id": user.id,
+        "subscriptions": len(subs),
+        "endpoints": [s.endpoint[:80] for s in subs],
+        "vapid_public": bool(settings.VAPID_PUBLIC_KEY),
+        "vapid_private": bool(settings.VAPID_PRIVATE_KEY),
+        "vapid_email": settings.VAPID_EMAIL,
+        "pywebpush_ok": pw_ok,
+    }
+
+
+@router.post("/test-push")
+def test_push(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Manda push di test e ritorna risultato per-endpoint."""
+    from pywebpush import webpush as _wp, WebPushException as _WPE
+    subs = db.query(PushSubscription).filter(PushSubscription.user_id == user.id).all()
+    vapid_ok = bool(settings.VAPID_PRIVATE_KEY and settings.VAPID_PUBLIC_KEY)
+    logger.info(f"[TEST-PUSH] user={user.id} subscriptions={len(subs)} vapid={vapid_ok}")
+
+    if not vapid_ok:
+        return {"ok": False, "dettaglio": "VAPID non configurato", "subscriptions": len(subs)}
+
+    private_key = settings.VAPID_PRIVATE_KEY.replace('\\n', '\n')
+    vapid_sub = settings.VAPID_EMAIL
+    if vapid_sub and not vapid_sub.startswith("mailto:"):
+        vapid_sub = f"mailto:{vapid_sub}"
+
+    payload = json.dumps({
+        "title": "🔔 Test Notifica FR",
+        "body": f"Ciao {user.nome}! Push funzionante.",
+        "url": "/",
+        "icon": "/icons/icon-192.png",
+    })
+
+    risultati = []
+    for sub in subs:
+        tipo = "apple" if "apple.com" in sub.endpoint else "fcm" if "fcm" in sub.endpoint else "altro"
+        aud = sub.endpoint.split("/")[0] + "//" + sub.endpoint.split("/")[2]
+        try:
+            resp = _wp(
+                subscription_info={"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}},
+                data=payload,
+                vapid_private_key=private_key,
+                vapid_claims={"sub": vapid_sub, "aud": aud},
+                ttl=86400,
+                content_encoding="aes128gcm",
+            )
+            sc = getattr(resp, 'status_code', '?')
+            risultati.append({"tipo": tipo, "ok": True, "status": sc, "endpoint": sub.endpoint[:50] + "..."})
+        except _WPE as e:
+            sc = None
+            body = ""
+            if hasattr(e, 'response') and e.response is not None:
+                sc = getattr(e.response, 'status_code', None)
+                try: body = e.response.text[:300]
+                except Exception: pass
+            risultati.append({"tipo": tipo, "ok": False, "status": sc, "errore": str(e)[:200], "risposta": body, "endpoint": sub.endpoint[:50] + "..."})
+        except Exception as e:
+            risultati.append({"tipo": tipo, "ok": False, "errore": f"{type(e).__name__}: {e}"[:200], "endpoint": sub.endpoint[:50] + "..."})
+
+    # Salva anche la in-app notification
+    try:
+        n = NotificaInApp(user_id=user.id, titolo="🔔 Test notifica", corpo="Test push inviato", url="/", tipo="info")
+        db.add(n); db.commit()
+    except Exception: pass
+
+    tutti_ok = all(r["ok"] for r in risultati)
+    return {"ok": tutti_ok, "subscriptions": len(subs), "risultati": risultati, "vapid_sub": vapid_sub}
 
 
 # ─── HELPER: notifica basata su ruoli per un cantiere ─────────────────────────
@@ -207,19 +258,22 @@ def invia_notifica(
         db.rollback()
 
     if not settings.VAPID_PRIVATE_KEY or not settings.VAPID_PUBLIC_KEY:
-        return  # push non configurato, silenzioso
+        logger.warning("[PUSH] VAPID non configurato — push non inviata")
+        return
 
     subs = db.query(PushSubscription).filter(
         PushSubscription.user_id.in_(user_ids)
     ).all()
 
+    logger.info(f"[PUSH] Invio a user_ids={user_ids} → {len(subs)} subscription(s)")
     if not subs:
+        logger.warning(f"[PUSH] Nessuna subscription trovata per user_ids={user_ids}")
         return
 
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
-        print("[PUSH] ❌ pywebpush non installato")
+        logger.error("[PUSH] pywebpush non installato!")
         return
 
     payload = json.dumps({
@@ -229,35 +283,42 @@ def invia_notifica(
         "icon": "/icons/icon-192.png",
     })
 
-    # Ricostruisce PEM multilinea se salvato con \n letterali
     private_key = settings.VAPID_PRIVATE_KEY.replace('\\n', '\n') if settings.VAPID_PRIVATE_KEY else ''
+
+    # Apple e altri richiedono mailto: nel sub claim
+    vapid_sub = settings.VAPID_EMAIL
+    if vapid_sub and not vapid_sub.startswith("mailto:"):
+        vapid_sub = f"mailto:{vapid_sub}"
 
     for sub in subs:
         try:
-            webpush(
+            aud = sub.endpoint.split("/")[0] + "//" + sub.endpoint.split("/")[2]
+            resp = webpush(
                 subscription_info={
                     "endpoint": sub.endpoint,
                     "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
                 },
                 data=payload,
                 vapid_private_key=private_key,
-                vapid_claims={
-                    "sub": settings.VAPID_EMAIL,
-                    "aud": sub.endpoint.split("/")[0] + "//" + sub.endpoint.split("/")[2],
-                },
+                vapid_claims={"sub": vapid_sub, "aud": aud},
                 ttl=86400,
+                content_encoding="aes128gcm",
             )
-            print(f"[PUSH] ✅ Inviata a user_id={sub.user_id} endpoint={sub.endpoint[:60]}...")
-        except WebPushException as ex:
-            status = ex.response.status_code if ex.response is not None else "N/A"
-            print(f"[PUSH] ❌ WebPushException status={status} user_id={sub.user_id}: {ex}")
-            # Rimuovi solo se la subscription non è più valida (Gone / Not Found)
-            if ex.response is not None and ex.response.status_code in (404, 410):
-                try:
-                    db.delete(sub)
-                    db.commit()
-                    print(f"[PUSH] 🗑️ Subscription rimossa (HTTP {ex.response.status_code})")
-                except Exception:
-                    pass
-        except Exception as ex:
-            print(f"[PUSH] ❌ Errore generico user_id={sub.user_id}: {type(ex).__name__}: {ex}")
+            status_code = getattr(resp, 'status_code', '?')
+            logger.info(f"[PUSH] ✅ Inviata a endpoint={sub.endpoint[:60]} status={status_code}")
+        except WebPushException as e:
+            status = None
+            if hasattr(e, 'response') and e.response is not None:
+                status = getattr(e.response, 'status_code', None)
+                body = ''
+                try: body = e.response.text[:200]
+                except Exception: pass
+                logger.error(f"[PUSH] ❌ WebPushException status={status} body={body!r} endpoint={sub.endpoint[:60]}")
+            else:
+                logger.error(f"[PUSH] ❌ WebPushException (no response): {e}")
+            if status in (404, 410):
+                logger.warning(f"[PUSH] Subscription scaduta ({status}), rimuovo")
+                try: db.delete(sub); db.commit()
+                except Exception: pass
+        except Exception as e:
+            logger.error(f"[PUSH] ❌ Errore generico: {type(e).__name__}: {e}")
