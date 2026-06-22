@@ -50,15 +50,22 @@ def _prog_dict(p: ProgrammazioneSettimana, db: Session) -> dict:
 
 
 def _match_nome(nome: str, utenti: list) -> Optional[int]:
-    """Match fuzzy nome operativo."""
+    """Match fuzzy nome operativo — gestisce nomi parziali e composti."""
     if not nome:
         return None
     nome_l = nome.lower().strip()
+    # Rimuovi caratteri extra comuni
+    nome_l = nome_l.replace('+', ' ').replace(',', ' ').strip()
+    best = None
     for u in utenti:
         full = f"{u.nome} {u.cognome}".lower()
-        if nome_l in full or full in nome_l or u.nome.lower() in nome_l or u.cognome.lower() in nome_l:
-            return u.id
-    return None
+        n = u.nome.lower()
+        c = u.cognome.lower()
+        if nome_l == full or nome_l == n or nome_l == c:
+            return u.id  # match esatto — restituisci subito
+        if n in nome_l or c in nome_l or nome_l in full:
+            best = u.id
+    return best
 
 
 def _match_cantiere(nome: str, cantieri: list) -> Optional[int]:
@@ -160,18 +167,20 @@ def lista_programmazione(
     return [_prog_dict(p, db) for p in progs]
 
 
-PROMPT_ESTRAI_TABELLA = """Sei un parser JSON. Devi estrarre i dati da una tabella e restituire SOLO un array JSON valido, senza nessun testo prima o dopo, senza markdown, senza backtick.
+PROMPT_ESTRAI_TABELLA = """Sei un parser JSON. Estrai i dati da questa tabella di programmazione settimanale.
+Rispondi SOLO con un array JSON valido. Nessun testo prima o dopo. Nessun markdown. Inizia con [ finisci con ].
 
-Ogni riga della tabella diventa un oggetto con questi campi:
-- "nome": stringa con nome e cognome dell'operaio
-- "giorno": una di queste stringhe esatte: lun, mar, mer, gio, ven, sab
-- "cantiere": stringa con nome cantiere o indirizzo
-- "lavorazione": stringa con il tipo di lavorazione
+Ogni riga diventa un oggetto JSON:
+{{"nome": "nome singolo operaio", "giorno": "lun|mar|mer|gio|ven|sab", "cantiere": "nome cantiere", "lavorazione": "descrizione lavoro"}}
 
-Regole:
-- Ometti righe con celle vuote o trattino
-- Se il nome si ripete su più righe, crea un oggetto per ogni giorno
-- Rispondi SOLO con il JSON, inizia con [ e finisci con ]
+Regole IMPORTANTI:
+- Se la colonna "Chi" contiene "Nome1 + Nome2" o "Nome1, Nome2": crea UN OGGETTO SEPARATO per ogni persona
+- Giorni: Lunedi=lun, Martedi=mar, Mercoledi=mer, Giovedi=gio, Venerdi=ven, Sabato=sab
+- Se un giorno ha più righe persone/cantieri: crea un oggetto per ogni combinazione persona+cantiere
+- Ometti righe vuote o con trattino
+
+Esempio: se "Flavio + Alberto" vanno a "Panerai" il lunedi:
+[{{"nome":"Flavio","giorno":"lun","cantiere":"Panerai","lavorazione":"..."}},{{"nome":"Alberto","giorno":"lun","cantiere":"Panerai","lavorazione":"..."}}]
 
 {testo}"""
 
