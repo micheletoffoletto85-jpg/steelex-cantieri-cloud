@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
+import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, MapPin } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -30,8 +30,14 @@ function Chips({ rapportino }) {
 }
 
 // ── Card rapportino ───────────────────────────────────────────────────────────
-function RapportinoCard({ r, isAdmin, onValida }) {
+function RapportinoCard({ r, isAdmin, onValida, cantieri = [] }) {
   const [aperto, setAperto] = useState(false)
+  const [noteAdmin, setNoteAdmin] = useState('')
+  const [cantiereAssegnato, setCantiereAssegnato] = useState('')
+
+  const suggerito = cantieri.find(c =>
+    r.cantiere_rilevato && c.nome?.toLowerCase().includes(r.cantiere_rilevato.toLowerCase())
+  )
 
   const statoColor = {
     inviato: 'bg-yellow-100 text-yellow-700',
@@ -74,7 +80,6 @@ function RapportinoCard({ r, isAdmin, onValida }) {
           </button>
         </div>
 
-        {/* Dettaglio espanso */}
         {aperto && (
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-2 text-sm text-gray-700">
             {r.testo_italiano && (
@@ -140,17 +145,109 @@ function RapportinoCard({ r, isAdmin, onValida }) {
 
       {/* Azioni admin */}
       {isAdmin && r.stato === 'inviato' && (
-        <div className="px-4 pb-4 flex gap-2">
-          <button onClick={() => onValida(r.id, false)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors">
-            <CheckCircle size={15} /> Valida
-          </button>
-          <button onClick={() => onValida(r.id, true)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition-colors">
-            <XCircle size={15} /> Rifiuta
-          </button>
+        <div className="px-4 pb-4 space-y-2">
+          {/* Assegnazione cantiere — se fuori cantiere */}
+          {r.fuori_cantiere && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <MapPin size={13} className="text-amber-600"/>
+                <p className="text-xs font-semibold text-amber-800">
+                  {r.cantiere_rilevato
+                    ? <>Operativo ha citato: <strong>"{r.cantiere_rilevato}"</strong> — non abbinato</>
+                    : 'Nessun cantiere indicato'}
+                </p>
+              </div>
+              {suggerito && !cantiereAssegnato && (
+                <button
+                  onClick={() => setCantiereAssegnato(String(suggerito.id))}
+                  className="text-xs text-amber-700 underline">
+                  Assegna a "{suggerito.nome}"
+                </button>
+              )}
+              <select
+                value={cantiereAssegnato}
+                onChange={e => setCantiereAssegnato(e.target.value)}
+                className="w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
+                <option value="">— lascia fuori cantiere —</option>
+                {cantieri.map(c => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <input
+            type="text"
+            placeholder="Note di validazione (opzionale)"
+            value={noteAdmin}
+            onChange={e => setNoteAdmin(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange"
+          />
+          <div className="flex gap-2">
+            <button onClick={() => onValida(r.id, false, noteAdmin, cantiereAssegnato || null)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors">
+              <CheckCircle size={15} /> {cantiereAssegnato ? 'Assegna e valida' : 'Valida'}
+            </button>
+            <button onClick={() => onValida(r.id, true, noteAdmin, null)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition-colors">
+              <XCircle size={15} /> Rifiuta
+            </button>
+          </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Banner costi non assegnati ────────────────────────────────────────────────
+function BannerCostiNonAssegnati({ lista }) {
+  const totOre = lista.reduce((s, r) => s + (r.ore_lavorate || 0), 0)
+  const totOreExtra = lista.reduce((s, r) => s + (r.ore_extra || 0), 0)
+  const tuttiMateriali = lista.flatMap(r => r.materiali || [])
+  const daAssegnare = lista.filter(r => r.stato === 'inviato').length
+
+  if (!lista.length) return null
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Euro size={16} className="text-amber-600"/>
+        <p className="text-sm font-bold text-amber-900">Costi non imputati a cantiere</p>
+        {daAssegnare > 0 && (
+          <span className="ml-auto bg-amber-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+            {daAssegnare} da assegnare
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white rounded-lg p-2.5 text-center border border-amber-100">
+          <p className="text-lg font-bold text-gray-900">{totOre > 0 ? totOre.toFixed(1) : '—'}</p>
+          <p className="text-xs text-gray-500">ore lavorate</p>
+        </div>
+        <div className="bg-white rounded-lg p-2.5 text-center border border-amber-100">
+          <p className="text-lg font-bold text-gray-900">{totOreExtra > 0 ? totOreExtra.toFixed(1) : '—'}</p>
+          <p className="text-xs text-gray-500">ore extra</p>
+        </div>
+        <div className="bg-white rounded-lg p-2.5 text-center border border-amber-100">
+          <p className="text-lg font-bold text-gray-900">{tuttiMateriali.length || '—'}</p>
+          <p className="text-xs text-gray-500">voci materiali</p>
+        </div>
+      </div>
+      {tuttiMateriali.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-amber-700 mb-1">Materiali non assegnati:</p>
+          <div className="flex flex-wrap gap-1">
+            {[...new Set(tuttiMateriali)].slice(0, 10).map((m, i) => (
+              <span key={i} className="bg-white border border-amber-200 text-amber-800 text-xs px-2 py-0.5 rounded-full">{m}</span>
+            ))}
+            {tuttiMateriali.length > 10 && (
+              <span className="text-xs text-amber-600">+{tuttiMateriali.length - 10} altri</span>
+            )}
+          </div>
+        </div>
+      )}
+      <p className="text-xs text-amber-700">
+        Assegna questi rapportini al cantiere corretto durante la validazione per imputarne i costi.
+      </p>
     </div>
   )
 }
@@ -162,7 +259,7 @@ function VistaAdmin() {
 
   const { data: daValidare = [] } = useQuery('rapp-da-validare',
     () => api.get('/rapportini/da-validare').then(r => r.data),
-    { staleTime: 30000, enabled: tab === 'da-validare' })
+    { staleTime: 30000 })
 
   const { data: tutti = [] } = useQuery('rapp-tutti',
     () => api.get('/rapportini').then(r => r.data),
@@ -170,10 +267,16 @@ function VistaAdmin() {
 
   const { data: fuoriCantiere = [] } = useQuery('rapp-fuori',
     () => api.get('/rapportini/fuori-cantiere').then(r => r.data),
-    { staleTime: 30000, enabled: tab === 'fuori' })
+    { staleTime: 30000 })
+
+  const { data: cantieri = [] } = useQuery('cantieri-lista-rap',
+    () => api.get('/cantieri').then(r => r.data.filter(c =>
+      ['attivo', 'in_corso', 'preventivo'].includes(c.stato)
+    )), { staleTime: 120000 })
 
   const validaMutation = useMutation(
-    ({ id, rifiuta }) => api.put(`/rapportini/${id}/valida`, { rifiuta }),
+    ({ id, rifiuta, note_admin, cantiere_id }) =>
+      api.put(`/rapportini/${id}/valida`, { rifiuta, note_admin, cantiere_id: cantiere_id ? parseInt(cantiere_id) : null }),
     {
       onSuccess: () => {
         qc.invalidateQueries('rapp-da-validare')
@@ -184,16 +287,24 @@ function VistaAdmin() {
   )
 
   const lista = tab === 'da-validare' ? daValidare : tab === 'fuori' ? fuoriCantiere : tutti
+  const fuoriCount = fuoriCantiere.filter(r => r.stato === 'inviato').length
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">Rapportini operativi</h1>
-        {daValidare.length > 0 && (
-          <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-            {daValidare.length} in attesa
-          </span>
-        )}
+        <div className="flex gap-2">
+          {daValidare.length > 0 && (
+            <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {daValidare.length} in attesa
+            </span>
+          )}
+          {fuoriCount > 0 && (
+            <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {fuoriCount} fuori cant.
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Tab bar */}
@@ -212,16 +323,19 @@ function VistaAdmin() {
         ))}
       </div>
 
+      {tab === 'fuori' && <BannerCostiNonAssegnati lista={fuoriCantiere} />}
+
       {lista.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <FileText size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">Nessun rapportino</p>
+          <p className="text-sm">{tab === 'fuori' ? 'Nessun costo non assegnato' : 'Nessun rapportino'}</p>
         </div>
       ) : (
         <div className="space-y-3">
           {lista.map(r => (
-            <RapportinoCard key={r.id} r={r} isAdmin
-              onValida={(id, rifiuta) => validaMutation.mutate({ id, rifiuta })} />
+            <RapportinoCard key={r.id} r={r} isAdmin cantieri={cantieri}
+              onValida={(id, rifiuta, note_admin, cantiere_id) =>
+                validaMutation.mutate({ id, rifiuta, note_admin, cantiere_id })} />
           ))}
         </div>
       )}

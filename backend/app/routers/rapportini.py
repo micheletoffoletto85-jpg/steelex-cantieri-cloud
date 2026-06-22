@@ -363,7 +363,7 @@ def fuori_cantiere(db: Session = Depends(get_db), user: Utente = Depends(get_cur
         raise HTTPException(403)
     rs = db.query(RapportinoOperativo).filter(
         RapportinoOperativo.fuori_cantiere == True,
-        RapportinoOperativo.stato == "validato",
+        RapportinoOperativo.stato.in_(["inviato", "validato"]),
     ).order_by(RapportinoOperativo.creato_il.desc()).all()
     return [_rap_dict(r) for r in rs]
 

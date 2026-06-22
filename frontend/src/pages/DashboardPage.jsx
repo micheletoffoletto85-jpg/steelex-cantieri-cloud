@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Link } from 'react-router-dom'
-import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown } from 'lucide-react'
+import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown, Euro } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useState, useRef } from 'react'
@@ -669,7 +669,13 @@ function ArtigianoDashboard({ utente, cantieri }) {
 export default function DashboardPage() {
   const { utente } = useAuth()
   const isCliente = utente?.ruolo === 'cliente'
+  const isAdminOrAmm = ['admin', 'capo_cantiere', 'amministrazione'].includes(utente?.ruolo)
   const { data: cantieri = [] } = useQuery('cantieri', () => api.get('/cantieri').then(r => r.data))
+  const { data: fuoriCantiere = [] } = useQuery('rapp-fuori-dash',
+    () => api.get('/rapportini/fuori-cantiere').then(r => r.data),
+    { enabled: isAdminOrAmm, staleTime: 60000 }
+  )
+  const costiNonAssegnati = fuoriCantiere.filter(r => r.stato === 'inviato').length
 
   const stats = {
     totale: cantieri.length,
@@ -719,6 +725,18 @@ export default function DashboardPage() {
             <StatCard icon={CheckCircle} label="Completati" value={stats.completati} color="green" />
             <StatCard icon={TrendingUp} label="Avanz. Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
           </div>
+
+          {/* Alert costi non assegnati */}
+          {isAdminOrAmm && costiNonAssegnati > 0 && (
+            <a href="/rapportini" className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 hover:bg-amber-100 transition-colors">
+              <Euro size={14} className="text-amber-600 flex-shrink-0"/>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-amber-900">{costiNonAssegnati} rapportini fuori cantiere</p>
+                <p className="text-xs text-amber-700">Ore e materiali non imputati — assegna ora</p>
+              </div>
+              <span className="text-amber-600 text-xs">→</span>
+            </a>
+          )}
 
           {/* Programmazione settimana — per capo cantiere */}
           {['capo_cantiere','capo_cantiere_sub','artigiano'].includes(utente?.ruolo) && <ProgrammazioneWidget />}
