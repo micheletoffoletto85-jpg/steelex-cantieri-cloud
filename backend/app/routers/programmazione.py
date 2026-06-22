@@ -160,21 +160,6 @@ def lista_programmazione(
     return [_prog_dict(p, db) for p in progs]
 
 
-@router.delete("/{prog_id}")
-def elimina_programmazione(
-    prog_id: int,
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
-):
-    if user.ruolo not in RUOLI_ADMIN:
-        raise HTTPException(403)
-    prog = db.query(ProgrammazioneSettimana).filter(ProgrammazioneSettimana.id == prog_id).first()
-    if not prog:
-        raise HTTPException(404)
-    db.delete(prog); db.commit()
-    return {"ok": True}
-
-
 PROMPT_ESTRAI_TABELLA = """Analizza questa tabella di programmazione settimanale cantieri.
 Estrai ogni riga e restituisci un array JSON. Rispondi SOLO con il JSON, nessun altro testo.
 
@@ -340,3 +325,20 @@ def pubblica_settimana(
         notificati += 1
 
     return {"ok": True, "notificati": notificati}
+
+
+# IMPORTANTE: questa route deve stare DOPO /importa-pdf e /pubblica-settimana
+# perché /{prog_id} matcherebbe anche quelle stringhe se registrata prima
+@router.delete("/{prog_id}")
+def elimina_programmazione(
+    prog_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    prog = db.query(ProgrammazioneSettimana).filter(ProgrammazioneSettimana.id == prog_id).first()
+    if not prog:
+        raise HTTPException(404)
+    db.delete(prog); db.commit()
+    return {"ok": True}
