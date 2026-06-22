@@ -15,10 +15,11 @@ from datetime import datetime
 router = APIRouter(prefix="/notifiche", tags=["Notifiche"])
 
 
-def _get_vapid_key() -> str:
+def _get_vapid_key(raw: str = '') -> str:
     """Restituisce la chiave privata VAPID normalizzata per pywebpush 1.x."""
-    raw = (settings.VAPID_PRIVATE_KEY or '').replace('\\n', '\n').strip()
-    return raw
+    if not raw:
+        raw = settings.VAPID_PRIVATE_KEY or ''
+    return raw.replace('\\n', '\n').strip()
 
 
 class SubscribeRequest(BaseModel):
