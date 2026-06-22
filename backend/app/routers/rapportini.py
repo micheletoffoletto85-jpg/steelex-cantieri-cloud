@@ -122,6 +122,67 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
+@router.post("/trascrivi")
+async def trascrivi_audio(
+    audio: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Trascrive l'audio con Whisper + Claude reordering, senza salvare — per preview pre-invio."""
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(503, "OpenAI API key non configurata")
+
+    suffix = os.path.splitext(audio.filename or "audio.webm")[1] or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(await audio.read()); tmp_path = tmp.name
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        with open(tmp_path, "rb") as af:
+            risposta = client.audio.transcriptions.create(
+                model="whisper-1", file=af, response_format="verbose_json")
+        testo_originale = risposta.text.strip()
+        lingua = getattr(risposta, "language", "it") or "it"
+    finally:
+        os.unlink(tmp_path)
+
+    if not testo_originale:
+        raise HTTPException(422, "Audio non udibile o troppo corto — riprova")
+
+    testo_finale = testo_originale
+    if settings.ANTHROPIC_API_KEY and len(testo_originale.split()) >= 3:
+        import anthropic
+        claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        LINGUE = {"it":"italiano","ro":"rumeno","en":"inglese","de":"tedesco",
+                  "fr":"francese","pl":"polacco","uk":"ucraino"}
+        lingua_nome = LINGUE.get(lingua, lingua)
+        RIORDINA = (
+            f"Ricevi la trascrizione grezza in {lingua_nome} di un operaio di cantiere.\n"
+            "Riscrivi nella stessa lingua, in modo chiaro, eliminando ripetizioni.\n"
+            "NON tradurre. Solo testo scorrevole.\n\nTrascrizione:\n{txt}\n\nTesto ordinato:"
+        )
+        msg_a = claude.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=1024,
+            messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale)}])
+        testo_riordinato = msg_a.content[0].text.strip()
+
+        if lingua != "it":
+            TRADUCI = (
+                f"Traduci in italiano questo testo in {lingua_nome} di un operaio di cantiere.\n"
+                "Traduci fedelmente, parole semplici.\n\n"
+                f"Testo:\n{testo_riordinato}\n\nTraduzione:"
+            )
+            msg_b = claude.messages.create(
+                model="claude-haiku-4-5-20251001", max_tokens=1024,
+                messages=[{"role":"user","content":TRADUCI}])
+            testo_finale = msg_b.content[0].text.strip()
+        else:
+            testo_finale = testo_riordinato
+
+    return {"testo": testo_finale, "lingua": lingua}
+
+
 @router.post("/invia")
 async def invia_rapportino(
     file: UploadFile = File(None),

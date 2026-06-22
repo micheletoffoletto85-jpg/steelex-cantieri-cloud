@@ -269,7 +269,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const [errore, setErrore] = useState(null)
   const [mostraTestuale, setMostraTestuale] = useState(false)
   const [mostraIstruzioni, setMostraIstruzioni] = useState(true)
-  const [conferma, setConferma] = useState(null)
+  const [conferma, setConferma] = useState(null)  // null | { testo: string }
   const mediaRef = useRef(null)
   const chunksRef = useRef([])
   const fotoInputRef = useRef(null)
@@ -304,10 +304,9 @@ function ArtigianoDashboard({ utente, cantieri }) {
     }
   )
 
-  const _buildFormData = (audioBlob) => {
+  const _buildFormData = (testo) => {
     const fd = new FormData()
-    if (audioBlob) fd.append('file', audioBlob, 'rapportino.webm')
-    if (testoLibero.trim()) fd.append('testo', testoLibero.trim())
+    fd.append('testo', testo)
     if (cantiereSelezionato) fd.append('cantiere_id', cantiereSelezionato)
     foto.forEach(f => fd.append('foto', f))
     return fd
@@ -322,8 +321,18 @@ function ArtigianoDashboard({ utente, cantieri }) {
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        setFase('idle')
-        setConferma({ tipo: 'voce', blob })
+        setFase('transcribing')
+        setErrore(null)
+        try {
+          const fd = new FormData()
+          fd.append('audio', blob, 'rapportino.webm')
+          const res = await api.post('/rapportini/trascrivi', fd)
+          setConferma({ testo: res.data.testo })
+          setFase('idle')
+        } catch (err) {
+          setErrore(err?.response?.data?.detail || 'Errore trascrizione — riprova')
+          setFase('error')
+        }
       }
       mr.start()
       mediaRef.current = mr
@@ -340,15 +349,15 @@ function ArtigianoDashboard({ utente, cantieri }) {
 
   const inviaTestuale = () => {
     if (!testoLibero.trim()) return
-    setConferma({ tipo: 'testo', blob: null })
+    setConferma({ testo: testoLibero.trim() })
   }
 
   const confermaInvio = () => {
-    const c = conferma
+    const testo = conferma.testo
     setConferma(null)
     setFase('processing')
     setErrore(null)
-    inviaMutation.mutate(_buildFormData(c.blob))
+    inviaMutation.mutate(_buildFormData(testo))
   }
 
   const aggiungiAnteprima = (files) => {
@@ -405,21 +414,23 @@ function ArtigianoDashboard({ utente, cantieri }) {
                 <AlertCircle size={20} className="text-amber-600" />
               </div>
               <div>
-                <p className="font-bold text-gray-900 text-lg">Conferma invio</p>
-                <p className="text-xs text-gray-400">
-                  {conferma.tipo === 'voce' ? 'Rapportino vocale registrato' : 'Rapportino testuale scritto'}
-                </p>
+                <p className="font-bold text-gray-900 text-lg">Controlla e conferma</p>
+                <p className="text-xs text-gray-400">Leggi il testo, correggilo se necessario, poi invia</p>
               </div>
             </div>
-            {conferma.tipo === 'testo' && testoLibero && (
-              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-                <p className="text-sm text-gray-700 italic">"{testoLibero}"</p>
-              </div>
-            )}
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Contenuto del rapportino</label>
+              <textarea
+                value={conferma.testo}
+                onChange={e => setConferma(c => ({ ...c, testo: e.target.value }))}
+                rows={5}
+                className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange"
+              />
+            </div>
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
               <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-red-800">
-                <strong>Dichiarazione di responsabilità:</strong> confermando, attesti che le informazioni riportate sono veritiere e corrispondono al lavoro effettivamente svolto. Il rapportino verrà revisionato dal responsabile.
+                <strong>Dichiarazione di responsabilità:</strong> confermando, attesti che le informazioni sono veritiere e corrispondono al lavoro effettivamente svolto. Il rapportino verrà revisionato dal responsabile.
               </p>
             </div>
             <div className="flex gap-3">
@@ -430,7 +441,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
               </button>
               <button
                 onClick={confermaInvio}
-                className="flex-1 py-3 bg-steelex-orange text-white rounded-xl font-bold text-sm hover:bg-orange-600 active:scale-98 transition-all">
+                disabled={!conferma.testo?.trim()}
+                className="flex-1 py-3 bg-steelex-orange text-white rounded-xl font-bold text-sm hover:bg-orange-600 disabled:opacity-40 active:scale-98 transition-all">
                 Confermo e invio
               </button>
             </div>
@@ -527,6 +539,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
             <p className="text-sm font-semibold text-gray-600 text-center">
               {fase === 'idle' && 'Tocca per registrare cosa hai fatto oggi'}
               {fase === 'recording' && '🔴 Registrazione — tocca per fermare'}
+              {fase === 'transcribing' && 'Trascrizione in corso...'}
               {fase === 'processing' && 'Elaborazione in corso...'}
               {fase === 'error' && '❌ Riprova'}
             </p>
