@@ -191,58 +191,74 @@ async def importa_da_pdf(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    """Importa tabella programmazione da PDF usando Claude AI."""
+    """Importa tabella programmazione da PDF o immagine usando Claude AI."""
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
     if not settings.ANTHROPIC_API_KEY:
-        raise HTTPException(503, "Anthropic API key non configurata")
+        raise HTTPException(503, detail="ANTHROPIC_API_KEY non configurata su Railway — aggiungila nelle variabili d'ambiente del backend")
 
     contenuto = await file.read()
-
-    # Prova estrazione testo con PyMuPDF
-    testo_pdf = ""
-    img_b64 = None
-    try:
-        import fitz
-        doc = fitz.open(stream=contenuto, filetype="pdf")
-        for page in doc:
-            testo_pdf += page.get_text("text") + "\n"
-        doc.close()
-    except Exception:
-        pass
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
 
     import anthropic
     claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    # Se il testo è scarso (PDF scansionato/foto), usa la visione sulla prima pagina
-    if len(testo_pdf.strip()) < 50:
+    img_b64 = None
+    img_mime = "image/png"
+    testo_pdf = ""
+
+    # Rileva se è immagine diretta
+    is_image = content_type.startswith("image/") or any(filename.endswith(x) for x in (".jpg", ".jpeg", ".png", ".webp", ".gif"))
+
+    if is_image:
+        img_b64 = base64.b64encode(contenuto).decode()
+        img_mime = content_type if content_type.startswith("image/") else "image/jpeg"
+    else:
+        # Prova estrazione testo con PyMuPDF
         try:
             import fitz
             doc = fitz.open(stream=contenuto, filetype="pdf")
-            page = doc[0]
-            pix = page.get_pixmap(dpi=150)
-            img_b64 = base64.b64encode(pix.tobytes("png")).decode()
+            for page in doc:
+                testo_pdf += page.get_text("text") + "\n"
             doc.close()
-        except Exception:
-            raise HTTPException(422, "Impossibile leggere il PDF")
+        except Exception as e:
+            raise HTTPException(422, detail=f"Impossibile aprire il file come PDF: {e}. Prova a caricare un'immagine (JPG/PNG) della tabella.")
 
-        msg = claude.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
-                    {"type": "text", "text": PROMPT_ESTRAI_TABELLA.format(testo="[vedi immagine allegata]")},
-                ]
-            }]
-        )
-    else:
-        msg = claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
-            messages=[{"role": "user", "content": PROMPT_ESTRAI_TABELLA.format(testo=testo_pdf)}]
-        )
+        # Se testo scarso → renderizza prima pagina come immagine
+        if len(testo_pdf.strip()) < 50:
+            try:
+                import fitz
+                doc = fitz.open(stream=contenuto, filetype="pdf")
+                pix = doc[0].get_pixmap(dpi=150)
+                img_b64 = base64.b64encode(pix.tobytes("png")).decode()
+                img_mime = "image/png"
+                doc.close()
+            except Exception as e:
+                raise HTTPException(422, detail=f"PDF non leggibile e conversione immagine fallita: {e}")
+
+    # Chiama Claude
+    try:
+        if img_b64:
+            msg = claude.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=2048,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": img_mime, "data": img_b64}},
+                        {"type": "text", "text": PROMPT_ESTRAI_TABELLA.format(testo="[vedi immagine allegata]")},
+                    ]
+                }]
+            )
+        else:
+            msg = claude.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": PROMPT_ESTRAI_TABELLA.format(testo=testo_pdf)}]
+            )
+    except Exception as e:
+        raise HTTPException(502, detail=f"Errore chiamata Claude AI: {e}")
 
     raw = msg.content[0].text.strip()
     if raw.startswith("```"):
