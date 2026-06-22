@@ -277,13 +277,22 @@ async def importa_da_pdf(
         raise HTTPException(502, detail=f"Errore Claude AI: {str(e)[:200]}")
 
     raw = msg.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"): raw = raw[4:]
+
+    # Estrai il JSON dall'eventuale blocco ```json ... ```
+    import re as _re
+    m = _re.search(r'```(?:json)?\s*([\s\S]*?)```', raw)
+    if m:
+        raw = m.group(1).strip()
+    else:
+        # Cerca il primo [ ... ] nel testo
+        m2 = _re.search(r'(\[[\s\S]*\])', raw)
+        if m2:
+            raw = m2.group(1).strip()
+
     try:
         righe = _json.loads(raw)
-    except Exception:
-        raise HTTPException(422, "Claude non ha potuto interpretare la tabella. Riprova con un PDF più leggibile.")
+    except Exception as je:
+        raise HTTPException(422, detail=f"Errore parsing JSON da Claude: {str(je)[:100]} — risposta: {raw[:200]}")
 
     # Match fuzzy nomi e cantieri
     operativi = db.query(Utente).filter(
