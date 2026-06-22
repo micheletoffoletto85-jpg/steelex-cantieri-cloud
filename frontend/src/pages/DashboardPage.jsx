@@ -315,17 +315,21 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const startRec = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      const mimeType = ['audio/webm', 'audio/mp4', 'audio/ogg', ''].find(
+        m => m === '' || MediaRecorder.isTypeSupported(m)
+      )
+      const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
       chunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' })
         setFase('transcribing')
         setErrore(null)
         try {
           const fd = new FormData()
-          fd.append('audio', blob, 'rapportino.webm')
+          fd.append('audio', blob, `rapportino.${ext}`)
           const res = await api.post('/rapportini/trascrivi', fd)
           setConferma({ testo: res.data.testo })
           setFase('idle')
@@ -339,7 +343,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
       setFase('recording')
       setErrore(null)
     } catch {
-      setErrore('Microfono non disponibile')
+      setErrore('Microfono non disponibile — controlla i permessi')
     }
   }
 

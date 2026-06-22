@@ -152,6 +152,7 @@ async def trascrivi_audio(
 
     testo_finale = testo_originale
     if settings.ANTHROPIC_API_KEY and len(testo_originale.split()) >= 3:
+      try:
         import anthropic
         claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         LINGUE = {"it":"italiano","ro":"rumeno","en":"inglese","de":"tedesco",
@@ -189,6 +190,8 @@ async def trascrivi_audio(
             testo_finale = msg_b.content[0].text.strip()
         else:
             testo_finale = testo_riordinato
+      except Exception:
+        testo_finale = testo_originale
 
     return {"testo": testo_finale, "lingua": lingua}
 
