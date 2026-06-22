@@ -160,29 +160,20 @@ def lista_programmazione(
     return [_prog_dict(p, db) for p in progs]
 
 
-PROMPT_ESTRAI_TABELLA = """Analizza questa tabella di programmazione settimanale cantieri.
-Estrai ogni riga e restituisci un array JSON. Rispondi SOLO con il JSON, nessun altro testo.
+PROMPT_ESTRAI_TABELLA = """Sei un parser JSON. Devi estrarre i dati da una tabella e restituire SOLO un array JSON valido, senza nessun testo prima o dopo, senza markdown, senza backtick.
 
-Formato output:
-[
-  {
-    "nome": "nome e cognome dell'operaio",
-    "giorno": "lun|mar|mer|gio|ven|sab",
-    "cantiere": "nome del cantiere o indirizzo",
-    "lavorazione": "tipo di lavorazione da eseguire"
-  }
-]
+Ogni riga della tabella diventa un oggetto con questi campi:
+- "nome": stringa con nome e cognome dell'operaio
+- "giorno": una di queste stringhe esatte: lun, mar, mer, gio, ven, sab
+- "cantiere": stringa con nome cantiere o indirizzo
+- "lavorazione": stringa con il tipo di lavorazione
 
-Note:
-- giorno deve essere in formato abbreviato italiano (lun, mar, mer, gio, ven, sab)
-- se una cella è vuota o trattino, ometti quella riga
-- se il nome si ripete su più righe, associalo a tutti i giorni corrispondenti
-- estrai tutte le righe, anche se sono tante
+Regole:
+- Ometti righe con celle vuote o trattino
+- Se il nome si ripete su più righe, crea un oggetto per ogni giorno
+- Rispondi SOLO con il JSON, inizia con [ e finisci con ]
 
-Tabella:
-{testo}
-
-JSON:"""
+{testo}"""
 
 
 @router.post("/importa-pdf")
@@ -278,21 +269,31 @@ async def importa_da_pdf(
 
     raw = msg.content[0].text.strip()
 
-    # Estrai il JSON dall'eventuale blocco ```json ... ```
+    # Estrazione JSON robusta
     import re as _re
-    m = _re.search(r'```(?:json)?\s*([\s\S]*?)```', raw)
-    if m:
-        raw = m.group(1).strip()
-    else:
-        # Cerca il primo [ ... ] nel testo
-        m2 = _re.search(r'(\[[\s\S]*\])', raw)
-        if m2:
-            raw = m2.group(1).strip()
+    import ast as _ast
 
-    try:
-        righe = _json.loads(raw)
-    except Exception as je:
-        raise HTTPException(422, detail=f"Errore parsing JSON da Claude: {str(je)[:100]} — risposta: {raw[:200]}")
+    def _estrai_json(testo: str):
+        # 1. Blocco ```json ... ```
+        m = _re.search(r'```(?:json)?\s*([\s\S]*?)```', testo)
+        if m:
+            try: return _json.loads(m.group(1).strip())
+            except Exception: pass
+        # 2. Prima [ fino all'ultima ]
+        m2 = _re.search(r'\[[\s\S]*\]', testo)
+        if m2:
+            try: return _json.loads(m2.group(0))
+            except Exception: pass
+            try: return _ast.literal_eval(m2.group(0))
+            except Exception: pass
+        # 3. Testo intero
+        try: return _json.loads(testo)
+        except Exception: pass
+        return None
+
+    righe = _estrai_json(raw)
+    if righe is None:
+        raise HTTPException(422, detail=f"Claude non ha restituito JSON valido. Risposta ricevuta: {raw[:300]}")
 
     # Match fuzzy nomi e cantieri
     operativi = db.query(Utente).filter(
