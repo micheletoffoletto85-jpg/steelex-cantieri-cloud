@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Link } from 'react-router-dom'
-import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, ChevronRight, Calendar, Bell, BellOff, ClipboardList } from 'lucide-react'
+import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { useState, useRef } from 'react'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -193,42 +194,262 @@ function ClienteDashboard({ utente, cantieri }) {
 
 // ── Dashboard operativo interno (artigiano) ───────────────────────────────────
 function ArtigianoDashboard({ utente, cantieri }) {
+  const qc = useQueryClient()
+  const [fase, setFase] = useState('idle') // idle | recording | processing | done | error
+  const [testoLibero, setTestoLibero] = useState('')
+  const [cantiereSelezionato, setCantiereSelezionato] = useState('')
+  const [foto, setFoto] = useState([]) // array di File
+  const [risultato, setRisultato] = useState(null)
+  const [errore, setErrore] = useState(null)
+  const [mostraTestuale, setMostraTestuale] = useState(false)
+  const mediaRef = useRef(null)
+  const chunksRef = useRef([])
+  const fotoInputRef = useRef(null)
+
   const { data: miei = [] } = useQuery('rapportini-miei',
     () => api.get('/rapportini/miei').then(r => r.data), { staleTime: 60000 })
 
-  const ultimoRapportino = miei[0]
   const oggi = dayjs().format('dddd D MMMM')
+  const ultimoRapportino = miei[0]
+
+  const inviaMutation = useMutation(
+    async (formData) => {
+      const res = await api.post('/rapportini/invia', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      return res.data
+    },
+    {
+      onSuccess: (data) => {
+        setRisultato(data)
+        setFase('done')
+        setTestoLibero('')
+        setFoto([])
+        setCantiereSelezionato('')
+        setMostraTestuale(false)
+        qc.invalidateQueries('rapportini-miei')
+      },
+      onError: (err) => {
+        setErrore(err?.response?.data?.detail || 'Errore invio')
+        setFase('error')
+      }
+    }
+  )
+
+  const _buildFormData = (audioBlob) => {
+    const fd = new FormData()
+    if (audioBlob) fd.append('file', audioBlob, 'rapportino.webm')
+    if (testoLibero.trim()) fd.append('testo', testoLibero.trim())
+    if (cantiereSelezionato) fd.append('cantiere_id', cantiereSelezionato)
+    foto.forEach(f => fd.append('foto', f))
+    return fd
+  }
+
+  const startRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      chunksRef.current = []
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        setFase('processing')
+        inviaMutation.mutate(_buildFormData(blob))
+      }
+      mr.start()
+      mediaRef.current = mr
+      setFase('recording')
+      setErrore(null)
+    } catch {
+      setErrore('Microfono non disponibile')
+    }
+  }
+
+  const stopRec = () => {
+    if (mediaRef.current?.state === 'recording') mediaRef.current.stop()
+  }
+
+  const inviaTestuale = () => {
+    if (!testoLibero.trim()) return
+    setFase('processing')
+    setErrore(null)
+    inviaMutation.mutate(_buildFormData(null))
+  }
+
+  const aggiungiAnteprima = (files) => {
+    const nuove = Array.from(files).filter(f => f.type.startsWith('image/'))
+    setFoto(prev => [...prev, ...nuove].slice(0, 5))
+  }
 
   return (
     <div className="space-y-5 max-w-lg mx-auto">
       {/* Header personale */}
-      <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
+      <div className="bg-steelex-dark rounded-2xl p-5 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-fr-charcoal" />
         </div>
-        <div className="relative">
-          <img src="/logo_fr.png" alt="Fontana Raffaele" className="h-10 mb-4 opacity-80" />
-          <p className="text-gray-400 text-xs uppercase tracking-widest">{oggi}</p>
-          <h1 className="text-2xl font-bold text-white mt-1">Ciao, {utente?.nome} 👋</h1>
+        <div className="relative flex items-center gap-3">
+          <img src="/logo-steelex.png" alt="STEELEX" className="h-7 opacity-80" />
+          <div>
+            <p className="text-gray-400 text-xs uppercase tracking-widest">{oggi}</p>
+            <h1 className="text-xl font-bold text-white">Ciao, {utente?.nome}</h1>
+          </div>
         </div>
       </div>
 
-      {/* Pulsante principale — registra rapportino */}
-      <a href="/rapportini"
-        className="flex items-center gap-4 w-full bg-fr-charcoal text-white rounded-2xl p-5 shadow-lg hover:bg-gray-800 active:scale-98 transition-all">
-        <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center flex-shrink-0">
-          <Mic size={28} />
+      {/* ── BLOCCO REGISTRAZIONE ── */}
+      {fase === 'done' ? (
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+              <CheckCircle size={20} className="text-green-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-green-800">Rapportino inviato!</p>
+              <p className="text-sm text-green-700 mt-0.5">{risultato?.riassunto}</p>
+              {risultato?.cantiere_nome && (
+                <p className="text-xs text-green-600 font-medium mt-1">{risultato.cantiere_nome}</p>
+              )}
+            </div>
+          </div>
+          <button onClick={() => { setFase('idle'); setRisultato(null) }}
+            className="w-full py-2.5 rounded-xl border-2 border-green-400 text-green-700 font-semibold text-sm hover:bg-green-100 transition-colors">
+            + Nuovo rapportino
+          </button>
         </div>
-        <div>
-          <p className="font-bold text-lg leading-tight">Registra rapportino</p>
-          <p className="text-sm text-gray-300 mt-0.5">Dicci cosa hai fatto oggi</p>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Rapportino di oggi</p>
+
+          {/* Selezione cantiere (se ce ne sono più di 1) */}
+          {cantieri.length > 1 && (
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1">Cantiere (opzionale — viene rilevato automaticamente)</label>
+              <div className="relative">
+                <select
+                  value={cantiereSelezionato}
+                  onChange={e => setCantiereSelezionato(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm appearance-none bg-gray-50 focus:outline-none focus:ring-2 focus:ring-steelex-orange pr-8"
+                >
+                  <option value="">Rileva automaticamente dalla voce</option>
+                  {cantieri.map(c => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+          )}
+          {cantieri.length === 1 && (
+            <div className="flex items-center gap-2 bg-orange-50 rounded-xl px-3 py-2">
+              <HardHat size={14} className="text-steelex-orange flex-shrink-0" />
+              <span className="text-sm font-medium text-steelex-orange">{cantieri[0].nome}</span>
+            </div>
+          )}
+
+          {/* Pulsante microfono grande */}
+          <div className="flex flex-col items-center gap-3">
+            {fase === 'idle' || fase === 'error' ? (
+              <button
+                onClick={startRec}
+                className="w-28 h-28 rounded-full bg-steelex-orange text-white flex items-center justify-center shadow-xl hover:bg-orange-700 active:scale-95 transition-all">
+                <Mic size={44} />
+              </button>
+            ) : fase === 'recording' ? (
+              <button
+                onClick={stopRec}
+                className="w-28 h-28 rounded-full bg-red-600 text-white flex items-center justify-center shadow-xl animate-pulse hover:bg-red-700 active:scale-95 transition-all">
+                <MicOff size={44} />
+              </button>
+            ) : (
+              <div className="w-28 h-28 rounded-full bg-gray-100 flex items-center justify-center">
+                <div className="animate-spin w-10 h-10 border-4 border-steelex-orange border-t-transparent rounded-full" />
+              </div>
+            )}
+            <p className="text-sm font-semibold text-gray-600 text-center">
+              {fase === 'idle' && 'Tocca per registrare cosa hai fatto oggi'}
+              {fase === 'recording' && '🔴 Registrazione — tocca per fermare'}
+              {fase === 'processing' && 'Elaborazione in corso...'}
+              {fase === 'error' && '❌ Riprova'}
+            </p>
+          </div>
+
+          {errore && (
+            <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm text-center">{errore}</div>
+          )}
+
+          {/* Foto */}
+          <div>
+            <input
+              ref={fotoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={e => aggiungiAnteprima(e.target.files)}
+            />
+            {foto.length > 0 ? (
+              <div className="flex gap-2 flex-wrap">
+                {foto.map((f, i) => (
+                  <div key={i} className="relative">
+                    <img src={URL.createObjectURL(f)} alt="" className="w-16 h-16 object-cover rounded-lg border border-gray-200" />
+                    <button
+                      onClick={() => setFoto(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center">
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+                {foto.length < 5 && (
+                  <button onClick={() => fotoInputRef.current?.click()}
+                    className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 hover:border-steelex-orange hover:text-steelex-orange transition-colors">
+                    <Camera size={20} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={() => fotoInputRef.current?.click()}
+                className="flex items-center gap-2 text-sm text-gray-500 hover:text-steelex-orange transition-colors py-1">
+                <Camera size={16} /> Allega foto (opzionale)
+              </button>
+            )}
+          </div>
+
+          {/* Alternativa testuale */}
+          <div>
+            <button
+              onClick={() => setMostraTestuale(v => !v)}
+              className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+              <ChevronDown size={12} className={mostraTestuale ? 'rotate-180' : ''} />
+              {mostraTestuale ? 'Nascondi testo' : 'Oppure scrivi il rapportino'}
+            </button>
+            {mostraTestuale && (
+              <div className="mt-2 space-y-2">
+                <textarea
+                  value={testoLibero}
+                  onChange={e => setTestoLibero(e.target.value)}
+                  rows={3}
+                  placeholder="Descrivi cosa hai fatto, materiali usati, eventuali problemi..."
+                  className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange"
+                />
+                <button
+                  onClick={inviaTestuale}
+                  disabled={!testoLibero.trim() || fase === 'processing'}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-steelex-orange text-white rounded-xl font-semibold text-sm hover:bg-orange-700 disabled:opacity-40 transition-colors">
+                  <Send size={15} /> Invia rapportino scritto
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </a>
+      )}
 
       {/* Ultimo rapportino inviato */}
-      {ultimoRapportino && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-2">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Ultimo rapportino</p>
+      {ultimoRapportino && fase !== 'done' && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-1.5">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Ultimo rapportino inviato</p>
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium text-gray-800 leading-snug flex-1">{ultimoRapportino.riassunto}</p>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${
@@ -240,7 +461,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
             </span>
           </div>
           {ultimoRapportino.cantiere_nome && (
-            <p className="text-xs text-fr-charcoal font-medium">{ultimoRapportino.cantiere_nome}</p>
+            <p className="text-xs text-steelex-orange font-medium">{ultimoRapportino.cantiere_nome}</p>
           )}
           {ultimoRapportino.data_lavoro && (
             <p className="text-xs text-gray-400">{dayjs(ultimoRapportino.data_lavoro).format('D MMMM YYYY')}</p>
@@ -248,30 +469,23 @@ function ArtigianoDashboard({ utente, cantieri }) {
         </div>
       )}
 
-      {/* Cantieri assegnati (se ce ne sono) */}
+      {/* Cantieri assegnati */}
       {cantieri.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">I tuoi cantieri</p>
           {cantieri.map(c => (
             <a key={c.id} href={`/cantieri/${c.id}`}
-              className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:border-fr-charcoal transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                <HardHat size={18} className="text-gray-500" />
+              className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 hover:border-steelex-orange transition-colors">
+              <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0">
+                <HardHat size={16} className="text-steelex-orange" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-gray-900 text-sm truncate">{c.nome}</p>
                 {c.indirizzo && <p className="text-xs text-gray-400 truncate">{c.indirizzo}</p>}
               </div>
-              <ChevronRight size={16} className="text-gray-400 flex-shrink-0" />
+              <ChevronRight size={15} className="text-gray-400 flex-shrink-0" />
             </a>
           ))}
-        </div>
-      )}
-
-      {cantieri.length === 0 && !ultimoRapportino && (
-        <div className="text-center py-8 text-gray-400">
-          <ClipboardList size={36} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">Registra il tuo primo rapportino!</p>
         </div>
       )}
     </div>
