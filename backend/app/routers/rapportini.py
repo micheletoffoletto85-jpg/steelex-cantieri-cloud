@@ -158,24 +158,34 @@ async def trascrivi_audio(
                   "fr":"francese","pl":"polacco","uk":"ucraino"}
         lingua_nome = LINGUE.get(lingua, lingua)
         RIORDINA = (
-            f"Ricevi la trascrizione grezza in {lingua_nome} di un operaio di cantiere.\n"
-            "Riscrivi nella stessa lingua, in modo chiaro, eliminando ripetizioni.\n"
-            "NON tradurre. Solo testo scorrevole.\n\nTrascrizione:\n{txt}\n\nTesto ordinato:"
+            f"Sei un assistente che aiuta gli operai di cantiere a comunicare meglio.\n"
+            f"Ricevi la trascrizione grezza in {lingua_nome} di un operaio che descrive la sua giornata lavorativa.\n"
+            f"Riscrivi il testo nella stessa lingua ({lingua_nome}):\n"
+            "- Frasi brevi e chiare\n"
+            "- Elimina ripetizioni, esitazioni (uhm, cioè, quindi...) e ridondanze\n"
+            "- Mantieni TUTTE le informazioni sul lavoro: cantiere, attività svolte, materiali, problemi\n"
+            "- Parole semplici — niente tecnicismi inutili\n"
+            "- NON tradurre, rimani in {lingua}\n\n"
+            "Trascrizione grezza:\n{txt}\n\nTesto riordinato:"
         )
         msg_a = claude.messages.create(
             model="claude-haiku-4-5-20251001", max_tokens=1024,
-            messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale)}])
+            messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale, lingua=lingua_nome)}])
         testo_riordinato = msg_a.content[0].text.strip()
 
         if lingua != "it":
             TRADUCI = (
-                f"Traduci in italiano questo testo in {lingua_nome} di un operaio di cantiere.\n"
-                "Traduci fedelmente, parole semplici.\n\n"
-                f"Testo:\n{testo_riordinato}\n\nTraduzione:"
+                f"Traduci in italiano semplice questo testo in {lingua_nome} scritto da un operaio di cantiere.\n"
+                "Regole:\n"
+                "- Italiano diretto e semplice, come parlerebbe un operaio italiano\n"
+                "- Conserva tutti i dettagli: cantiere, attività, materiali, eventuali problemi\n"
+                "- Frasi brevi, niente tecnicismi inutili\n"
+                "- NON aggiungere informazioni che non ci sono nel testo originale\n\n"
+                f"Testo in {lingua_nome}:\n{{txt}}\n\nTraduzione in italiano:"
             )
             msg_b = claude.messages.create(
                 model="claude-haiku-4-5-20251001", max_tokens=1024,
-                messages=[{"role":"user","content":TRADUCI}])
+                messages=[{"role":"user","content":TRADUCI.format(txt=testo_riordinato)}])
             testo_finale = msg_b.content[0].text.strip()
         else:
             testo_finale = testo_riordinato
