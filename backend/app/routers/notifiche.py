@@ -209,6 +209,7 @@ def notifica_cantiere(
     escludi_id: int | None = None,
     extra_user_ids: list[int] | None = None,
     tipo: str = "info",
+    url: str | None = None,
 ):
     from app.models.utente import Utente as UtenteModel
     ruoli_estesi = list(set(ruoli) | {"admin", "capo_cantiere", "amministrazione"})
@@ -222,7 +223,8 @@ def notifica_cantiere(
     if escludi_id:
         ids.discard(escludi_id)
     if ids:
-        invia_notifica(db, list(ids), titolo, corpo, f"/cantieri/{cantiere_id}", tipo=tipo, cantiere_id=cantiere_id)
+        dest_url = url or f"/cantieri/{cantiere_id}"
+        invia_notifica(db, list(ids), titolo, corpo, dest_url, tipo=tipo, cantiere_id=cantiere_id)
 
 
 # ─── HELPER: invia notifica a uno o più utenti ────────────────────────────────

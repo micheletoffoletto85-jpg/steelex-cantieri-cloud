@@ -372,7 +372,7 @@ def pubblica_settimana(
                 giorni_str += "\n"
 
         corpo = f"Settimana {body.settimana}:\n{giorni_str.strip()}" if giorni_str else f"Settimana {body.settimana} programmata"
-        invia_notifica(db, [p.operativo_id], "📅 Programmazione settimana", corpo, "/")
+        invia_notifica(db, [p.operativo_id], "📅 Programmazione settimana", corpo, "/programmazione")
         notificati += 1
 
     return {"ok": True, "notificati": notificati}

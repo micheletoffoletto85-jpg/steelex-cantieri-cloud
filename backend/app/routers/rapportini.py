@@ -147,7 +147,7 @@ async def trascrivi_audio(
     try:
         from openai import OpenAI
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
+        whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": WHISPER_PROMPT}
         if lingua_hint and lingua_hint != "auto":
             whisper_kwargs["language"] = lingua_hint
         with open(tmp_path, "rb") as af:
@@ -233,7 +233,7 @@ async def invia_rapportino(
         try:
             from openai import OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
+            whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": WHISPER_PROMPT}
             if lingua_hint and lingua_hint != "auto":
                 whisper_kwargs["language"] = lingua_hint
             with open(tmp_path, "rb") as af:
@@ -345,7 +345,7 @@ async def invia_rapportino(
         admins = db.query(Utente).filter(Utente.ruolo.in_(["admin","capo_cantiere"])).all()
         from app.routers.notifiche import invia_notifica
         for a in admins:
-            invia_notifica(db, a.id, "📋 Nuovo rapportino", f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}")
+            invia_notifica(db, a.id, "📋 Nuovo rapportino", f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}", url="/rapportini")
     except Exception: pass
 
     return _rap_dict(rapportino)
