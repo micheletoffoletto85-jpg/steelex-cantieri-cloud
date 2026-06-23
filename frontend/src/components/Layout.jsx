@@ -29,7 +29,7 @@ function filtraNav(items, utente) {
 }
 
 export default function Layout() {
-  const { utente, logout } = useAuth()
+  const { utente, logout, aggiornaUtente } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifiche, setNotifiche] = useState(null)
@@ -170,6 +170,33 @@ export default function Layout() {
                   </button>
                 )}
               </>
+            )}
+            {/* Lingua registrazione — solo per operativi */}
+            {utente?.ruolo === 'artigiano' && (
+              <div className="px-3 py-2">
+                <p className="text-xs text-gray-500 mb-1.5">Lingua registrazione</p>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { code: 'it', label: '🇮🇹 IT' },
+                    { code: 'ro', label: '🇷🇴 RO' },
+                    { code: 'en', label: '🇬🇧 EN' },
+                    { code: 'de', label: '🇩🇪 DE' },
+                    { code: 'fr', label: '🇫🇷 FR' },
+                    { code: 'pl', label: '🇵🇱 PL' },
+                    { code: 'uk', label: '🇺🇦 UK' },
+                  ].map(l => (
+                    <button key={l.code}
+                      onClick={() => aggiornaUtente({ lingua_preferita: l.code })}
+                      className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                        (utente?.lingua_preferita || 'it') === l.code
+                          ? 'bg-steelex-orange text-white'
+                          : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                      }`}>
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/10 cursor-pointer group" onClick={handleLogout}>
               <div className="w-7 h-7 rounded-full bg-steelex-orange flex items-center justify-center text-white text-xs font-bold flex-shrink-0">

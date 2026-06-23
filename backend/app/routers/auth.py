@@ -5,7 +5,7 @@ from slowapi.util import get_remote_address
 from app.database import get_db
 from app.models.utente import Utente, RuoloUtente
 from pydantic import BaseModel
-from app.schemas.utente import TokenResponse, UtenteCreate, UtenteOut
+from app.schemas.utente import TokenResponse, UtenteCreate, UtenteOut, UtenteProfiloUpdate
 from app.auth import (
     verify_password, hash_password,
     create_access_token, create_refresh_token,
@@ -45,6 +45,18 @@ def refresh(request: Request, utente: Utente = Depends(get_user_from_refresh_tok
 
 @router.get("/me", response_model=UtenteOut)
 def get_me(current_user: Utente = Depends(get_current_user)):
+    return current_user
+
+
+@router.patch("/me", response_model=UtenteOut)
+def update_me(data: UtenteProfiloUpdate, db: Session = Depends(get_db), current_user: Utente = Depends(get_current_user)):
+    LINGUE_VALIDE = {"it", "ro", "en", "de", "fr", "pl", "uk", "auto"}
+    if data.lingua_preferita is not None:
+        if data.lingua_preferita not in LINGUE_VALIDE:
+            raise HTTPException(400, "Lingua non supportata")
+        current_user.lingua_preferita = data.lingua_preferita
+    db.commit()
+    db.refresh(current_user)
     return current_user
 
 @router.post("/registra", status_code=201)

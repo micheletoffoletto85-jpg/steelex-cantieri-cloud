@@ -37,6 +37,7 @@ class Utente(Base):
     ruolo = Column(Enum(RuoloUtente, native_enum=False), default=RuoloUtente.capo_cantiere)
     tipo_professione = Column(String, nullable=True)
     attivo = Column(Boolean, default=True)
+    lingua_preferita = Column(String(10), nullable=False, server_default="it")
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
     aggiornato_il = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -228,6 +228,7 @@ def _migra():
             UNIQUE(operativo_id, anno, settimana)
         )""",
         "ALTER TABLE programmazione_settimana ADD COLUMN IF NOT EXISTS notificato_il TIMESTAMPTZ",
+        "ALTER TABLE utenti ADD COLUMN IF NOT EXISTS lingua_preferita VARCHAR(10) NOT NULL DEFAULT 'it'",
     ]
     _u = engine.url
     import psycopg2

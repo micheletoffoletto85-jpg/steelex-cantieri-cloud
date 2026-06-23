@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown, Euro } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -270,7 +270,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const [mostraTestuale, setMostraTestuale] = useState(false)
   const [mostraIstruzioni, setMostraIstruzioni] = useState(true)
   const [conferma, setConferma] = useState(null)  // null | { testo: string }
-  const [linguaReg, setLinguaReg] = useState('it')
+  const [linguaReg, setLinguaReg] = useState(utente?.lingua_preferita || 'it')
+  useEffect(() => { if (utente?.lingua_preferita) setLinguaReg(utente.lingua_preferita) }, [utente?.lingua_preferita])
   const mediaRef = useRef(null)
   const chunksRef = useRef([])
   const fotoInputRef = useRef(null)
@@ -523,35 +524,6 @@ function ArtigianoDashboard({ utente, cantieri }) {
               <span className="text-sm font-medium text-steelex-orange">{cantieri[0].nome}</span>
             </div>
           )}
-
-          {/* Selettore lingua registrazione */}
-          <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1">In che lingua parli?</label>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { code: 'it', label: '🇮🇹 Italiano' },
-                { code: 'ro', label: '🇷🇴 Rumeno' },
-                { code: 'en', label: '🇬🇧 Inglese' },
-                { code: 'de', label: '🇩🇪 Tedesco' },
-                { code: 'fr', label: '🇫🇷 Francese' },
-                { code: 'pl', label: '🇵🇱 Polacco' },
-                { code: 'uk', label: '🇺🇦 Ucraino' },
-                { code: 'auto', label: '🔍 Auto' },
-              ].map(l => (
-                <button
-                  key={l.code}
-                  onClick={() => setLinguaReg(l.code)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
-                    linguaReg === l.code
-                      ? 'bg-steelex-orange text-white border-steelex-orange'
-                      : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-steelex-orange'
-                  }`}
-                >
-                  {l.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Pulsante microfono grande */}
           <div className="flex flex-col items-center gap-3">

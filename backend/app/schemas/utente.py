@@ -51,10 +51,15 @@ class UtenteUpdate(BaseModel):
 class UtenteOut(UtenteBase):
     id: int
     attivo: bool
+    lingua_preferita: str = "it"
     creato_il: datetime
 
     class Config:
         from_attributes = True
+
+
+class UtenteProfiloUpdate(BaseModel):
+    lingua_preferita: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str
