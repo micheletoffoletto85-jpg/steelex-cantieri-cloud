@@ -310,6 +310,102 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
   doc.text('STEELEX Cantieri — Documento generato automaticamente', ML, PH - 3)
   doc.text(`Pag. 1`, PW - MR, PH - 3, { align: 'right' })
 
+  // ── FOGLIO 2: ELENCO FASI CON PERIODO ──────────────────────────────────────
+  doc.addPage()
+  doc.setFillColor(...DARK)
+  doc.rect(0, 0, PW, HEADER_H, 'F')
+  doc.setFillColor(...ORANGE)
+  doc.rect(0, HEADER_H - 1.5, PW, 1.5, 'F')
+  doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...ORANGE)
+  doc.text('STEELEX', ML, HEADER_H - 5.5)
+  doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(255,255,255)
+  doc.text(`ELENCO FASI — ${(cantiere?.nome||'').toUpperCase()}`, ML + 34, HEADER_H - 5.5)
+  doc.setFontSize(7.5); doc.setTextColor(180,180,180)
+  doc.text(`Generato il ${dayjs().format('DD/MM/YYYY')}`, PW - MR, HEADER_H - 5.5, { align: 'right' })
+
+  const T = { x: ML, y: MT + HEADER_H + 4, rH: 7 }
+  const COL = { n: 8, nome: 90, dal: 32, al: 32, gg: 18, stato: 28, pct: 14, note: 0 }
+  COL.note = PW - MR - ML - COL.n - COL.nome - COL.dal - COL.al - COL.gg - COL.stato - COL.pct
+
+  doc.setFillColor(...DARK)
+  doc.rect(T.x, T.y, PW - ML - MR, T.rH, 'F')
+  doc.setFontSize(6); doc.setFont('helvetica','bold'); doc.setTextColor(200,200,200)
+  let cx = T.x + 2
+  doc.text('#', cx, T.y + T.rH - 2); cx += COL.n
+  doc.text('FASE', cx, T.y + T.rH - 2); cx += COL.nome
+  doc.text('DAL', cx, T.y + T.rH - 2); cx += COL.dal
+  doc.text('AL', cx, T.y + T.rH - 2); cx += COL.al
+  doc.text('GG', cx, T.y + T.rH - 2); cx += COL.gg
+  doc.text('STATO', cx, T.y + T.rH - 2); cx += COL.stato
+  doc.text('%', cx, T.y + T.rH - 2); cx += COL.pct
+  doc.text('NOTE', cx, T.y + T.rH - 2)
+
+  let fy = T.y + T.rH
+  const fmtD = d => d ? dayjs(d).format('DD/MM/YY') : '—'
+
+  fasi.forEach((f, i) => {
+    if (fy + T.rH > PH - MB - 6) {
+      doc.addPage()
+      doc.setFillColor(...DARK); doc.rect(0,0,PW,8,'F')
+      doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(...ORANGE)
+      doc.text('STEELEX', ML, 5.5)
+      doc.setFont('helvetica','normal'); doc.setTextColor(200,200,200)
+      doc.text(`ELENCO FASI — ${(cantiere?.nome||'').toUpperCase()} (continua)`, ML+28, 5.5)
+      doc.setFillColor(...ORANGE); doc.rect(0,7.5,PW,0.5,'F')
+      fy = 12
+    }
+
+    const isEven = i % 2 === 0
+    if (isEven) { doc.setFillColor(248,250,252); doc.rect(T.x, fy, PW-ML-MR, T.rH, 'F') }
+
+    const col = f.colore || '#94a3b8'
+    const rgb = col.match(/\w\w/g)?.map(x => parseInt(x,16)) || [148,163,184]
+
+    // Sfondo periodo evidenziato
+    const xDal = T.x + 2 + COL.n + COL.nome
+    doc.setFillColor(...rgb.map(c => Math.min(255, Math.round(c * 0.2 + 255 * 0.8))))
+    doc.rect(xDal - 1, fy + 0.5, COL.dal + COL.al - 1, T.rH - 1, 'F')
+
+    doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
+    cx = T.x + 2
+    doc.text(`${i+1}`, cx, fy + T.rH - 2); cx += COL.n
+
+    doc.setFillColor(...rgb)
+    doc.roundedRect(cx, fy + T.rH/2 - 1.2, 2.5, 2.5, 0.4, 0.4, 'F')
+    doc.setFont('helvetica', f.stato === 'completata' ? 'bold' : 'normal')
+    doc.text(f.nome, cx + 4, fy + T.rH - 2, { maxWidth: COL.nome - 6 })
+    cx += COL.nome
+
+    doc.setFont('helvetica','bold'); doc.setTextColor(...rgb.map(c => Math.max(0, c - 40)))
+    doc.text(fmtD(f.data_inizio), cx, fy + T.rH - 2); cx += COL.dal
+    doc.text(fmtD(f.data_fine_prevista), cx, fy + T.rH - 2); cx += COL.al
+
+    const gg = f.data_inizio && f.data_fine_prevista
+      ? dayjs(f.data_fine_prevista).diff(dayjs(f.data_inizio), 'day') + 1 : null
+    doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
+    doc.text(gg ? `${gg}gg` : '—', cx, fy + T.rH - 2); cx += COL.gg
+
+    const statoC = STATO_COLORS[f.stato] || [148,163,184]
+    doc.setTextColor(...statoC)
+    doc.text(STATO_LABEL[f.stato] || f.stato, cx, fy + T.rH - 2); cx += COL.stato
+
+    doc.setTextColor(...DARK)
+    doc.text(`${f.percentuale}%`, cx, fy + T.rH - 2); cx += COL.pct
+
+    if (f.note) doc.text(f.note, cx, fy + T.rH - 2, { maxWidth: COL.note - 2 })
+
+    doc.setDrawColor(220,220,220); doc.setLineWidth(0.1)
+    doc.line(T.x, fy + T.rH, T.x + PW - ML - MR, fy + T.rH)
+    fy += T.rH
+  })
+
+  doc.setDrawColor(180,180,180); doc.setLineWidth(0.3)
+  doc.rect(T.x, T.y, PW-ML-MR, fy - T.y)
+
+  doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(180,180,180)
+  doc.text('STEELEX Cantieri — Documento generato automaticamente', ML, PH-3)
+  doc.text(`Pag. 2`, PW-MR, PH-3, { align: 'right' })
+
   doc.save(`gantt-${(cantiere?.nome||'cantiere').replace(/\s+/g,'-').toLowerCase()}-${dayjs().format('YYYY-MM-DD')}.pdf`)
   toast.success('PDF esportato!')
 }
@@ -576,6 +672,12 @@ export default function GanttTab({ cantiereId, cantiere }) {
               </select>
             </div>
           </div>
+          {/* Note */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Note</label>
+            <textarea className="input-field resize-none" rows={3} placeholder="Annotazioni, dettagli, riferimenti..."
+              value={form.note || ''} onChange={e => setF('note', e.target.value)} />
+          </div>
           {/* Visibilità cliente */}
           <label className="flex items-center gap-2 cursor-pointer select-none py-1">
             <input type="checkbox" checked={!!form.visibile_cliente} onChange={e => setF('visibile_cliente', e.target.checked)}
@@ -723,7 +825,9 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReo
   }, [minData, totalDays, zoomEff])
 
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
-  const LABEL_W = 160
+  const [labelW, setLabelW] = useState(160)
+  const LABEL_W = labelW
+  const labelResizeRef = useRef(null)
 
   // Larghezza minima area gantt per leggibilità su mobile
   const minGanttPx = useMemo(() => {
@@ -928,8 +1032,19 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReo
           {/* ── RIGA 1: MESI — sfondo scuro, testo bianco ───────────────── */}
           {/* IMPORTANTE: w-14 spacer a destra = stesso della colonna % nel corpo */}
           <div className="relative border-b-2 border-gray-400 h-8 flex" style={{ background: '#1e293b' }}>
-            <div className="flex-shrink-0 flex items-center px-3 border-r-2 border-gray-600 z-10" style={{ width: LABEL_W }}>
+            <div className="flex-shrink-0 flex items-center px-3 border-r-2 border-gray-600 z-10 relative select-none" style={{ width: LABEL_W }}>
               <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">Fase</span>
+              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group"
+                onMouseDown={e => {
+                  e.preventDefault()
+                  const startX = e.clientX, startW = labelW
+                  const onMove = ev => setLabelW(Math.max(80, Math.min(400, startW + ev.clientX - startX)))
+                  const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+                  document.addEventListener('mousemove', onMove)
+                  document.addEventListener('mouseup', onUp)
+                }}>
+                <div className="w-0.5 h-4 bg-gray-500 group-hover:bg-orange-400 rounded-full" />
+              </div>
             </div>
             <div className="relative flex-1 overflow-hidden">
               {mesiLabels.map((m, i) => (
