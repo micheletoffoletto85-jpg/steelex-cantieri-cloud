@@ -921,7 +921,7 @@ Formato esatto: [{{"cat":"Struttura","sospetta":false}},{{"cat":"Materiali","sos
 L'array deve avere ESATTAMENTE {len(desc_per_categoria)} elementi nello stesso ordine delle voci."""
                 try:
                     msg = claude.messages.create(
-                        model="claude-haiku-4-5", max_tokens=4000,
+                        model="claude-haiku-4-5-20251001", max_tokens=4000,
                         messages=[{"role":"user","content":prompt_analisi}]
                     )
                     raw = msg.content[0].text.strip()
@@ -1034,7 +1034,7 @@ Rispondi SOLO con l'array JSON, senza markdown, senza testo aggiuntivo."""
                     model_pdf = "claude-sonnet-4-6"
                 else:
                     content_blocks = [{"type": "text", "text": PROMPT_VOCI + f"\n\nTesto documento:\n{testo_totale[:14000]}"}]
-                    model_pdf = "claude-haiku-4-5"
+                    model_pdf = "claude-haiku-4-5-20251001"
 
                 doc_pdf.close()
 
@@ -1266,7 +1266,7 @@ Rispondi SOLO con il JSON, nulla altro."""
 
     try:
         msg = claude.messages.create(
-            model="claude-haiku-4-5",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             messages=[{
                 "role": "user",
@@ -1353,7 +1353,7 @@ REGOLE:
             media_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
             img_b64 = base64.standard_b64encode(contenuto).decode()
             msg = claude.messages.create(
-                model="claude-haiku-4-5",
+                model="claude-haiku-4-5-20251001",
                 max_tokens=8192,
                 messages=[{"role": "user", "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": media_map[ext], "data": img_b64}},
@@ -1389,7 +1389,7 @@ REGOLE:
                     img_bytes = pix.tobytes("png")
                     img_b64 = base64.standard_b64encode(img_bytes).decode()
                     msg = claude.messages.create(
-                        model="claude-haiku-4-5",
+                        model="claude-haiku-4-5-20251001",
                         max_tokens=8192,
                         messages=[{"role": "user", "content": [
                             {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
@@ -1402,7 +1402,7 @@ REGOLE:
 
             if testo_grezzo is not None:
                 msg = claude.messages.create(
-                    model="claude-haiku-4-5",
+                    model="claude-haiku-4-5-20251001",
                     max_tokens=8192,
                     messages=[{"role": "user", "content": f"{PROMPT_BASE}\n\nContenuto file:\n{testo_grezzo[:5000]}\n\nRisposta (solo JSON array):"}]
                 )
