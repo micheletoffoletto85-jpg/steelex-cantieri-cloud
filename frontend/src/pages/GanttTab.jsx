@@ -55,7 +55,8 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
   // ── Range date ──
   const oggi = dayjs()
   const dateFlat = fasi.flatMap(f => [f.data_inizio, f.data_fine_prevista, f.data_fine_reale].filter(Boolean).map(d => dayjs(d)))
-  const minD = dateFlat.length ? dateFlat.reduce((a,b) => a.isBefore(b)?a:b).subtract(3,'day') : oggi.subtract(7,'day')
+  const minFasiD = dateFlat.length ? dateFlat.reduce((a,b) => a.isBefore(b)?a:b).subtract(3,'day') : oggi
+  const minD = minFasiD.isBefore(oggi) ? minFasiD : oggi
   const maxD = dateFlat.length ? dateFlat.reduce((a,b) => a.isAfter(b)?a:b).add(7,'day')  : oggi.add(60,'day')
   const totalDays = maxD.diff(minD,'day') + 1
   const toX = d => d ? GANTT_X + Math.max(0, Math.min(GANTT_W, (dayjs(d).diff(minD,'day') / totalDays) * GANTT_W)) : null
@@ -342,15 +343,15 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
 
   let fy = T.y + T.rH
   const fmtD = d => d ? dayjs(d).format('DD/MM/YY') : '—'
-  const LINE_H = 4.2
   const BASE_H = 7
 
   fasi.forEach((f, i) => {
     doc.setFontSize(6.5); doc.setFont('helvetica','normal')
+    const lineH = doc.getLineHeight() / doc.internal.scaleFactor
     const nomeLines = doc.splitTextToSize(f.nome || '', COL.nome - 6)
     const noteLines = f.note ? doc.splitTextToSize(f.note, COL.note - 2) : []
     const maxLines = Math.max(nomeLines.length, noteLines.length, 1)
-    const rowH = Math.max(BASE_H, maxLines * LINE_H + 3)
+    const rowH = Math.max(BASE_H, 2.5 + maxLines * lineH + 1.5)
 
     if (fy + rowH > PH - MB - 6) {
       doc.addPage()
@@ -373,7 +374,7 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     doc.setFillColor(...rgb.map(c => Math.min(255, Math.round(c * 0.15 + 255 * 0.85))))
     doc.rect(xDal - 1, fy + 0.5, COL.dal + COL.al - 1, rowH - 1, 'F')
 
-    const textY = fy + 4.5
+    const textY = fy + 2.5 + lineH * 0.8
 
     doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
     cx = T.x + 2
