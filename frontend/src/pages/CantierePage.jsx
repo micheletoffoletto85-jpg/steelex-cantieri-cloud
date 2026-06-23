@@ -119,7 +119,7 @@ export default function CantierePage() {
       {tab === 'info'          && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
       {tab === 'aggiornamenti' && <AggiornnamentiTab cantiereId={id} />}
       {tab === 'team'          && <TeamTab cantiereId={id} utente={utente} />}
-      {tab === 'gantt'         && <GanttTab cantiereId={id} />}
+      {tab === 'gantt'         && <GanttTab cantiereId={id} cantiere={cantiere} />}
       {tab === 'checklist'     && <ChecklistTab cantiereId={id} />}
       {tab === 'diario'        && <DiarioTab cantiereId={id} utente={utente} />}
       {tab === 'mappe'         && <MappeTab cantiereId={id} />}

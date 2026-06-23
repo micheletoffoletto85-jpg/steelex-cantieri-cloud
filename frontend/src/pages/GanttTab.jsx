@@ -4,13 +4,307 @@
  */
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users, GripVertical } from 'lucide-react'
+import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users, GripVertical, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
 dayjs.locale('it')
+
+// ── Esporta Gantt in PDF (A4 landscape, branded STEELEX) ──────────────────
+async function esportaGanttPDF(fasi, salList, cantiere) {
+  const { jsPDF } = await import('jspdf')
+
+  if (!fasi || fasi.length === 0) { toast.error('Nessuna fase da esportare'); return }
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const PW = 297, PH = 210
+  const ML = 12, MR = 12, MT = 12, MB = 12
+
+  // ── Colori brand ──
+  const ORANGE = [255, 107, 0]
+  const DARK   = [28,  28, 28]
+  const LIGHT  = [241, 245, 249]
+  const GRAY   = [100, 116, 132]
+
+  const STATO_COLORS = {
+    pianificata: [148, 163, 184],
+    in_corso:    [59,  130, 246],
+    completata:  [34,  197, 94],
+    in_ritardo:  [239, 68,  68],
+    sospesa:     [245, 158, 11],
+  }
+  const STATO_LABEL = {
+    pianificata: 'Pianificata', in_corso: 'In Corso', completata: 'Completata',
+    in_ritardo: 'In Ritardo', sospesa: 'Sospesa',
+  }
+
+  // ── Layout ──
+  const LABEL_W = 58   // larghezza colonna nome fase
+  const PCT_W   = 12   // colonna % a destra
+  const GANTT_X = ML + LABEL_W
+  const GANTT_W = PW - ML - MR - LABEL_W - PCT_W
+  const HEADER_H = 18  // altezza header pagina
+  const AXIS1_H  = 7   // riga mesi
+  const AXIS2_H  = 6   // riga settimane
+  const ROW_H    = 8   // altezza riga fase
+  const BAR_PAD  = 1.5 // padding verticale dentro la riga
+  const LEGEND_H = 12  // altezza legenda stati in fondo
+
+  // ── Range date ──
+  const oggi = dayjs()
+  const dateFlat = fasi.flatMap(f => [f.data_inizio, f.data_fine_prevista, f.data_fine_reale].filter(Boolean).map(d => dayjs(d)))
+  const minD = dateFlat.length ? dateFlat.reduce((a,b) => a.isBefore(b)?a:b).subtract(3,'day') : oggi.subtract(7,'day')
+  const maxD = dateFlat.length ? dateFlat.reduce((a,b) => a.isAfter(b)?a:b).add(7,'day')  : oggi.add(60,'day')
+  const totalDays = maxD.diff(minD,'day') + 1
+  const toX = d => d ? GANTT_X + Math.max(0, Math.min(GANTT_W, (dayjs(d).diff(minD,'day') / totalDays) * GANTT_W)) : null
+  const todayX = GANTT_X + Math.max(0, Math.min(GANTT_W, (oggi.diff(minD,'day') / totalDays) * GANTT_W))
+
+  // ── Header pagina ──
+  // Sfondo header
+  doc.setFillColor(...DARK)
+  doc.rect(0, 0, PW, HEADER_H, 'F')
+  // Accent bar arancione
+  doc.setFillColor(...ORANGE)
+  doc.rect(0, HEADER_H - 1.5, PW, 1.5, 'F')
+  // Logo testo
+  doc.setFontSize(11)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(255, 107, 0)
+  doc.text('STEELEX', ML, HEADER_H - 5.5)
+  // Titolo
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(255, 255, 255)
+  doc.text(`CRONOPROGRAMMA — ${(cantiere?.nome || '').toUpperCase()}`, ML + 28, HEADER_H - 5.5)
+  // Data generazione
+  doc.setFontSize(7.5)
+  doc.setTextColor(180, 180, 180)
+  doc.text(`Generato il ${dayjs().format('DD/MM/YYYY')}`, PW - MR, HEADER_H - 5.5, { align: 'right' })
+
+  // ── Area Gantt ──
+  let curY = MT + HEADER_H
+
+  // Sfondo header asse
+  doc.setFillColor(...DARK)
+  doc.rect(ML, curY, LABEL_W, AXIS1_H + AXIS2_H, 'F')
+  doc.setFillColor(...DARK)
+  doc.rect(GANTT_X, curY, GANTT_W + PCT_W, AXIS1_H, 'F')
+
+  // Label "FASE" nell'header
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(180, 180, 180)
+  doc.text('FASE', ML + 2, curY + AXIS1_H - 1.5)
+
+  // ── Riga 1: MESI ──
+  let mesiCur = minD.startOf('month')
+  while (mesiCur.isBefore(maxD) || mesiCur.isSame(maxD, 'month')) {
+    const x1 = GANTT_X + Math.max(0, (mesiCur.diff(minD,'day') / totalDays) * GANTT_W)
+    const x2 = GANTT_X + Math.min(GANTT_W, (mesiCur.add(1,'month').diff(minD,'day') / totalDays) * GANTT_W)
+    if (x2 > GANTT_X && x1 < GANTT_X + GANTT_W) {
+      // Linea divisoria
+      doc.setDrawColor(80, 80, 80)
+      doc.setLineWidth(0.3)
+      doc.line(x1, curY, x1, curY + AXIS1_H)
+      // Label mese
+      doc.setFontSize(6.5)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(255, 255, 255)
+      const label = mesiCur.format('MMM YYYY').toUpperCase()
+      doc.text(label, Math.max(x1 + 1, GANTT_X + 1), curY + AXIS1_H - 1.5, { maxWidth: x2 - x1 - 2 })
+    }
+    mesiCur = mesiCur.add(1,'month')
+  }
+
+  // ── Riga 2: SETTIMANE ──
+  curY += AXIS1_H
+  doc.setFillColor(...LIGHT)
+  doc.rect(GANTT_X, curY, GANTT_W + PCT_W, AXIS2_H, 'F')
+  doc.setFillColor(240, 240, 240)
+  doc.rect(ML, curY, LABEL_W, AXIS2_H, 'F')
+
+  let settCur = minD.startOf('week')
+  let settN = 1; let lastM = -1
+  while (settCur.isBefore(maxD)) {
+    const x1 = GANTT_X + Math.max(0, (settCur.diff(minD,'day') / totalDays) * GANTT_W)
+    const x2 = GANTT_X + Math.min(GANTT_W, (settCur.add(7,'day').diff(minD,'day') / totalDays) * GANTT_W)
+    if (x2 > GANTT_X && x1 < GANTT_X + GANTT_W) {
+      if (settCur.month() !== lastM) { settN = 1; lastM = settCur.month() }
+      const isNewMonth = settCur.date() <= 7
+      doc.setDrawColor(isNewMonth ? 100 : 200, isNewMonth ? 100 : 200, isNewMonth ? 120 : 200)
+      doc.setLineWidth(isNewMonth ? 0.4 : 0.2)
+      doc.line(x1, curY, x1, curY + AXIS2_H)
+      doc.setFontSize(5.5)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...GRAY)
+      doc.text(`S${settN}`, x1 + 0.8, curY + AXIS2_H - 1.2, { maxWidth: x2 - x1 - 1 })
+      settN++
+    }
+    settCur = settCur.add(7,'day')
+  }
+
+  curY += AXIS2_H
+
+  // Calcola righe disponibili per pagina
+  const usableH = PH - curY - MB - LEGEND_H
+  const rowsPerPage = Math.floor(usableH / ROW_H)
+
+  const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
+
+  // ── RIGHE FASI ──
+  fasi.forEach((f, fi) => {
+    // Nuova pagina se serve
+    if (fi > 0 && fi % rowsPerPage === 0) {
+      doc.addPage()
+      curY = MT
+      // Mini header sulle pagine successive
+      doc.setFillColor(...DARK)
+      doc.rect(0, 0, PW, 8, 'F')
+      doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(...ORANGE)
+      doc.text('STEELEX', ML, 5.5)
+      doc.setFont('helvetica','normal'); doc.setTextColor(200,200,200)
+      doc.text(`CRONOPROGRAMMA — ${(cantiere?.nome||'').toUpperCase()} (continua)`, ML+22, 5.5)
+      doc.setFillColor(...ORANGE)
+      doc.rect(0, 7.5, PW, 0.5, 'F')
+      curY = 10
+    }
+
+    const rowY = curY + fi % rowsPerPage * ROW_H
+    const isEven = fi % 2 === 0
+
+    // Sfondo riga alternato
+    if (isEven) {
+      doc.setFillColor(248, 250, 252)
+      doc.rect(ML, rowY, LABEL_W + GANTT_W + PCT_W, ROW_H, 'F')
+    }
+
+    // Linea separatrice
+    doc.setDrawColor(220, 220, 220)
+    doc.setLineWidth(0.15)
+    doc.line(ML, rowY + ROW_H, ML + LABEL_W + GANTT_W + PCT_W, rowY + ROW_H)
+
+    // Pallino colore + nome fase
+    const col = f.colore || '#94a3b8'
+    const rgb = col.match(/\w\w/g)?.map(x => parseInt(x,16)) || [148, 163, 184]
+    doc.setFillColor(...rgb)
+    doc.roundedRect(ML + 1, rowY + ROW_H/2 - 1.5, 3, 3, 0.5, 0.5, 'F')
+    doc.setFontSize(6.5)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...DARK)
+    const maxNome = LABEL_W - 8
+    doc.text(f.nome, ML + 5.5, rowY + ROW_H/2 + 1, { maxWidth: maxNome })
+
+    // Griglia verticale settimane
+    settCur = minD.startOf('week')
+    while (settCur.isBefore(maxD)) {
+      const gx = toX(settCur.format('YYYY-MM-DD'))
+      if (gx && gx > GANTT_X && gx < GANTT_X + GANTT_W) {
+        const isNM = settCur.date() <= 7
+        doc.setDrawColor(isNM ? 160 : 220, isNM ? 160 : 220, isNM ? 180 : 220)
+        doc.setLineWidth(isNM ? 0.3 : 0.15)
+        doc.line(gx, rowY, gx, rowY + ROW_H)
+      }
+      settCur = settCur.add(7,'day')
+    }
+
+    // Barra fase
+    const xS = toX(f.data_inizio)
+    const xE = toX(f.data_fine_prevista || f.data_fine_reale)
+    if (xS !== null && xE !== null && xE > xS) {
+      const barH = ROW_H - BAR_PAD * 2
+      const barY = rowY + BAR_PAD
+      // Barra principale
+      doc.setFillColor(...rgb)
+      doc.roundedRect(xS, barY, Math.max(xE - xS, 0.5), barH, 0.8, 0.8, 'F')
+      // Overlay avanzamento (più scuro)
+      if (f.percentuale > 0) {
+        const progW = (xE - xS) * f.percentuale / 100
+        doc.setFillColor(0, 0, 0, 0.3)
+        const darkRgb = rgb.map(c => Math.max(0, c - 50))
+        doc.setFillColor(...darkRgb)
+        doc.roundedRect(xS, barY, progW, barH, 0.8, 0.8, 'F')
+      }
+      // % testo (se la barra è abbastanza larga)
+      if (xE - xS > 10) {
+        doc.setFontSize(5)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(255, 255, 255)
+        doc.text(`${f.percentuale}%`, xS + (xE-xS)/2, rowY + ROW_H/2 + 1, { align: 'center' })
+      }
+    }
+
+    // Milestone SAL
+    const sal = f.sal_id ? salMap[f.sal_id] : null
+    if (sal?.data) {
+      const salX = toX(sal.data)
+      if (salX && salX >= GANTT_X && salX <= GANTT_X + GANTT_W) {
+        doc.setFillColor(59, 130, 246)
+        doc.setLineWidth(0)
+        // Diamante
+        const cx = salX, cy = rowY + ROW_H/2
+        doc.lines([[1.5, -1.5],[1.5,1.5],[-1.5,1.5],[-1.5,-1.5]], cx - 1.5, cy, [1,1], 'F', true)
+      }
+    }
+
+    // Colonna % a destra
+    const statoCol = STATO_COLORS[f.stato] || [148, 163, 184]
+    doc.setFillColor(...statoCol, 0.15)
+    doc.setTextColor(...statoCol)
+    doc.setFontSize(5.5)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`${f.percentuale}%`, ML + LABEL_W + GANTT_W + PCT_W/2, rowY + ROW_H/2 + 1, { align: 'center' })
+  })
+
+  // ── Linea Oggi ──
+  const lastRowY = curY + Math.min(fasi.length, rowsPerPage) * ROW_H
+  doc.setDrawColor(...DARK)
+  doc.setLineWidth(0.5)
+  doc.line(todayX, curY - AXIS2_H, todayX, lastRowY)
+  doc.setFontSize(5)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...DARK)
+  doc.text('oggi', todayX + 0.5, curY - AXIS2_H + 3)
+
+  // ── Legenda stati ──
+  const legY = PH - MB - LEGEND_H + 2
+  doc.setDrawColor(...LIGHT)
+  doc.setLineWidth(0.3)
+  doc.line(ML, legY - 1, PW - MR, legY - 1)
+  doc.setFontSize(6); doc.setFont('helvetica', 'bold'); doc.setTextColor(...GRAY)
+  doc.text('STATI:', ML, legY + 4)
+  let lx = ML + 12
+  Object.entries(STATO_LABEL).forEach(([k, label]) => {
+    const c = STATO_COLORS[k] || [200,200,200]
+    doc.setFillColor(...c)
+    doc.roundedRect(lx, legY + 1.5, 3, 3, 0.5, 0.5, 'F')
+    doc.setFontSize(6); doc.setFont('helvetica', 'normal'); doc.setTextColor(...DARK)
+    doc.text(label, lx + 4.5, legY + 4)
+    lx += 4.5 + doc.getTextWidth(label) + 4
+  })
+
+  // Legenda SAL
+  if (salList.some(s => s.data)) {
+    doc.setFillColor(59, 130, 246)
+    doc.lines([[1.5,-1.5],[1.5,1.5],[-1.5,1.5],[-1.5,-1.5]], lx + 1.5, legY + 3, [1,1], 'F', true)
+    doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
+    doc.text('Milestone SAL', lx + 4.5, legY + 4)
+  }
+
+  // ── Bordo esterno Gantt ──
+  doc.setDrawColor(180, 180, 180)
+  doc.setLineWidth(0.3)
+  doc.rect(ML, MT + HEADER_H, LABEL_W + GANTT_W + PCT_W, AXIS1_H + AXIS2_H + Math.min(fasi.length, rowsPerPage) * ROW_H)
+
+  // ── Footer ──
+  doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(180,180,180)
+  doc.text('STEELEX Cantieri — Documento generato automaticamente', ML, PH - 3)
+  doc.text(`Pag. 1`, PW - MR, PH - 3, { align: 'right' })
+
+  doc.save(`gantt-${(cantiere?.nome||'cantiere').replace(/\s+/g,'-').toLowerCase()}-${dayjs().format('YYYY-MM-DD')}.pdf`)
+  toast.success('PDF esportato!')
+}
 
 const STATO_FASE = {
   pianificata:  { label: 'Pianificata',  color: '#94a3b8', bg: 'bg-gray-100 text-gray-600',   icon: Clock       },
@@ -26,7 +320,7 @@ const CATEGORIE = ['lavorazione','fornitura','collaudo','amministrativo','impian
 const fmtD = d => d ? dayjs(d).format('DD/MM') : '—'
 const fmtDFull = d => d ? dayjs(d).format('DD/MM/YYYY') : '—'
 
-export default function GanttTab({ cantiereId }) {
+export default function GanttTab({ cantiereId, cantiere }) {
   const { utente } = useAuth()
   const qc = useQueryClient()
   const canWrite = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
@@ -150,7 +444,14 @@ export default function GanttTab({ cantiereId }) {
             📋 Lista
           </button>
         </div>
-        {canWrite && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => esportaGanttPDF(fasi, salList, cantiere)}
+            disabled={fasi.length === 0}
+            className="flex items-center gap-1.5 py-2 px-3 rounded-xl text-sm font-medium bg-gray-700 text-white hover:bg-gray-800 disabled:opacity-40 transition-colors">
+            <FileDown size={14} /> PDF
+          </button>
+          {canWrite && (
           <div className="flex gap-2">
             <label className={`flex items-center gap-1.5 py-2 px-3 rounded-xl text-sm font-medium cursor-pointer transition-colors ${importando ? 'bg-purple-100 text-purple-400' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
               title="Importa Gantt da Excel, CSV, PDF o foto — Claude interpreta le fasi automaticamente">
@@ -165,6 +466,7 @@ export default function GanttTab({ cantiereId }) {
             </button>
           </div>
         )}
+        </div>
       </div>
 
       {/* Modale anteprima fasi importate */}
