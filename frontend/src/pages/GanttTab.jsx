@@ -53,11 +53,11 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
   const LEGEND_H = 12  // altezza legenda stati in fondo
 
   // ── Range date ──
-  const oggi = dayjs()
-  const dateFlat = fasi.flatMap(f => [f.data_inizio, f.data_fine_prevista, f.data_fine_reale].filter(Boolean).map(d => dayjs(d)))
+  const oggi = dayjs().startOf('day')
+  const dateFlat = fasi.flatMap(f => [f.data_inizio, f.data_fine_prevista, f.data_fine_reale].filter(Boolean).map(d => dayjs(d).startOf('day')))
   const minFasiD = dateFlat.length ? dateFlat.reduce((a,b) => a.isBefore(b)?a:b).subtract(3,'day') : oggi
   const minD = minFasiD.isBefore(oggi) ? minFasiD : oggi
-  const maxD = dateFlat.length ? dateFlat.reduce((a,b) => a.isAfter(b)?a:b).add(7,'day')  : oggi.add(60,'day')
+  const maxD = dateFlat.length ? dateFlat.reduce((a,b) => a.isAfter(b)?a:b).add(7,'day') : oggi.add(60,'day')
   const totalDays = maxD.diff(minD,'day') + 1
   const toX = d => d ? GANTT_X + Math.max(0, Math.min(GANTT_W, (dayjs(d).diff(minD,'day') / totalDays) * GANTT_W)) : null
   const todayX = GANTT_X + Math.max(0, Math.min(GANTT_W, (oggi.diff(minD,'day') / totalDays) * GANTT_W))
