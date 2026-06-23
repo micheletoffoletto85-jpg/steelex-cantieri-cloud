@@ -198,7 +198,7 @@ def crea_artigiano(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    if user.ruolo.value not in _RUOLI_SCRIVE:
+    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
         raise HTTPException(403, "Non autorizzato")
     if body.categoria not in CATEGORIE:
         raise HTTPException(400, f"Categoria non valida")
@@ -214,7 +214,7 @@ def aggiorna_artigiano(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    if user.ruolo.value not in _RUOLI_SCRIVE:
+    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
         raise HTTPException(403, "Non autorizzato")
     a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
     if not a: raise HTTPException(404, "Non trovato")
@@ -230,7 +230,7 @@ def elimina_artigiano(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    if user.ruolo.value not in {"admin"}:
+    if str(user.ruolo).split(".")[-1] not in {"admin"}:
         raise HTTPException(403, "Solo admin può eliminare")
     a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
     if not a: raise HTTPException(404, "Non trovato")
@@ -251,7 +251,7 @@ async def upload_documento(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    if user.ruolo.value not in _RUOLI_SCRIVE:
+    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
         raise HTTPException(403, "Non autorizzato")
     if tipo not in _DOC_TIPI:
         raise HTTPException(400, f"tipo deve essere: {', '.join(_DOC_TIPI)}")
@@ -275,7 +275,7 @@ def aggiungi_feedback(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    if user.ruolo.value not in _RUOLI_SCRIVE:
+    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
         raise HTTPException(403, "Solo admin/capocantiere può lasciare feedback")
     if body.voto not in ("su", "medio", "giu"):
         raise HTTPException(400, "Voto deve essere: su, medio, giu")
@@ -307,7 +307,7 @@ def elimina_feedback(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    if user.ruolo.value not in _RUOLI_SCRIVE:
+    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
         raise HTTPException(403, "Non autorizzato")
     fb = db.query(FeedbackArtigiano).filter(
         FeedbackArtigiano.id == feedback_id,
