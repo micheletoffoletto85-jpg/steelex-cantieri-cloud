@@ -153,121 +153,99 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
 
   curY += AXIS2_H
 
-  // Calcola righe disponibili per pagina
-  const usableH = PH - curY - MB - LEGEND_H
-  const rowsPerPage = Math.floor(usableH / ROW_H)
-
+  const pageBottom = PH - MB - LEGEND_H
   const salMap = Object.fromEntries(salList.map(s => [s.id, s]))
 
-  // ── RIGHE FASI ──
+  // ── RIGHE FASI — altezza dinamica ──
+  let rowY = curY
+  let firstPageLastY = curY
+  let onFirstPage = true
+
   fasi.forEach((f, fi) => {
-    // Nuova pagina se serve
-    if (fi > 0 && fi % rowsPerPage === 0) {
+    doc.setFontSize(6.5); doc.setFont('helvetica','normal')
+    const lineH = doc.getLineHeight() / doc.internal.scaleFactor
+    const nomeLines = doc.splitTextToSize(f.nome || '', LABEL_W - 8)
+    const rowH = Math.max(ROW_H, 2 + nomeLines.length * lineH + 2)
+
+    if (fi > 0 && rowY + rowH > pageBottom) {
+      if (onFirstPage) { firstPageLastY = rowY; onFirstPage = false }
       doc.addPage()
-      curY = MT
-      // Mini header sulle pagine successive
-      doc.setFillColor(...DARK)
-      doc.rect(0, 0, PW, 8, 'F')
+      doc.setFillColor(...DARK); doc.rect(0,0,PW,8,'F')
       doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(...ORANGE)
       doc.text('STEELEX', ML, 5.5)
       doc.setFont('helvetica','normal'); doc.setTextColor(200,200,200)
       doc.text(`CRONOPROGRAMMA — ${(cantiere?.nome||'').toUpperCase()} (continua)`, ML+22, 5.5)
-      doc.setFillColor(...ORANGE)
-      doc.rect(0, 7.5, PW, 0.5, 'F')
-      curY = 10
+      doc.setFillColor(...ORANGE); doc.rect(0,7.5,PW,0.5,'F')
+      rowY = 10
     }
 
-    const rowY = curY + fi % rowsPerPage * ROW_H
     const isEven = fi % 2 === 0
-
-    // Sfondo riga alternato
     if (isEven) {
-      doc.setFillColor(248, 250, 252)
-      doc.rect(ML, rowY, LABEL_W + GANTT_W + PCT_W, ROW_H, 'F')
+      doc.setFillColor(248,250,252)
+      doc.rect(ML, rowY, LABEL_W + GANTT_W + PCT_W, rowH, 'F')
     }
 
-    // Linea separatrice
-    doc.setDrawColor(220, 220, 220)
-    doc.setLineWidth(0.15)
-    doc.line(ML, rowY + ROW_H, ML + LABEL_W + GANTT_W + PCT_W, rowY + ROW_H)
+    doc.setDrawColor(220,220,220); doc.setLineWidth(0.15)
+    doc.line(ML, rowY + rowH, ML + LABEL_W + GANTT_W + PCT_W, rowY + rowH)
 
-    // Pallino colore + nome fase
     const col = f.colore || '#94a3b8'
-    const rgb = col.match(/\w\w/g)?.map(x => parseInt(x,16)) || [148, 163, 184]
+    const rgb = col.match(/\w\w/g)?.map(x => parseInt(x,16)) || [148,163,184]
     doc.setFillColor(...rgb)
-    doc.roundedRect(ML + 1, rowY + ROW_H/2 - 1.5, 3, 3, 0.5, 0.5, 'F')
-    doc.setFontSize(6.5)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(...DARK)
-    const maxNome = LABEL_W - 8
-    doc.text(f.nome, ML + 5.5, rowY + ROW_H/2 + 1, { maxWidth: maxNome })
+    doc.roundedRect(ML + 1, rowY + 2, 3, 3, 0.5, 0.5, 'F')
+    doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
+    doc.text(nomeLines, ML + 5.5, rowY + 2 + lineH * 0.8)
 
-    // Griglia verticale giorni
     for (let di = 0; di < totalDays; di++) {
       const dg = minD.add(di, 'day')
       const gx = GANTT_X + di * dayW
       const isWeekend2 = dg.day() === 0 || dg.day() === 6
       const isMonday2  = dg.day() === 1
       const isFirst2   = dg.date() === 1
-      if (isWeekend2) {
-        doc.setFillColor(240, 240, 244)
-        doc.rect(gx, rowY, dayW, ROW_H, 'F')
-      }
-      doc.setDrawColor(isFirst2 ? 140 : isMonday2 ? 180 : 225, isFirst2 ? 140 : isMonday2 ? 180 : 225, isFirst2 ? 160 : isMonday2 ? 190 : 228)
-      doc.setLineWidth(isFirst2 ? 0.4 : isMonday2 ? 0.2 : 0.1)
-      doc.line(gx, rowY, gx, rowY + ROW_H)
+      if (isWeekend2) { doc.setFillColor(240,240,244); doc.rect(gx, rowY, dayW, rowH, 'F') }
+      doc.setDrawColor(isFirst2?140:isMonday2?180:225, isFirst2?140:isMonday2?180:225, isFirst2?160:isMonday2?190:228)
+      doc.setLineWidth(isFirst2?0.4:isMonday2?0.2:0.1)
+      doc.line(gx, rowY, gx, rowY + rowH)
     }
 
-    // Barra fase
     const xS = toX(f.data_inizio)
     const xE = toX(f.data_fine_prevista || f.data_fine_reale)
     if (xS !== null && xE !== null && xE > xS) {
-      const barH = ROW_H - BAR_PAD * 2
-      const barY = rowY + BAR_PAD
-      // Barra principale
+      const barH = Math.min(rowH - BAR_PAD*2, ROW_H - BAR_PAD*2)
+      const barY = rowY + (rowH - barH) / 2
       doc.setFillColor(...rgb)
-      doc.roundedRect(xS, barY, Math.max(xE - xS, 0.5), barH, 0.8, 0.8, 'F')
-      // Overlay avanzamento (più scuro)
+      doc.roundedRect(xS, barY, Math.max(xE-xS,0.5), barH, 0.8, 0.8, 'F')
       if (f.percentuale > 0) {
-        const progW = (xE - xS) * f.percentuale / 100
-        doc.setFillColor(0, 0, 0, 0.3)
-        const darkRgb = rgb.map(c => Math.max(0, c - 50))
+        const darkRgb = rgb.map(c => Math.max(0, c-50))
         doc.setFillColor(...darkRgb)
-        doc.roundedRect(xS, barY, progW, barH, 0.8, 0.8, 'F')
+        doc.roundedRect(xS, barY, (xE-xS)*f.percentuale/100, barH, 0.8, 0.8, 'F')
       }
-      // % testo (se la barra è abbastanza larga)
-      if (xE - xS > 10) {
-        doc.setFontSize(5)
-        doc.setFont('helvetica', 'bold')
-        doc.setTextColor(255, 255, 255)
-        doc.text(`${f.percentuale}%`, xS + (xE-xS)/2, rowY + ROW_H/2 + 1, { align: 'center' })
+      if (xE-xS > 10) {
+        doc.setFontSize(5); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255)
+        doc.text(`${f.percentuale}%`, xS+(xE-xS)/2, rowY+rowH/2+1, { align:'center' })
       }
     }
 
-    // Milestone SAL
     const sal = f.sal_id ? salMap[f.sal_id] : null
     if (sal?.data) {
       const salX = toX(sal.data)
-      if (salX && salX >= GANTT_X && salX <= GANTT_X + GANTT_W) {
-        doc.setFillColor(59, 130, 246)
-        doc.setLineWidth(0)
-        // Diamante
-        const cx = salX, cy = rowY + ROW_H/2
-        doc.lines([[1.5, -1.5],[1.5,1.5],[-1.5,1.5],[-1.5,-1.5]], cx - 1.5, cy, [1,1], 'F', true)
+      if (salX && salX >= GANTT_X && salX <= GANTT_X+GANTT_W) {
+        doc.setFillColor(59,130,246); doc.setLineWidth(0)
+        const cx=salX, cy=rowY+rowH/2
+        doc.lines([[1.5,-1.5],[1.5,1.5],[-1.5,1.5],[-1.5,-1.5]], cx-1.5, cy, [1,1], 'F', true)
       }
     }
 
-    // Colonna % a destra
-    const statoCol = STATO_COLORS[f.stato] || [148, 163, 184]
-    doc.setFillColor(...statoCol, 0.15)
-    doc.setTextColor(...statoCol)
-    doc.setFontSize(5.5)
-    doc.setFont('helvetica', 'bold')
-    doc.text(`${f.percentuale}%`, ML + LABEL_W + GANTT_W + PCT_W/2, rowY + ROW_H/2 + 1, { align: 'center' })
+    const statoCol = STATO_COLORS[f.stato] || [148,163,184]
+    doc.setTextColor(...statoCol); doc.setFontSize(5.5); doc.setFont('helvetica','bold')
+    doc.text(`${f.percentuale}%`, ML+LABEL_W+GANTT_W+PCT_W/2, rowY+rowH/2+1, { align:'center' })
+
+    rowY += rowH
   })
 
+  if (onFirstPage) firstPageLastY = rowY
+
   // ── Linea Oggi ──
-  const lastRowY = curY + Math.min(fasi.length, rowsPerPage) * ROW_H
+  const lastRowY = firstPageLastY
   doc.setDrawColor(...DARK)
   doc.setLineWidth(0.5)
   doc.line(todayX, curY - AXIS2_H, todayX, lastRowY)
@@ -304,7 +282,7 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
   // ── Bordo esterno Gantt ──
   doc.setDrawColor(180, 180, 180)
   doc.setLineWidth(0.3)
-  doc.rect(ML, MT + HEADER_H, LABEL_W + GANTT_W + PCT_W, AXIS1_H + AXIS2_H + Math.min(fasi.length, rowsPerPage) * ROW_H)
+  doc.rect(ML, MT + HEADER_H, LABEL_W + GANTT_W + PCT_W, AXIS1_H + AXIS2_H + (firstPageLastY - curY))
 
   // ── Footer ──
   doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(180,180,180)
