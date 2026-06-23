@@ -63,6 +63,7 @@ def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_
                 corpo=f"{user.nome} {user.cognome}: {(data.extra_preventivo_nota or data.attivita or '')[:80]}",
                 escludi_id=user.id,
                 tipo="extra_preventivo",
+                url=f"/cantieri/{cantiere_id}#diario",
             )
         else:
             notifica_cantiere(db, cantiere_id,
@@ -70,6 +71,7 @@ def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_
                 titolo="📋 Nuova nota diario",
                 corpo=f"{user.nome} {user.cognome}: {(data.attivita or '')[:80]}",
                 escludi_id=user.id,
+                url=f"/cantieri/{cantiere_id}#diario",
             )
     except Exception: pass
     return _diario_out(diario)
@@ -130,6 +132,7 @@ async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(
             titolo="📷 Nuova foto nel diario",
             corpo=f"{user.nome} {user.cognome} ha aggiunto una foto al diario",
             escludi_id=user.id,
+            url=f"/cantieri/{cantiere_id}#diario",
         )
     except Exception: pass
     return _diario_out(diario)
@@ -273,6 +276,7 @@ Testo trascritto:
                 titolo="🎙️ Nuova nota vocale nel diario",
                 corpo=f"{user.nome} {user.cognome}: {(diario.attivita or '')[:80]}",
                 escludi_id=user.id,
+                url=f"/cantieri/{cantiere_id}#diario",
             )
         except Exception: pass
         return _diario_out(diario)

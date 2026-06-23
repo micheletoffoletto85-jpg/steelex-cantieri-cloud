@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
@@ -23,8 +23,9 @@ const STATO_LABEL = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: '
 export default function CantierePage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { hash } = useLocation()
   const qc = useQueryClient()
-  const [tab, setTab] = useState('info')
+  const [tab, setTab] = useState(hash ? hash.slice(1) : 'info')
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(null)
 

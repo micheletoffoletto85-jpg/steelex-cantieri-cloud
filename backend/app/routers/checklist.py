@@ -27,6 +27,7 @@ def crea_item(cantiere_id: int, data: ChecklistItemCreate, db: Session = Depends
             titolo="✅ Nuovo elemento checklist",
             corpo=f"{user.nome} {user.cognome}: {(data.titolo or '')[:80]}",
             escludi_id=user.id,
+            url=f"/cantieri/{cantiere_id}#checklist",
         )
     except Exception: pass
     return item
@@ -48,6 +49,7 @@ def aggiorna_item(cantiere_id: int, item_id: int, data: ChecklistItemUpdate, db:
                 titolo="☑️ Attività completata",
                 corpo=f"{user.nome} {user.cognome}: {(item.titolo or '')[:80]}",
                 escludi_id=user.id,
+                url=f"/cantieri/{cantiere_id}#checklist",
             )
         except Exception: pass
     elif data.completato is False:

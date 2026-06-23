@@ -226,6 +226,7 @@ def crea_preventivo(cantiere_id: int, body: PreventivoCreate, db: Session = Depe
                 titolo="💰 Nuovo preventivo creato",
                 corpo=f"{user.nome} {user.cognome}: preventivo n°{body.numero}",
                 escludi_id=user.id,
+                url=f"/cantieri/{cantiere_id}#economia",
             )
         except Exception: pass
         return prev
@@ -295,6 +296,7 @@ def aggiungi_voce_extra(
             corpo=f"{body.descrizione[:80]} — {importo_str} (prezzo cliente)",
             escludi_id=user.id,
             tipo="extra_preventivo",
+            url=f"/cantieri/{cantiere_id}#economia",
         )
     except Exception: pass
     if _is_dl(user):
@@ -360,6 +362,7 @@ def registra_spesa(cantiere_id: int, body: SpesaCreate, db: Session = Depends(ge
                 titolo="🧾 Nuova spesa registrata",
                 corpo=f"{user.nome} {user.cognome}: {getattr(body,'descrizione','')[:60]} — €{getattr(body,'importo','')}",
                 escludi_id=user.id,
+                url=f"/cantieri/{cantiere_id}#economia",
             )
         except Exception: pass
         return s
@@ -495,6 +498,7 @@ def crea_sal(cantiere_id: int, body: SALCreate, db: Session = Depends(get_db), u
             titolo="📊 Nuovo SAL emesso",
             corpo=f"{user.nome} {user.cognome}: SAL n°{sal.numero} — {getattr(body,'titolo','')[:60]}",
             escludi_id=user.id,
+            url=f"/cantieri/{cantiere_id}#economia",
         )
     except Exception: pass
     return sal
