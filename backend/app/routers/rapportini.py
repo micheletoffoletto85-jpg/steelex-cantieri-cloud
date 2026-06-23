@@ -459,6 +459,23 @@ def valida_rapportino(
     return _rap_dict(r)
 
 
+@router.delete("/{rapportino_id}")
+def elimina_rapportino(
+    rapportino_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Admin: elimina un rapportino."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403, "Non autorizzato")
+    r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
+    if not r:
+        raise HTTPException(404, "Rapportino non trovato")
+    db.delete(r)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("")
 def lista_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     """Admin: tutti i rapportini. Operativo: i propri."""

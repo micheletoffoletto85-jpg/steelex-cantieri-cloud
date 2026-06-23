@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, MapPin } from 'lucide-react'
+import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, MapPin, Trash2 } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -30,10 +30,11 @@ function Chips({ rapportino }) {
 }
 
 // ── Card rapportino ───────────────────────────────────────────────────────────
-function RapportinoCard({ r, isAdmin, onValida, cantieri = [] }) {
+function RapportinoCard({ r, isAdmin, onValida, onElimina, cantieri = [] }) {
   const [aperto, setAperto] = useState(false)
   const [noteAdmin, setNoteAdmin] = useState('')
   const [cantiereAssegnato, setCantiereAssegnato] = useState('')
+  const [confermaElimina, setConfermaElimina] = useState(false)
 
   const suggerito = cantieri.find(c =>
     r.cantiere_rilevato && c.nome?.toLowerCase().includes(r.cantiere_rilevato.toLowerCase())
@@ -60,9 +61,31 @@ function RapportinoCard({ r, isAdmin, onValida, cantieri = [] }) {
               <p className="text-xs text-gray-400 mt-0.5">"{r.cantiere_rilevato}" — non abbinato</p>
             ) : null}
           </div>
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${statoColor}`}>
-            {r.stato}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statoColor}`}>
+              {r.stato}
+            </span>
+            {isAdmin && (
+              confermaElimina ? (
+                <div className="flex items-center gap-1">
+                  <button onClick={() => onElimina(r.id)}
+                    className="text-xs bg-red-600 text-white px-2 py-0.5 rounded font-semibold hover:bg-red-700">
+                    Conferma
+                  </button>
+                  <button onClick={() => setConfermaElimina(false)}
+                    className="text-xs text-gray-400 hover:text-gray-600 px-1">
+                    Annulla
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setConfermaElimina(true)}
+                  className="text-gray-300 hover:text-red-500 transition-colors"
+                  title="Elimina rapportino">
+                  <Trash2 size={14} />
+                </button>
+              )
+            )}
+          </div>
         </div>
 
         <Chips rapportino={r} />
@@ -286,6 +309,17 @@ function VistaAdmin() {
     }
   )
 
+  const eliminaMutation = useMutation(
+    (id) => api.delete(`/rapportini/${id}`),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries('rapp-da-validare')
+        qc.invalidateQueries('rapp-tutti')
+        qc.invalidateQueries('rapp-fuori')
+      }
+    }
+  )
+
   const lista = tab === 'da-validare' ? daValidare : tab === 'fuori' ? fuoriCantiere : tutti
   const fuoriCount = fuoriCantiere.filter(r => r.stato === 'inviato').length
 
@@ -335,7 +369,8 @@ function VistaAdmin() {
           {lista.map(r => (
             <RapportinoCard key={r.id} r={r} isAdmin cantieri={cantieri}
               onValida={(id, rifiuta, note_admin, cantiere_id) =>
-                validaMutation.mutate({ id, rifiuta, note_admin, cantiere_id })} />
+                validaMutation.mutate({ id, rifiuta, note_admin, cantiere_id })}
+              onElimina={(id) => eliminaMutation.mutate(id)} />
           ))}
         </div>
       )}
