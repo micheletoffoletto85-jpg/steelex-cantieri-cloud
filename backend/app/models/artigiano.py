@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -19,6 +19,12 @@ class Artigiano(Base):
     utente_id   = Column(Integer, ForeignKey("utenti.id", ondelete="SET NULL"), nullable=True)
     creato_da   = Column(Integer, ForeignKey("utenti.id"), nullable=True)
     creato_il   = Column(DateTime(timezone=True), server_default=func.now())
+    durc_scadenza                       = Column(Date, nullable=True)
+    attestato_sicurezza_scadenza        = Column(Date, nullable=True)
+    attestato_primo_soccorso_scadenza   = Column(Date, nullable=True)
+    durc_url                            = Column(String(500), nullable=True)
+    attestato_sicurezza_url             = Column(String(500), nullable=True)
+    attestato_primo_soccorso_url        = Column(String(500), nullable=True)
 
     feedback    = relationship("FeedbackArtigiano", back_populates="artigiano", cascade="all, delete-orphan")
 
