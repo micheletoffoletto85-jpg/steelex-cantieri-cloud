@@ -394,11 +394,13 @@ export default function GanttTab({ cantiereId, cantiere }) {
     setImportando(true)
     try {
       const fd = new FormData(); fd.append('file', file)
-      const r = await api.post(`/cantieri/${cantiereId}/fasi/import-gantt`, fd, { headers: {'Content-Type':'multipart/form-data'} })
-      setFasiImportate(r.data.fasi)
-      toast.success(`${r.data.totale_fasi} fasi trovate — rivedi e conferma`)
+      const r = await api.post(`/cantieri/${cantiereId}/fasi/import-gantt`, fd, { headers: {'Content-Type':'multipart/form-data'}, timeout: 90000 })
+      const fasiRicevute = r.data.fasi || []
+      if (fasiRicevute.length === 0) { toast.error('Claude non ha trovato fasi nel documento'); return }
+      setFasiImportate(fasiRicevute)
+      toast.success(`${fasiRicevute.length} fasi trovate — rivedi e clicca "Importa fasi"`)
     } catch(e) {
-      toast.error(e.response?.data?.detail || 'Errore import')
+      toast.error(e.response?.data?.detail || 'Errore import: ' + (e.message || 'sconosciuto'))
     } finally { setImportando(false) }
   }
 
