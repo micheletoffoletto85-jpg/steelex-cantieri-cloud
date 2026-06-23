@@ -25,7 +25,7 @@ def crea_item(cantiere_id: int, data: ChecklistItemCreate, db: Session = Depends
         notifica_cantiere(db, cantiere_id,
             ruoli=["admin", "capo_cantiere"],
             titolo="✅ Nuovo elemento checklist",
-            corpo=f"{user.nome} {user.cognome}: {(data.titolo or '')[:80]}",
+            corpo=f"{user.nome} {user.cognome}: {(data.testo or '')[:80]}",
             escludi_id=user.id,
             url=f"/cantieri/{cantiere_id}#checklist",
         )
@@ -47,7 +47,7 @@ def aggiorna_item(cantiere_id: int, item_id: int, data: ChecklistItemUpdate, db:
             notifica_cantiere(db, cantiere_id,
                 ruoli=["admin", "capo_cantiere", "direzione_lavori"],
                 titolo="☑️ Attività completata",
-                corpo=f"{user.nome} {user.cognome}: {(item.titolo or '')[:80]}",
+                corpo=f"{user.nome} {user.cognome}: {(item.testo or '')[:80]}",
                 escludi_id=user.id,
                 url=f"/cantieri/{cantiere_id}#checklist",
             )
