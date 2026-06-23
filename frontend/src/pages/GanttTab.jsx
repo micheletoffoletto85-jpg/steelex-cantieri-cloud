@@ -759,16 +759,16 @@ export default function GanttTab({ cantiereId, cantiere }) {
 
 /* ─── DIAGRAMMA DI GANTT ─── */
 function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReorder, onToggleCliente, tooltipFase, setTooltipFase }) {
-  const oggi = dayjs()
+  const oggi = dayjs().startOf('day')
   const [zoom, setZoom] = useState('auto') // 'mesi' | 'settimane' | 'giorni' | 'auto'
 
   // Calcola range date totale
   const { minData, maxData, totalDays } = useMemo(() => {
     const date = fasi.flatMap(f => [f.data_inizio, f.data_fine_prevista, f.data_fine_reale].filter(Boolean).map(d => dayjs(d)))
     if (date.length === 0) return { minData: oggi.subtract(7,'day'), maxData: oggi.add(60,'day'), totalDays: 67 }
-    const minFasi = date.reduce((a,b) => a.isBefore(b)?a:b).subtract(3,'day')
+    const minFasi = date.reduce((a,b) => a.isBefore(b)?a:b).subtract(3,'day').startOf('day')
     const min = minFasi.isBefore(oggi.subtract(7,'day')) ? minFasi : oggi.subtract(7,'day')
-    const max = date.reduce((a,b) => a.isAfter(b)?a:b).add(7,'day')
+    const max = date.reduce((a,b) => a.isAfter(b)?a:b).add(7,'day').startOf('day')
     return { minData: min, maxData: max, totalDays: max.diff(min,'day') + 1 }
   }, [fasi])
 
