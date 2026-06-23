@@ -147,7 +147,7 @@ async def trascrivi_audio(
     try:
         from openai import OpenAI
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        whisper_kwargs = {"model": "whisper-1", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
+        whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
         if lingua_hint and lingua_hint != "auto":
             whisper_kwargs["language"] = lingua_hint
         with open(tmp_path, "rb") as af:
@@ -233,7 +233,7 @@ async def invia_rapportino(
         try:
             from openai import OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            whisper_kwargs = {"model": "whisper-1", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
+            whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
             if lingua_hint and lingua_hint != "auto":
                 whisper_kwargs["language"] = lingua_hint
             with open(tmp_path, "rb") as af:
