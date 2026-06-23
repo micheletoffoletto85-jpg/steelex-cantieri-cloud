@@ -342,9 +342,17 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
 
   let fy = T.y + T.rH
   const fmtD = d => d ? dayjs(d).format('DD/MM/YY') : '—'
+  const LINE_H = 4.2
+  const BASE_H = 7
 
   fasi.forEach((f, i) => {
-    if (fy + T.rH > PH - MB - 6) {
+    doc.setFontSize(6.5); doc.setFont('helvetica','normal')
+    const nomeLines = doc.splitTextToSize(f.nome || '', COL.nome - 6)
+    const noteLines = f.note ? doc.splitTextToSize(f.note, COL.note - 2) : []
+    const maxLines = Math.max(nomeLines.length, noteLines.length, 1)
+    const rowH = Math.max(BASE_H, maxLines * LINE_H + 3)
+
+    if (fy + rowH > PH - MB - 6) {
       doc.addPage()
       doc.setFillColor(...DARK); doc.rect(0,0,PW,8,'F')
       doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(...ORANGE)
@@ -356,47 +364,48 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     }
 
     const isEven = i % 2 === 0
-    if (isEven) { doc.setFillColor(248,250,252); doc.rect(T.x, fy, PW-ML-MR, T.rH, 'F') }
+    if (isEven) { doc.setFillColor(248,250,252); doc.rect(T.x, fy, PW-ML-MR, rowH, 'F') }
 
     const col = f.colore || '#94a3b8'
     const rgb = col.match(/\w\w/g)?.map(x => parseInt(x,16)) || [148,163,184]
 
-    // Sfondo periodo evidenziato
     const xDal = T.x + 2 + COL.n + COL.nome
-    doc.setFillColor(...rgb.map(c => Math.min(255, Math.round(c * 0.2 + 255 * 0.8))))
-    doc.rect(xDal - 1, fy + 0.5, COL.dal + COL.al - 1, T.rH - 1, 'F')
+    doc.setFillColor(...rgb.map(c => Math.min(255, Math.round(c * 0.15 + 255 * 0.85))))
+    doc.rect(xDal - 1, fy + 0.5, COL.dal + COL.al - 1, rowH - 1, 'F')
+
+    const textY = fy + 4.5
 
     doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
     cx = T.x + 2
-    doc.text(`${i+1}`, cx, fy + T.rH - 2); cx += COL.n
+    doc.text(`${i+1}`, cx, textY); cx += COL.n
 
     doc.setFillColor(...rgb)
-    doc.roundedRect(cx, fy + T.rH/2 - 1.2, 2.5, 2.5, 0.4, 0.4, 'F')
+    doc.roundedRect(cx, fy + 2, 2.5, 2.5, 0.4, 0.4, 'F')
     doc.setFont('helvetica', f.stato === 'completata' ? 'bold' : 'normal')
-    doc.text(f.nome, cx + 4, fy + T.rH - 2, { maxWidth: COL.nome - 6 })
+    doc.text(nomeLines, cx + 4, textY)
     cx += COL.nome
 
     doc.setFont('helvetica','bold'); doc.setTextColor(...rgb.map(c => Math.max(0, c - 40)))
-    doc.text(fmtD(f.data_inizio), cx, fy + T.rH - 2); cx += COL.dal
-    doc.text(fmtD(f.data_fine_prevista), cx, fy + T.rH - 2); cx += COL.al
+    doc.text(fmtD(f.data_inizio), cx, textY); cx += COL.dal
+    doc.text(fmtD(f.data_fine_prevista), cx, textY); cx += COL.al
 
     const gg = f.data_inizio && f.data_fine_prevista
       ? dayjs(f.data_fine_prevista).diff(dayjs(f.data_inizio), 'day') + 1 : null
     doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
-    doc.text(gg ? `${gg}gg` : '—', cx, fy + T.rH - 2); cx += COL.gg
+    doc.text(gg ? `${gg}gg` : '—', cx, textY); cx += COL.gg
 
     const statoC = STATO_COLORS[f.stato] || [148,163,184]
     doc.setTextColor(...statoC)
-    doc.text(STATO_LABEL[f.stato] || f.stato, cx, fy + T.rH - 2); cx += COL.stato
+    doc.text(STATO_LABEL[f.stato] || f.stato, cx, textY); cx += COL.stato
 
     doc.setTextColor(...DARK)
-    doc.text(`${f.percentuale}%`, cx, fy + T.rH - 2); cx += COL.pct
+    doc.text(`${f.percentuale}%`, cx, textY); cx += COL.pct
 
-    if (f.note) doc.text(f.note, cx, fy + T.rH - 2, { maxWidth: COL.note - 2 })
+    if (noteLines.length > 0) doc.text(noteLines, cx, textY)
 
     doc.setDrawColor(220,220,220); doc.setLineWidth(0.1)
-    doc.line(T.x, fy + T.rH, T.x + PW - ML - MR, fy + T.rH)
-    fy += T.rH
+    doc.line(T.x, fy + rowH, T.x + PW - ML - MR, fy + rowH)
+    fy += rowH
   })
 
   doc.setDrawColor(180,180,180); doc.setLineWidth(0.3)
