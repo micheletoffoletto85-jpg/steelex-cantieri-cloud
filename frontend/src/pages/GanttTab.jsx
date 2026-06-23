@@ -118,31 +118,36 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     mesiCur = mesiCur.add(1,'month')
   }
 
-  // ── Riga 2: SETTIMANE ──
+  // ── Riga 2: GIORNI ──
   curY += AXIS1_H
   doc.setFillColor(...LIGHT)
   doc.rect(GANTT_X, curY, GANTT_W + PCT_W, AXIS2_H, 'F')
   doc.setFillColor(240, 240, 240)
   doc.rect(ML, curY, LABEL_W, AXIS2_H, 'F')
 
-  let settCur = minD.startOf('week')
-  let settN = 1; let lastM = -1
-  while (settCur.isBefore(maxD)) {
-    const x1 = GANTT_X + Math.max(0, (settCur.diff(minD,'day') / totalDays) * GANTT_W)
-    const x2 = GANTT_X + Math.min(GANTT_W, (settCur.add(7,'day').diff(minD,'day') / totalDays) * GANTT_W)
-    if (x2 > GANTT_X && x1 < GANTT_X + GANTT_W) {
-      if (settCur.month() !== lastM) { settN = 1; lastM = settCur.month() }
-      const isNewMonth = settCur.date() <= 7
-      doc.setDrawColor(isNewMonth ? 100 : 200, isNewMonth ? 100 : 200, isNewMonth ? 120 : 200)
-      doc.setLineWidth(isNewMonth ? 0.4 : 0.2)
-      doc.line(x1, curY, x1, curY + AXIS2_H)
-      doc.setFontSize(5.5)
-      doc.setFont('helvetica', 'normal')
-      doc.setTextColor(...GRAY)
-      doc.text(`S${settN}`, x1 + 0.8, curY + AXIS2_H - 1.2, { maxWidth: x2 - x1 - 1 })
-      settN++
+  const dayW = GANTT_W / totalDays
+  for (let i = 0; i < totalDays; i++) {
+    const d = minD.add(i, 'day')
+    const gx = GANTT_X + i * dayW
+    const isWeekend = d.day() === 0 || d.day() === 6
+    const isMonday  = d.day() === 1
+    const isFirst   = d.date() === 1
+    // Sfondo weekend
+    if (isWeekend) {
+      doc.setFillColor(220, 220, 225)
+      doc.rect(gx, curY, dayW, AXIS2_H, 'F')
     }
-    settCur = settCur.add(7,'day')
+    // Linea verticale: più spessa il lunedì e il primo del mese
+    doc.setDrawColor(isFirst ? 80 : isMonday ? 150 : 210, isFirst ? 80 : isMonday ? 150 : 210, isFirst ? 100 : isMonday ? 160 : 215)
+    doc.setLineWidth(isFirst ? 0.5 : isMonday ? 0.3 : 0.1)
+    doc.line(gx, curY, gx, curY + AXIS2_H)
+    // Numero giorno (solo se c'è spazio sufficiente — ≥ 2mm per cella)
+    if (dayW >= 2) {
+      doc.setFontSize(4.5)
+      doc.setFont('helvetica', isMonday ? 'bold' : 'normal')
+      doc.setTextColor(isWeekend ? 160 : isMonday ? 60 : 100, isWeekend ? 160 : isMonday ? 60 : 100, isWeekend ? 165 : isMonday ? 70 : 110)
+      doc.text(`${d.date()}`, gx + dayW / 2, curY + AXIS2_H - 1, { align: 'center' })
+    }
   }
 
   curY += AXIS2_H
@@ -196,17 +201,20 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     const maxNome = LABEL_W - 8
     doc.text(f.nome, ML + 5.5, rowY + ROW_H/2 + 1, { maxWidth: maxNome })
 
-    // Griglia verticale settimane
-    settCur = minD.startOf('week')
-    while (settCur.isBefore(maxD)) {
-      const gx = toX(settCur.format('YYYY-MM-DD'))
-      if (gx && gx > GANTT_X && gx < GANTT_X + GANTT_W) {
-        const isNM = settCur.date() <= 7
-        doc.setDrawColor(isNM ? 160 : 220, isNM ? 160 : 220, isNM ? 180 : 220)
-        doc.setLineWidth(isNM ? 0.3 : 0.15)
-        doc.line(gx, rowY, gx, rowY + ROW_H)
+    // Griglia verticale giorni
+    for (let di = 0; di < totalDays; di++) {
+      const dg = minD.add(di, 'day')
+      const gx = GANTT_X + di * dayW
+      const isWeekend2 = dg.day() === 0 || dg.day() === 6
+      const isMonday2  = dg.day() === 1
+      const isFirst2   = dg.date() === 1
+      if (isWeekend2) {
+        doc.setFillColor(240, 240, 244)
+        doc.rect(gx, rowY, dayW, ROW_H, 'F')
       }
-      settCur = settCur.add(7,'day')
+      doc.setDrawColor(isFirst2 ? 140 : isMonday2 ? 180 : 225, isFirst2 ? 140 : isMonday2 ? 180 : 225, isFirst2 ? 160 : isMonday2 ? 190 : 228)
+      doc.setLineWidth(isFirst2 ? 0.4 : isMonday2 ? 0.2 : 0.1)
+      doc.line(gx, rowY, gx, rowY + ROW_H)
     }
 
     // Barra fase
