@@ -270,6 +270,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const [mostraTestuale, setMostraTestuale] = useState(false)
   const [mostraIstruzioni, setMostraIstruzioni] = useState(true)
   const [conferma, setConferma] = useState(null)  // null | { testo: string }
+  const [linguaReg, setLinguaReg] = useState('it')
   const mediaRef = useRef(null)
   const chunksRef = useRef([])
   const fotoInputRef = useRef(null)
@@ -307,6 +308,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const _buildFormData = (testo) => {
     const fd = new FormData()
     fd.append('testo', testo)
+    fd.append('lingua_hint', linguaReg)
     if (cantiereSelezionato) fd.append('cantiere_id', cantiereSelezionato)
     foto.forEach(f => fd.append('foto', f))
     return fd
@@ -330,6 +332,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
         try {
           const fd = new FormData()
           fd.append('audio', blob, `rapportino.${ext}`)
+          fd.append('lingua_hint', linguaReg)
           const res = await api.post('/rapportini/trascrivi', fd)
           setConferma({ testo: res.data.testo })
           setFase('idle')
@@ -520,6 +523,35 @@ function ArtigianoDashboard({ utente, cantieri }) {
               <span className="text-sm font-medium text-steelex-orange">{cantieri[0].nome}</span>
             </div>
           )}
+
+          {/* Selettore lingua registrazione */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">In che lingua parli?</label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { code: 'it', label: '🇮🇹 Italiano' },
+                { code: 'ro', label: '🇷🇴 Rumeno' },
+                { code: 'en', label: '🇬🇧 Inglese' },
+                { code: 'de', label: '🇩🇪 Tedesco' },
+                { code: 'fr', label: '🇫🇷 Francese' },
+                { code: 'pl', label: '🇵🇱 Polacco' },
+                { code: 'uk', label: '🇺🇦 Ucraino' },
+                { code: 'auto', label: '🔍 Auto' },
+              ].map(l => (
+                <button
+                  key={l.code}
+                  onClick={() => setLinguaReg(l.code)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                    linguaReg === l.code
+                      ? 'bg-steelex-orange text-white border-steelex-orange'
+                      : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-steelex-orange'
+                  }`}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Pulsante microfono grande */}
           <div className="flex flex-col items-center gap-3">

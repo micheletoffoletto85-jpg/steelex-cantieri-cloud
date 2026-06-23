@@ -122,9 +122,17 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
+WHISPER_PROMPT = (
+    "Cantiere edile, operaio che descrive lavori giornalieri. "
+    "Termini tecnici frequenti: fondamenta, travi, carpenteria, cls, ferro, ponteggio, LSF, "
+    "pannelli, montanti, profili, bulloni, viti, tasselli, intonaco, cartongesso, isolamento, "
+    "solaio, pilastro, muratura, saldatura, staffa, binario, rotaia, gru, escavatore, betoniera."
+)
+
 @router.post("/trascrivi")
 async def trascrivi_audio(
     audio: UploadFile = File(...),
+    lingua_hint: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
@@ -139,11 +147,14 @@ async def trascrivi_audio(
     try:
         from openai import OpenAI
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        whisper_kwargs = {"model": "whisper-1", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
+        if lingua_hint and lingua_hint != "auto":
+            whisper_kwargs["language"] = lingua_hint
         with open(tmp_path, "rb") as af:
-            risposta = client.audio.transcriptions.create(
-                model="whisper-1", file=af, response_format="verbose_json")
+            whisper_kwargs["file"] = af
+            risposta = client.audio.transcriptions.create(**whisper_kwargs)
         testo_originale = risposta.text.strip()
-        lingua = getattr(risposta, "language", "it") or "it"
+        lingua = lingua_hint if (lingua_hint and lingua_hint != "auto") else (getattr(risposta, "language", "it") or "it")
     finally:
         os.unlink(tmp_path)
 
@@ -201,6 +212,7 @@ async def invia_rapportino(
     file: UploadFile = File(None),
     testo: str = Form(None),
     cantiere_id: Optional[int] = Form(None),
+    lingua_hint: Optional[str] = Form(None),
     foto: TypingList[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
@@ -221,11 +233,14 @@ async def invia_rapportino(
         try:
             from openai import OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            whisper_kwargs = {"model": "whisper-1", "file": None, "response_format": "verbose_json", "prompt": WHISPER_PROMPT}
+            if lingua_hint and lingua_hint != "auto":
+                whisper_kwargs["language"] = lingua_hint
             with open(tmp_path, "rb") as af:
-                risposta = client.audio.transcriptions.create(
-                    model="whisper-1", file=af, response_format="verbose_json")
+                whisper_kwargs["file"] = af
+                risposta = client.audio.transcriptions.create(**whisper_kwargs)
             testo_originale = risposta.text.strip()
-            lingua = getattr(risposta, "language", "it") or "it"
+            lingua = lingua_hint if (lingua_hint and lingua_hint != "auto") else (getattr(risposta, "language", "it") or "it")
         finally:
             os.unlink(tmp_path)
 
