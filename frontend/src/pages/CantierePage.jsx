@@ -2411,113 +2411,33 @@ const VOTO_CFG = {
 }
 
 function ArtigianiCantiere({ cantiereId, utente }) {
-  const qc = useQueryClient()
-  const puoScrivere = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'].includes(utente?.ruolo)
-  const [showAggiungi, setShowAggiungi] = useState(false)
-  const [artigianoSel, setArtigianoSel] = useState('')
-  const [ricerca, setRicerca] = useState('')
-
   const { data: artigianiCantiere = [], isLoading } = useQuery(
     ['artigiani-cantiere', cantiereId],
     () => api.get(`/artigiani/cantiere/${cantiereId}`).then(r => r.data),
   )
-  const { data: tuttiArtigiani = [] } = useQuery(
-    'artigiani-tutti',
-    () => api.get('/artigiani').then(r => r.data),
-    { enabled: showAggiungi }
-  )
-
-  const assegnaMutation = useMutation(
-    (artigiano_id) => api.post(`/artigiani/cantiere/${cantiereId}`, { artigiano_id }),
-    {
-      onSuccess: () => {
-        qc.invalidateQueries(['artigiani-cantiere', cantiereId])
-        setShowAggiungi(false); setArtigianoSel('')
-        toast.success('Artigiano aggiunto al cantiere!')
-      },
-      onError: e => toast.error(e.response?.data?.detail || 'Errore'),
-    }
-  )
-
-  const rimuoviMutation = useMutation(
-    (artigiano_id) => api.delete(`/artigiani/cantiere/${cantiereId}/${artigiano_id}`),
-    {
-      onSuccess: () => {
-        qc.invalidateQueries(['artigiani-cantiere', cantiereId])
-        toast.success('Rimosso dal cantiere')
-      },
-      onError: e => toast.error(e.response?.data?.detail || 'Errore'),
-    }
-  )
-
-  // Artigiani non ancora assegnati (escludi già presenti)
-  const idAssegnati = new Set(artigianiCantiere.map(a => a.id))
-  const disponibili = tuttiArtigiani.filter(a => !idAssegnati.has(a.id))
-
-  const filtrati = artigianiCantiere.filter(a => {
-    if (!ricerca) return true
-    const q = ricerca.toLowerCase()
-    return `${a.nome} ${a.cognome} ${a.azienda || ''} ${(a.tags || []).join(' ')}`.toLowerCase().includes(q)
-  })
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-gray-800">Artigiani del cantiere</h3>
-          <p className="text-xs text-gray-500 mt-0.5">{artigianiCantiere.length} artigiani assegnati</p>
-        </div>
-        {puoScrivere && (
-          <button onClick={() => setShowAggiungi(!showAggiungi)}
-            className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5">
-            <Plus size={14} /> Aggiungi dalla rubrica
-          </button>
-        )}
+      <div>
+        <h3 className="font-semibold text-gray-800">Artigiani del cantiere</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {artigianiCantiere.length > 0
+            ? `${artigianiCantiere.length} artigiani · aggiornati automaticamente dal team`
+            : 'Si aggiorna automaticamente dal team'}
+        </p>
       </div>
-
-      {showAggiungi && (
-        <div className="card border-2 border-steelex-orange/30 space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold">Aggiungi artigiano al cantiere</h4>
-            <button onClick={() => setShowAggiungi(false)}><X size={16} className="text-gray-400" /></button>
-          </div>
-          <select className="input-field text-sm" value={artigianoSel} onChange={e => setArtigianoSel(e.target.value)}>
-            <option value="">— Seleziona dalla rubrica —</option>
-            {disponibili.map(a => (
-              <option key={a.id} value={a.id}>
-                {a.nome} {a.cognome}{a.azienda ? ` (${a.azienda})` : ''} — {a.categoria_label || a.categoria}
-                {a.tags && a.tags.length > 0 ? ` · ${a.tags.join(', ')}` : ''}
-              </option>
-            ))}
-          </select>
-          <button
-            disabled={!artigianoSel || assegnaMutation.isLoading}
-            onClick={() => assegnaMutation.mutate(parseInt(artigianoSel))}
-            className="btn-primary w-full py-2.5 text-sm">
-            {assegnaMutation.isLoading ? 'Salvataggio...' : 'Aggiungi al cantiere'}
-          </button>
-        </div>
-      )}
-
-      {artigianiCantiere.length > 1 && (
-        <div className="relative">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input-field pl-8 text-sm" placeholder="Cerca..."
-            value={ricerca} onChange={e => setRicerca(e.target.value)} />
-        </div>
-      )}
 
       {isLoading ? (
         <div className="text-center py-8 text-gray-400 text-sm">Caricamento...</div>
-      ) : filtrati.length === 0 ? (
+      ) : artigianiCantiere.length === 0 ? (
         <div className="card text-center py-10 text-gray-400">
           <p className="text-3xl mb-2">👷</p>
-          <p className="font-medium text-sm">Nessun artigiano assegnato</p>
-          {puoScrivere && <p className="text-xs mt-1">Usa "Aggiungi dalla rubrica" per associare artigiani</p>}
+          <p className="font-medium text-sm">Nessun artigiano nel team</p>
+          <p className="text-xs mt-1">Aggiungi utenti con ruolo "artigiano" dal tab Team</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {filtrati.map(a => {
+          {artigianiCantiere.map(a => {
             const scoreColor = a.score === null ? 'bg-gray-300' : a.score >= 75 ? 'bg-green-500' : a.score >= 45 ? 'bg-yellow-500' : 'bg-red-500'
             return (
               <div key={a.id} className="card flex items-center gap-3">
@@ -2526,6 +2446,7 @@ function ArtigianiCantiere({ cantiereId, utente }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm text-gray-900">{a.nome} {a.cognome}</p>
+                  {a.azienda && <p className="text-xs text-gray-400">{a.azienda}</p>}
                   <p className="text-xs text-gray-500">{a.categoria_label || a.categoria}</p>
                   {a.tags && a.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-0.5">
@@ -2538,12 +2459,6 @@ function ArtigianiCantiere({ cantiereId, utente }) {
                     <a href={`tel:${a.telefono}`} className="text-xs text-blue-600 mt-0.5 block">{a.telefono}</a>
                   )}
                 </div>
-                {puoScrivere && (
-                  <button onClick={() => { if (window.confirm(`Rimuovere ${a.nome} ${a.cognome} da questo cantiere?`)) rimuoviMutation.mutate(a.id) }}
-                    className="p-1.5 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0" title="Rimuovi dal cantiere">
-                    <X size={15} />
-                  </button>
-                )}
               </div>
             )
           })}

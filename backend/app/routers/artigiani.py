@@ -282,49 +282,22 @@ def artigiani_del_cantiere(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    assoc = db.query(CantiereArtigiano).filter(CantiereArtigiano.cantiere_id == cantiere_id).all()
-    ids = [a.artigiano_id for a in assoc]
-    artigiani = db.query(Artigiano).filter(Artigiano.id.in_(ids)).all()
+    """
+    Artigiani del cantiere: rubrica linked agli utenti del team via utente_id.
+    Si aggiorna automaticamente quando si aggiunge/rimuove un membro dal team.
+    """
+    from app.models.cantiere import cantiere_artigiani as team_table
+    from sqlalchemy import select
+    # ID utenti nel team del cantiere
+    stmt = select(team_table.c.utente_id).where(team_table.c.cantiere_id == cantiere_id)
+    utente_ids = [row[0] for row in db.execute(stmt).fetchall()]
+    if not utente_ids:
+        return []
+    artigiani = db.query(Artigiano).filter(
+        Artigiano.utente_id.in_(utente_ids),
+        Artigiano.attivo == True,
+    ).all()
     return [_artigiano_out(a, db) for a in artigiani]
-
-
-@router.post("/cantiere/{cantiere_id}", response_model=ArtigianoOut, status_code=201)
-def assegna_artigiano_cantiere(
-    cantiere_id: int,
-    body: CantiereArtigianoCreate,
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
-):
-    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
-        raise HTTPException(403, "Non autorizzato")
-    esiste = db.query(CantiereArtigiano).filter(
-        CantiereArtigiano.cantiere_id == cantiere_id,
-        CantiereArtigiano.artigiano_id == body.artigiano_id,
-    ).first()
-    if esiste:
-        raise HTTPException(400, "Artigiano già assegnato a questo cantiere")
-    assoc = CantiereArtigiano(cantiere_id=cantiere_id, artigiano_id=body.artigiano_id, note=body.note)
-    db.add(assoc); db.commit()
-    a = db.query(Artigiano).filter(Artigiano.id == body.artigiano_id).first()
-    if not a: raise HTTPException(404, "Artigiano non trovato")
-    return _artigiano_out(a, db)
-
-
-@router.delete("/cantiere/{cantiere_id}/{artigiano_id}", status_code=204)
-def rimuovi_artigiano_cantiere(
-    cantiere_id: int,
-    artigiano_id: int,
-    db: Session = Depends(get_db),
-    user: Utente = Depends(get_current_user),
-):
-    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
-        raise HTTPException(403, "Non autorizzato")
-    assoc = db.query(CantiereArtigiano).filter(
-        CantiereArtigiano.cantiere_id == cantiere_id,
-        CantiereArtigiano.artigiano_id == artigiano_id,
-    ).first()
-    if not assoc: raise HTTPException(404, "Associazione non trovata")
-    db.delete(assoc); db.commit()
 
 
 # ── Documenti scadenza (admin panel) ─────────────────────────────────────────
