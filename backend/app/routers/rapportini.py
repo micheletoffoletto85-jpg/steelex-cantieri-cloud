@@ -123,10 +123,17 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 WHISPER_PROMPT = (
-    "Cantiere edile, operaio che descrive lavori giornalieri. "
-    "Termini tecnici frequenti: fondamenta, travi, carpenteria, cls, ferro, ponteggio, LSF, "
-    "pannelli, montanti, profili, bulloni, viti, tasselli, intonaco, cartongesso, isolamento, "
-    "solaio, pilastro, muratura, saldatura, staffa, binario, rotaia, gru, escavatore, betoniera."
+    "Cantiere edile LSF (Light Steel Frame), operaio che descrive lavori giornalieri in italiano. "
+    "Termini tecnici struttura: fondamenta, travi, carpenteria, soletta, cls, ferro, ponteggio, "
+    "pannelli, montanti, profili, bulloni, viti, tasselli, staffa, binario, rotaia, gru, escavatore, betoniera, "
+    "solaio, pilastro, muratura, saldatura, lamiera, lastra, lastra di parete, lastra di solaio. "
+    "Termini finiture: rasatura, intonaco, cartongesso, isolamento, cappotto termico, pavimentazione, "
+    "piastrelle, rivestimento, verniciatura, laccaggio, silicone, sigillatura, stucco. "
+    "Locali e ambienti: sgabuzzino, vano scala, locale tecnico, intercapedine, sottotetto, cavedio, "
+    "bagno, cucina, corridoio, garage, cantina, ripostiglio, tramezza, controparete. "
+    "Operazioni comuni: demolizione, rimozione, posa, montaggio, smontaggio, taglio, foratura, "
+    "impermeabilizzazione, coibentazione, livellamento, tracciamento, pulizia cantiere, completamento. "
+    "Azienda: STEELEX, Fontana Raffaele, GeoColors, Geo Buildings."
 )
 
 @router.post("/trascrivi")
