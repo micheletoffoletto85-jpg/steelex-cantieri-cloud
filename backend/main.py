@@ -229,6 +229,23 @@ def _migra():
         )""",
         "ALTER TABLE programmazione_settimana ADD COLUMN IF NOT EXISTS notificato_il TIMESTAMPTZ",
         "ALTER TABLE utenti ADD COLUMN IF NOT EXISTS lingua_preferita VARCHAR(10) NOT NULL DEFAULT 'it'",
+        # Artigiani: tag, link Google Drive, nuovi doc principali
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS tags TEXT",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS durc_drive_url VARCHAR(500)",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS primo_soccorso_scadenza DATE",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS primo_soccorso_drive_url VARCHAR(500)",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS visura_camerale_scadenza DATE",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS visura_camerale_drive_url VARCHAR(500)",
+        "ALTER TABLE artigiani ADD COLUMN IF NOT EXISTS drive_folder_url VARCHAR(500)",
+        # Tabella assegnazione artigiani rubrica → cantiere
+        """CREATE TABLE IF NOT EXISTS cantieri_artigiani (
+            id           SERIAL PRIMARY KEY,
+            cantiere_id  INTEGER NOT NULL REFERENCES cantieri(id) ON DELETE CASCADE,
+            artigiano_id INTEGER NOT NULL REFERENCES artigiani(id) ON DELETE CASCADE,
+            note         TEXT,
+            aggiunto_il  TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(cantiere_id, artigiano_id)
+        )""",
     ]
     _u = engine.url
     import psycopg2
