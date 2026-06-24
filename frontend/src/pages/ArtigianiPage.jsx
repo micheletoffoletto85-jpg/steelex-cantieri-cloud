@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText } from 'lucide-react'
+import {
+  ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp,
+  Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck,
+  FolderOpen, ExternalLink, AlertTriangle, Clock, Tag,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -27,19 +31,74 @@ function ScoreBadge({ score, totale, su, medio, giu, size = 'md' }) {
           {label}
         </p>
         <p className="text-xs text-gray-400">
-          <span className="text-green-600">👍{su}</span>
-          {' · '}
-          <span className="text-yellow-600">👌{medio}</span>
-          {' · '}
-          <span className="text-red-500">👎{giu}</span>
-          {' · '}{totale} feedback
+          <span className="text-green-600">👍{su}</span>{' · '}
+          <span className="text-yellow-600">👌{medio}</span>{' · '}
+          <span className="text-red-500">👎{giu}</span>{' · '}{totale} feedback
         </p>
       </div>
     </div>
   )
 }
 
-const FORM_VUOTO = { nome: '', cognome: '', azienda: '', categoria: 'altro', telefono: '', email: '', note: '' }
+function TagChips({ tags, small = false }) {
+  if (!tags || tags.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {tags.map(t => (
+        <span key={t} className={`inline-flex items-center gap-0.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-full font-medium ${small ? 'text-[10px] px-1.5 py-0' : 'text-xs px-2 py-0.5'}`}>
+          <Tag size={small ? 9 : 10} />{t}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function TagInput({ value, onChange }) {
+  const [input, setInput] = useState('')
+  const aggiungi = () => {
+    const t = input.trim().toLowerCase()
+    if (!t || value.includes(t)) { setInput(''); return }
+    onChange([...value, t])
+    setInput('')
+  }
+  const rimuovi = (t) => onChange(value.filter(x => x !== t))
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-1">
+        <input
+          className="input-field text-sm flex-1"
+          placeholder="Aggiungi tag (es. porte, verniciatura...)"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); aggiungi() } }}
+        />
+        <button type="button" onClick={aggiungi}
+          className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200">
+          +
+        </button>
+      </div>
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {value.map(t => (
+            <span key={t} className="inline-flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 rounded-full text-xs px-2 py-0.5">
+              {t}
+              <button onClick={() => rimuovi(t)} className="hover:text-red-500 ml-0.5"><X size={10} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const FORM_VUOTO = {
+  nome: '', cognome: '', azienda: '', categoria: 'altro',
+  tags: [], telefono: '', email: '', note: '',
+  durc_scadenza: '', durc_drive_url: '',
+  primo_soccorso_scadenza: '', primo_soccorso_drive_url: '',
+  visura_camerale_scadenza: '', visura_camerale_drive_url: '',
+  drive_folder_url: '',
+}
 
 export default function ArtigianiPage() {
   const { utente } = useAuth()
@@ -53,6 +112,7 @@ export default function ArtigianiPage() {
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(FORM_VUOTO)
+  const [tabAttivo, setTabAttivo] = useState('lista') // lista | scadenze
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const { data: artigiani = [], isLoading } = useQuery(
@@ -66,9 +126,17 @@ export default function ArtigianiPage() {
     { staleTime: Infinity }
   )
 
-  const filtrati = artigiani.filter(a =>
-    !ricerca || `${a.nome} ${a.cognome} ${a.azienda || ''}`.toLowerCase().includes(ricerca.toLowerCase())
+  const { data: scadenze = [] } = useQuery(
+    'artigiani-scadenze',
+    () => api.get('/artigiani/scadenze?giorni=60').then(r => r.data),
+    { enabled: tabAttivo === 'scadenze' }
   )
+
+  const filtrati = artigiani.filter(a => {
+    if (!ricerca) return true
+    const q = ricerca.toLowerCase()
+    return `${a.nome} ${a.cognome} ${a.azienda || ''} ${a.note || ''} ${(a.tags || []).join(' ')}`.toLowerCase().includes(q)
+  })
 
   const createMutation = useMutation(
     body => api.post('/artigiani', body),
@@ -89,15 +157,40 @@ export default function ArtigianiPage() {
 
   const apriModifica = (a) => {
     setEditId(a.id)
-    setForm({ nome: a.nome, cognome: a.cognome, azienda: a.azienda || '', categoria: a.categoria, telefono: a.telefono || '', email: a.email || '', note: a.note || '' })
+    setForm({
+      nome: a.nome, cognome: a.cognome, azienda: a.azienda || '', categoria: a.categoria,
+      tags: a.tags || [], telefono: a.telefono || '', email: a.email || '', note: a.note || '',
+      durc_scadenza: a.durc_scadenza || '', durc_drive_url: a.durc_drive_url || '',
+      primo_soccorso_scadenza: a.primo_soccorso_scadenza || '',
+      primo_soccorso_drive_url: a.primo_soccorso_drive_url || '',
+      visura_camerale_scadenza: a.visura_camerale_scadenza || '',
+      visura_camerale_drive_url: a.visura_camerale_drive_url || '',
+      drive_folder_url: a.drive_folder_url || '',
+    })
     setShowForm(true)
   }
 
   const salva = () => {
-    const payload = { ...form, azienda: form.azienda || null, telefono: form.telefono || null, email: form.email || null, note: form.note || null }
+    const payload = {
+      ...form,
+      azienda: form.azienda || null,
+      telefono: form.telefono || null,
+      email: form.email || null,
+      note: form.note || null,
+      durc_scadenza: form.durc_scadenza || null,
+      durc_drive_url: form.durc_drive_url || null,
+      primo_soccorso_scadenza: form.primo_soccorso_scadenza || null,
+      primo_soccorso_drive_url: form.primo_soccorso_drive_url || null,
+      visura_camerale_scadenza: form.visura_camerale_scadenza || null,
+      visura_camerale_drive_url: form.visura_camerale_drive_url || null,
+      drive_folder_url: form.drive_folder_url || null,
+    }
     if (editId) updateMutation.mutate({ id: editId, data: payload })
     else createMutation.mutate(payload)
   }
+
+  const scadutiCount = scadenze.filter(s => s.scaduto).length
+  const inScadenzaCount = scadenze.filter(s => !s.scaduto).length
 
   return (
     <div className="space-y-4">
@@ -115,79 +208,200 @@ export default function ArtigianiPage() {
         )}
       </div>
 
-      {/* Form aggiunta/modifica */}
-      {showForm && (
-        <div className="card border-2 border-steelex-orange/30 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-gray-800">{editId ? 'Modifica artigiano' : 'Nuovo artigiano'}</h3>
-            <button onClick={chiudiForm}><X size={18} className="text-gray-400" /></button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="input-field text-sm" placeholder="Nome *" value={form.nome} onChange={e => setF('nome', e.target.value)} />
-            <input className="input-field text-sm" placeholder="Cognome *" value={form.cognome} onChange={e => setF('cognome', e.target.value)} />
-          </div>
-          <input className="input-field text-sm" placeholder="Azienda / Ditta" value={form.azienda} onChange={e => setF('azienda', e.target.value)} />
-          <select className="input-field text-sm" value={form.categoria} onChange={e => setF('categoria', e.target.value)}>
-            {categorie.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="input-field text-sm" placeholder="Telefono" value={form.telefono} onChange={e => setF('telefono', e.target.value)} />
-            <input className="input-field text-sm" placeholder="Email" value={form.email} onChange={e => setF('email', e.target.value)} />
-          </div>
-          <textarea className="input-field text-sm h-16 resize-none" placeholder="Note interne..."
-            value={form.note} onChange={e => setF('note', e.target.value)} />
-          <button onClick={salva}
-            disabled={!form.nome || !form.cognome || createMutation.isLoading || updateMutation.isLoading}
-            className="btn-primary w-full py-2.5">
-            {createMutation.isLoading || updateMutation.isLoading ? 'Salvataggio...' : editId ? 'Salva modifiche' : 'Aggiungi artigiano'}
-          </button>
-        </div>
-      )}
-
-      {/* Filtri */}
-      <div className="space-y-2">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input-field pl-8 text-sm" placeholder="Cerca nome, cognome, azienda..."
-            value={ricerca} onChange={e => setRicerca(e.target.value)} />
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
-          <button onClick={() => setFiltroCategoria('')}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${!filtroCategoria ? 'bg-steelex-orange text-white' : 'bg-white border border-gray-200 text-gray-500'}`}>
-            Tutti
-          </button>
-          {categorie.map(c => (
-            <button key={c.value} onClick={() => setFiltroCategoria(filtroCategoria === c.value ? '' : c.value)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filtroCategoria === c.value ? 'bg-steelex-orange text-white' : 'bg-white border border-gray-200 text-gray-500'}`}>
-              {c.label}
-            </button>
-          ))}
-        </div>
+      {/* Tab lista / scadenze */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button onClick={() => setTabAttivo('lista')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tabAttivo === 'lista' ? 'border-steelex-orange text-steelex-orange' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          Lista artigiani
+        </button>
+        <button onClick={() => setTabAttivo('scadenze')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tabAttivo === 'scadenze' ? 'border-steelex-orange text-steelex-orange' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <AlertTriangle size={14} /> Documenti in scadenza
+          {scadutiCount > 0 && (
+            <span className="bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{scadutiCount}</span>
+          )}
+        </button>
       </div>
 
-      {/* Lista */}
-      {isLoading ? (
-        <div className="text-center py-10 text-gray-400">Caricamento...</div>
-      ) : filtrati.length === 0 ? (
-        <div className="card text-center py-12 text-gray-400">
-          <p className="text-4xl mb-3">👷</p>
-          <p className="font-medium">Nessun artigiano trovato</p>
-          {puoScrivere && <p className="text-sm mt-1">Aggiungi il primo con il tasto "Nuovo"</p>}
-        </div>
+      {tabAttivo === 'scadenze' ? (
+        <ScadenzePanel scadenze={scadenze} />
       ) : (
+        <>
+          {/* Form aggiunta/modifica */}
+          {showForm && (
+            <div className="card border-2 border-steelex-orange/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-gray-800">{editId ? 'Modifica artigiano' : 'Nuovo artigiano'}</h3>
+                <button onClick={chiudiForm}><X size={18} className="text-gray-400" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input className="input-field text-sm" placeholder="Nome *" value={form.nome} onChange={e => setF('nome', e.target.value)} />
+                <input className="input-field text-sm" placeholder="Cognome *" value={form.cognome} onChange={e => setF('cognome', e.target.value)} />
+              </div>
+              <input className="input-field text-sm" placeholder="Azienda / Ditta" value={form.azienda} onChange={e => setF('azienda', e.target.value)} />
+              <select className="input-field text-sm" value={form.categoria} onChange={e => setF('categoria', e.target.value)}>
+                {categorie.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Tag lavorazioni aggiuntive</label>
+                <TagInput value={form.tags} onChange={v => setF('tags', v)} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input className="input-field text-sm" placeholder="Telefono" value={form.telefono} onChange={e => setF('telefono', e.target.value)} />
+                <input className="input-field text-sm" placeholder="Email" value={form.email} onChange={e => setF('email', e.target.value)} />
+              </div>
+              <textarea className="input-field text-sm h-16 resize-none" placeholder="Note interne..."
+                value={form.note} onChange={e => setF('note', e.target.value)} />
+
+              {/* Cartella Drive */}
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block flex items-center gap-1">
+                  <FolderOpen size={12} /> Link cartella Google Drive (tutti i documenti)
+                </label>
+                <input className="input-field text-sm" placeholder="https://drive.google.com/drive/folders/..."
+                  value={form.drive_folder_url} onChange={e => setF('drive_folder_url', e.target.value)} />
+              </div>
+
+              {/* 3 doc principali */}
+              <div className="border border-gray-200 rounded-xl p-3 space-y-3">
+                <p className="text-xs font-semibold text-gray-600">📋 Documenti principali</p>
+                {[
+                  { label: 'DURC', scad: 'durc_scadenza', url: 'durc_drive_url' },
+                  { label: 'Primo Soccorso', scad: 'primo_soccorso_scadenza', url: 'primo_soccorso_drive_url' },
+                  { label: 'Visura Camerale', scad: 'visura_camerale_scadenza', url: 'visura_camerale_drive_url' },
+                ].map(({ label, scad, url }) => (
+                  <div key={scad} className="space-y-1">
+                    <p className="text-xs text-gray-500 font-medium">{label}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="date" className="input-field text-sm" value={form[scad]} onChange={e => setF(scad, e.target.value)}
+                        title={`Scadenza ${label}`} />
+                      <input className="input-field text-sm" placeholder="Link Drive" value={form[url]} onChange={e => setF(url, e.target.value)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={salva}
+                disabled={!form.nome || !form.cognome || createMutation.isLoading || updateMutation.isLoading}
+                className="btn-primary w-full py-2.5">
+                {createMutation.isLoading || updateMutation.isLoading ? 'Salvataggio...' : editId ? 'Salva modifiche' : 'Aggiungi artigiano'}
+              </button>
+            </div>
+          )}
+
+          {/* Filtri */}
+          <div className="space-y-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input className="input-field pl-8 text-sm" placeholder="Cerca nome, azienda, tag, note..."
+                value={ricerca} onChange={e => setRicerca(e.target.value)} />
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              <button onClick={() => setFiltroCategoria('')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${!filtroCategoria ? 'bg-steelex-orange text-white' : 'bg-white border border-gray-200 text-gray-500'}`}>
+                Tutti
+              </button>
+              {categorie.map(c => (
+                <button key={c.value} onClick={() => setFiltroCategoria(filtroCategoria === c.value ? '' : c.value)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filtroCategoria === c.value ? 'bg-steelex-orange text-white' : 'bg-white border border-gray-200 text-gray-500'}`}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Lista */}
+          {isLoading ? (
+            <div className="text-center py-10 text-gray-400">Caricamento...</div>
+          ) : filtrati.length === 0 ? (
+            <div className="card text-center py-12 text-gray-400">
+              <p className="text-4xl mb-3">👷</p>
+              <p className="font-medium">Nessun artigiano trovato</p>
+              {puoScrivere && <p className="text-sm mt-1">Aggiungi il primo con il tasto "Nuovo"</p>}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtrati.map(a => (
+                <ArtigianoCard key={a.id} artigiano={a}
+                  espanso={espanso === a.id}
+                  onEspandi={() => setEspanso(espanso === a.id ? null : a.id)}
+                  puoScrivere={puoScrivere}
+                  puoEliminare={puoEliminare}
+                  onModifica={() => apriModifica(a)}
+                  onElimina={() => { if (window.confirm(`Eliminare ${a.nome} ${a.cognome}?`)) deleteMutation.mutate(a.id) }}
+                  qc={qc}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+
+function ScadenzePanel({ scadenze }) {
+  const oggi = new Date()
+  const scaduti = scadenze.filter(s => s.scaduto)
+  const inScadenza = scadenze.filter(s => !s.scaduto)
+
+  if (scadenze.length === 0) {
+    return (
+      <div className="card text-center py-12 text-gray-400">
+        <p className="text-4xl mb-3">✅</p>
+        <p className="font-medium">Nessun documento in scadenza nei prossimi 60 giorni</p>
+      </div>
+    )
+  }
+
+  const Riga = ({ s }) => (
+    <div className={`flex items-center gap-3 p-3 rounded-xl border ${s.scaduto ? 'bg-red-50 border-red-200' : 'bg-orange-50 border-orange-200'}`}>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-gray-800">{s.artigiano_nome}</p>
+        {s.azienda && <p className="text-xs text-gray-500">{s.azienda}</p>}
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className={`text-xs font-medium ${s.scaduto ? 'text-red-700' : 'text-orange-700'}`}>{s.documento}</span>
+          <span className="text-xs text-gray-500">·</span>
+          <span className={`text-xs font-semibold ${s.scaduto ? 'text-red-600' : 'text-orange-600'}`}>
+            {s.scaduto ? `Scaduto ${Math.abs(s.giorni_mancanti)}gg fa` : `Scade tra ${s.giorni_mancanti}gg`}
+          </span>
+          <span className="text-xs text-gray-400">({new Date(s.scadenza).toLocaleDateString('it-IT')})</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {s.url && (
+          <a href={s.url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-blue-600 hover:underline bg-white border border-blue-200 rounded-lg px-2 py-1">
+            <ExternalLink size={11} /> Doc
+          </a>
+        )}
+        {s.drive_folder_url && (
+          <a href={s.drive_folder_url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-gray-600 hover:underline bg-white border border-gray-200 rounded-lg px-2 py-1">
+            <FolderOpen size={11} /> Drive
+          </a>
+        )}
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      {scaduti.length > 0 && (
         <div className="space-y-2">
-          {filtrati.map(a => (
-            <ArtigianoCard key={a.id} artigiano={a}
-              espanso={espanso === a.id}
-              onEspandi={() => setEspanso(espanso === a.id ? null : a.id)}
-              puoScrivere={puoScrivere}
-              puoEliminare={puoEliminare}
-              onModifica={() => apriModifica(a)}
-              onElimina={() => { if (window.confirm(`Eliminare ${a.nome} ${a.cognome}?`)) deleteMutation.mutate(a.id) }}
-              qc={qc}
-              categorie={categorie}
-            />
-          ))}
+          <p className="text-sm font-semibold text-red-600 flex items-center gap-1.5">
+            <AlertTriangle size={14} /> Scaduti ({scaduti.length})
+          </p>
+          {scaduti.map((s, i) => <Riga key={i} s={s} />)}
+        </div>
+      )}
+      {inScadenza.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-orange-600 flex items-center gap-1.5">
+            <Clock size={14} /> In scadenza entro 60 giorni ({inScadenza.length})
+          </p>
+          {inScadenza.map((s, i) => <Riga key={i} s={s} />)}
         </div>
       )}
     </div>
@@ -230,10 +444,7 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
       onSuccess: () => {
         qc.invalidateQueries(['feedback', a.id])
         qc.invalidateQueries('artigiani')
-        setShowFeedbackForm(false)
-        setNota('')
-        setVoto('su')
-        setCantiereFeedback('')
+        setShowFeedbackForm(false); setNota(''); setVoto('su'); setCantiereFeedback('')
         toast.success('Feedback salvato!')
       },
       onError: e => toast.error(e.response?.data?.detail || 'Errore'),
@@ -246,6 +457,20 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
   )
 
   const catLabel = a.categoria_label || a.categoria
+
+  // Calcola alert scadenze
+  const oggi = new Date()
+  const tra30 = new Date(); tra30.setDate(oggi.getDate() + 30)
+  const docPrincipali = [
+    { label: 'DURC', scad: a.durc_scadenza, url: a.durc_drive_url },
+    { label: 'Primo Soccorso', scad: a.primo_soccorso_scadenza, url: a.primo_soccorso_drive_url },
+    { label: 'Visura', scad: a.visura_camerale_scadenza, url: a.visura_camerale_drive_url },
+  ]
+  const alertDocs = docPrincipali.filter(d => {
+    if (!d.scad) return false
+    const dt = new Date(d.scad)
+    return dt < tra30
+  })
 
   return (
     <div className={`card transition-all ${!a.attivo ? 'opacity-50' : ''}`}>
@@ -263,10 +488,20 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
               <p className="font-semibold text-gray-900">{a.nome} {a.cognome}</p>
               {a.azienda && <p className="text-xs text-gray-500">{a.azienda}</p>}
             </div>
-            <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full whitespace-nowrap flex-shrink-0">
-              {catLabel}
-            </span>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {alertDocs.length > 0 && (
+                <span title={`Doc in scadenza: ${alertDocs.map(d => d.label).join(', ')}`}
+                  className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+                  <AlertTriangle size={10} className="text-white" />
+                </span>
+              )}
+              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full whitespace-nowrap">
+                {catLabel}
+              </span>
+            </div>
           </div>
+
+          <TagChips tags={a.tags} small />
 
           {/* Contatti rapidi */}
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
@@ -319,72 +554,58 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
       {espanso && (
         <div className="mt-4 pt-4 border-t border-gray-100 space-y-4">
 
-          {/* Score grande */}
           <ScoreBadge score={a.score} totale={a.totale_feedback} su={a.su} medio={a.medio} giu={a.giu} size="lg" />
 
           {a.note && (
             <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-2.5 italic">📝 {a.note}</p>
           )}
 
-          {/* Scadenze documenti */}
-          {(() => {
-            const oggi = new Date()
-            const tra30 = new Date(); tra30.setDate(tra30.getDate() + 30)
-            const docs = [
-              { label: 'DURC', val: a.durc_scadenza, key: 'durc_scadenza', urlKey: 'durc_url', tipo: 'durc', url: a.durc_url },
-              { label: 'Attestato sicurezza', val: a.attestato_sicurezza_scadenza, key: 'attestato_sicurezza_scadenza', urlKey: 'attestato_sicurezza_url', tipo: 'sicurezza', url: a.attestato_sicurezza_url },
-              { label: 'Primo soccorso', val: a.attestato_primo_soccorso_scadenza, key: 'attestato_primo_soccorso_scadenza', urlKey: 'attestato_primo_soccorso_url', tipo: 'primo_soccorso', url: a.attestato_primo_soccorso_url },
-            ]
-            return (
-              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
-                <div className="text-xs font-semibold text-gray-600 flex items-center gap-1.5 mb-2">
-                  <span>📋</span> Documenti & scadenze
+          {/* Tag estesi */}
+          {a.tags && a.tags.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5">Lavorazioni</p>
+              <TagChips tags={a.tags} />
+            </div>
+          )}
+
+          {/* Documenti Google Drive */}
+          <div className="border border-gray-200 rounded-xl p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+                📋 Documenti
+              </p>
+              {a.drive_folder_url && (
+                <a href={a.drive_folder_url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded-lg">
+                  <FolderOpen size={11} /> Apri cartella Drive
+                </a>
+              )}
+            </div>
+            {docPrincipali.map(({ label, scad, url }) => {
+              const d = scad ? new Date(scad) : null
+              const scaduto = d && d < oggi
+              const inScadenza = d && !scaduto && d < tra30
+              return (
+                <div key={label} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {url ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                        <ExternalLink size={11} />{label}
+                      </a>
+                    ) : <span className="text-xs text-gray-600">{label}</span>}
+                  </div>
+                  <div className="flex-shrink-0">
+                    {d ? (
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                        {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{d.toLocaleDateString('it-IT')}
+                      </span>
+                    ) : <span className="text-xs text-gray-400">—</span>}
+                  </div>
                 </div>
-                {docs.map(({ label, val, key, tipo, url }) => {
-                  const d = val ? new Date(val) : null
-                  const scaduto = d && d < oggi
-                  const inScadenza = d && !scaduto && d < tra30
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {url ? (
-                          <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline truncate">
-                            <FileText size={11}/><span>{label}</span>
-                          </a>
-                        ) : <span className="text-xs text-gray-600">{label}</span>}
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        {puoScrivere ? (
-                          <>
-                            <input type="date" value={val || ''}
-                              onChange={e => aggiorna.mutate({ [key]: e.target.value || null })}
-                              className={`text-xs border rounded px-2 py-1 ${scaduto ? 'border-red-400 bg-red-50 text-red-700' : inScadenza ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`} />
-                            <label className="cursor-pointer p-1 text-gray-400 hover:text-steelex-orange transition-colors" title="Carica documento">
-                              <Upload size={13}/>
-                              <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
-                                onChange={async e => {
-                                  const f = e.target.files?.[0]; if (!f) return
-                                  const fd = new FormData(); fd.append('file', f)
-                                  try {
-                                    await api.post(`/artigiani/${a.id}/upload-doc?tipo=${tipo}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-                                    qc.invalidateQueries(['artigiani']); toast.success('Documento caricato')
-                                  } catch { toast.error('Errore upload') }
-                                  e.target.value = ''
-                                }} />
-                            </label>
-                          </>
-                        ) : val ? (
-                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                            {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{new Date(val).toLocaleDateString('it-IT')}
-                          </span>
-                        ) : <span className="text-xs text-gray-400">non inserita</span>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })()}
+              )
+            })}
+          </div>
 
           {/* Collegamento account utente */}
           {puoScrivere && (
@@ -429,7 +650,6 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
                     <h4 className="text-sm font-semibold">Lascia un feedback</h4>
                     <button onClick={() => setShowFeedbackForm(false)}><X size={15} className="text-gray-400" /></button>
                   </div>
-                  {/* 3 bottoni pollice */}
                   <div className="grid grid-cols-3 gap-2">
                     {Object.entries(VOTO_CONFIG).map(([v, cfg]) => {
                       const Icon = cfg.icon

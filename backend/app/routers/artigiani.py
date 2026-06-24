@@ -2,17 +2,15 @@
 Rubrica artigiani/fornitori con sistema di feedback pollice su/medio/giù.
 Anagrafica indipendente dagli account utente.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, date
 from app.database import get_db
-from app.models.artigiano import Artigiano, FeedbackArtigiano
+from app.models.artigiano import Artigiano, FeedbackArtigiano, CantiereArtigiano
 from app.models.utente import Utente
 from app.auth import get_current_user
-from app.config import settings
-from app.storage import salva_file
 
 router = APIRouter(prefix="/artigiani", tags=["Artigiani"])
 
@@ -54,7 +52,6 @@ CATEGORIE_LABEL = {
 
 
 def _calcola_score(feedbacks: list) -> dict:
-    """Restituisce score 0-100 e contatori."""
     totale = len(feedbacks)
     if totale == 0:
         return {"score": None, "totale": 0, "su": 0, "medio": 0, "giu": 0}
@@ -65,6 +62,12 @@ def _calcola_score(feedbacks: list) -> dict:
     return {"score": score, "totale": totale, "su": su, "medio": medio, "giu": giu}
 
 
+def _tags_to_list(tags_str: Optional[str]) -> List[str]:
+    if not tags_str:
+        return []
+    return [t.strip() for t in tags_str.split(",") if t.strip()]
+
+
 # ── Schemi ────────────────────────────────────────────────────────────────────
 
 class ArtigianoCreate(BaseModel):
@@ -72,26 +75,36 @@ class ArtigianoCreate(BaseModel):
     cognome: str
     azienda: Optional[str] = None
     categoria: str = "altro"
+    tags: Optional[List[str]] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
     note: Optional[str] = None
     durc_scadenza: Optional[date] = None
-    attestato_sicurezza_scadenza: Optional[date] = None
-    attestato_primo_soccorso_scadenza: Optional[date] = None
+    durc_drive_url: Optional[str] = None
+    primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_drive_url: Optional[str] = None
+    visura_camerale_scadenza: Optional[date] = None
+    visura_camerale_drive_url: Optional[str] = None
+    drive_folder_url: Optional[str] = None
 
 class ArtigianoUpdate(BaseModel):
     nome: Optional[str] = None
     cognome: Optional[str] = None
     azienda: Optional[str] = None
     categoria: Optional[str] = None
+    tags: Optional[List[str]] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
     note: Optional[str] = None
     attivo: Optional[bool] = None
     utente_id: Optional[int] = None
     durc_scadenza: Optional[date] = None
-    attestato_sicurezza_scadenza: Optional[date] = None
-    attestato_primo_soccorso_scadenza: Optional[date] = None
+    durc_drive_url: Optional[str] = None
+    primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_drive_url: Optional[str] = None
+    visura_camerale_scadenza: Optional[date] = None
+    visura_camerale_drive_url: Optional[str] = None
+    drive_folder_url: Optional[str] = None
 
 class FeedbackCreate(BaseModel):
     voto: str           # su | medio | giu
@@ -117,6 +130,7 @@ class ArtigianoOut(BaseModel):
     azienda: Optional[str] = None
     categoria: str
     categoria_label: Optional[str] = None
+    tags: List[str] = []
     telefono: Optional[str] = None
     email: Optional[str] = None
     note: Optional[str] = None
@@ -124,16 +138,30 @@ class ArtigianoOut(BaseModel):
     utente_id: Optional[int] = None
     utente_nome: Optional[str] = None
     durc_scadenza: Optional[date] = None
-    attestato_sicurezza_scadenza: Optional[date] = None
-    attestato_primo_soccorso_scadenza: Optional[date] = None
-    durc_url: Optional[str] = None
-    attestato_sicurezza_url: Optional[str] = None
-    attestato_primo_soccorso_url: Optional[str] = None
+    durc_drive_url: Optional[str] = None
+    primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_drive_url: Optional[str] = None
+    visura_camerale_scadenza: Optional[date] = None
+    visura_camerale_drive_url: Optional[str] = None
+    drive_folder_url: Optional[str] = None
     score: Optional[int] = None
     totale_feedback: int = 0
     su: int = 0
     medio: int = 0
     giu: int = 0
+    class Config: from_attributes = True
+
+class CantiereArtigianoCreate(BaseModel):
+    artigiano_id: int
+    note: Optional[str] = None
+
+class CantiereArtigianoOut(BaseModel):
+    id: int
+    artigiano_id: int
+    cantiere_id: int
+    note: Optional[str] = None
+    aggiunto_il: Optional[datetime] = None
+    artigiano: Optional[ArtigianoOut] = None
     class Config: from_attributes = True
 
 
@@ -146,20 +174,21 @@ def _artigiano_out(a: Artigiano, db: Session) -> ArtigianoOut:
     return ArtigianoOut(
         id=a.id, nome=a.nome, cognome=a.cognome, azienda=a.azienda,
         categoria=a.categoria, categoria_label=CATEGORIE_LABEL.get(a.categoria, a.categoria),
+        tags=_tags_to_list(a.tags),
         telefono=a.telefono, email=a.email, note=a.note, attivo=a.attivo,
         utente_id=a.utente_id, utente_nome=utente_nome,
-        durc_scadenza=a.durc_scadenza,
-        attestato_sicurezza_scadenza=a.attestato_sicurezza_scadenza,
-        attestato_primo_soccorso_scadenza=a.attestato_primo_soccorso_scadenza,
-        durc_url=a.durc_url,
-        attestato_sicurezza_url=a.attestato_sicurezza_url,
-        attestato_primo_soccorso_url=a.attestato_primo_soccorso_url,
+        durc_scadenza=a.durc_scadenza, durc_drive_url=a.durc_drive_url,
+        primo_soccorso_scadenza=a.primo_soccorso_scadenza,
+        primo_soccorso_drive_url=a.primo_soccorso_drive_url,
+        visura_camerale_scadenza=a.visura_camerale_scadenza,
+        visura_camerale_drive_url=a.visura_camerale_drive_url,
+        drive_folder_url=a.drive_folder_url,
         score=stats["score"], totale_feedback=stats["totale"],
         su=stats["su"], medio=stats["medio"], giu=stats["giu"],
     )
 
 
-# ── Endpoint ─────────────────────────────────────────────────────────────────
+# ── Endpoint lista / CRUD ─────────────────────────────────────────────────────
 
 @router.get("", response_model=List[ArtigianoOut])
 def lista_artigiani(
@@ -176,17 +205,19 @@ def lista_artigiani(
     if categoria:
         query = query.filter(Artigiano.categoria == categoria)
     if cantiere_id:
-        # Solo artigiani che hanno almeno un feedback su questo cantiere
-        query = query.join(FeedbackArtigiano, FeedbackArtigiano.artigiano_id == Artigiano.id).filter(
-            FeedbackArtigiano.cantiere_id == cantiere_id
-        ).distinct()
+        # Artigiani assegnati a questo cantiere via join table
+        query = query.join(CantiereArtigiano, CantiereArtigiano.artigiano_id == Artigiano.id).filter(
+            CantiereArtigiano.cantiere_id == cantiere_id
+        )
     artigiani = query.order_by(Artigiano.cognome).all()
-
     result = [_artigiano_out(a, db) for a in artigiani]
 
     if q:
         q_low = q.lower()
-        result = [a for a in result if q_low in f"{a.nome} {a.cognome} {a.azienda or ''}".lower()]
+        result = [
+            a for a in result
+            if q_low in f"{a.nome} {a.cognome} {a.azienda or ''} {a.note or ''} {' '.join(a.tags)}".lower()
+        ]
 
     result.sort(key=lambda a: (a.score is None, -(a.score or 0)))
     return result
@@ -201,8 +232,11 @@ def crea_artigiano(
     if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
         raise HTTPException(403, "Non autorizzato")
     if body.categoria not in CATEGORIE:
-        raise HTTPException(400, f"Categoria non valida")
-    a = Artigiano(**body.model_dump(), creato_da=user.id)
+        raise HTTPException(400, "Categoria non valida")
+    data = body.model_dump()
+    tags_list = data.pop("tags", None) or []
+    data["tags"] = ",".join(tags_list) if tags_list else None
+    a = Artigiano(**data, creato_da=user.id)
     db.add(a); db.commit(); db.refresh(a)
     return _artigiano_out(a, db)
 
@@ -218,7 +252,10 @@ def aggiorna_artigiano(
         raise HTTPException(403, "Non autorizzato")
     a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
     if not a: raise HTTPException(404, "Non trovato")
-    for k, v in body.model_dump(exclude_none=True).items():
+    data = body.model_dump(exclude_none=True)
+    if "tags" in data:
+        data["tags"] = ",".join(data["tags"]) if data["tags"] else None
+    for k, v in data.items():
         setattr(a, k, v)
     db.commit(); db.refresh(a)
     return _artigiano_out(a, db)
@@ -237,36 +274,97 @@ def elimina_artigiano(
     db.delete(a); db.commit()
 
 
-_DOC_TIPI = {
-    "durc": "durc_url",
-    "sicurezza": "attestato_sicurezza_url",
-    "primo_soccorso": "attestato_primo_soccorso_url",
-}
+# ── Assegnazione artigiani a cantiere ────────────────────────────────────────
 
-@router.post("/{artigiano_id}/upload-doc", response_model=ArtigianoOut)
-async def upload_documento(
-    artigiano_id: int,
-    tipo: str = Query(..., description="durc | sicurezza | primo_soccorso"),
-    file: UploadFile = File(...),
+@router.get("/cantiere/{cantiere_id}", response_model=List[ArtigianoOut])
+def artigiani_del_cantiere(
+    cantiere_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    assoc = db.query(CantiereArtigiano).filter(CantiereArtigiano.cantiere_id == cantiere_id).all()
+    ids = [a.artigiano_id for a in assoc]
+    artigiani = db.query(Artigiano).filter(Artigiano.id.in_(ids)).all()
+    return [_artigiano_out(a, db) for a in artigiani]
+
+
+@router.post("/cantiere/{cantiere_id}", response_model=ArtigianoOut, status_code=201)
+def assegna_artigiano_cantiere(
+    cantiere_id: int,
+    body: CantiereArtigianoCreate,
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
     if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
         raise HTTPException(403, "Non autorizzato")
-    if tipo not in _DOC_TIPI:
-        raise HTTPException(400, f"tipo deve essere: {', '.join(_DOC_TIPI)}")
-    a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
+    esiste = db.query(CantiereArtigiano).filter(
+        CantiereArtigiano.cantiere_id == cantiere_id,
+        CantiereArtigiano.artigiano_id == body.artigiano_id,
+    ).first()
+    if esiste:
+        raise HTTPException(400, "Artigiano già assegnato a questo cantiere")
+    assoc = CantiereArtigiano(cantiere_id=cantiere_id, artigiano_id=body.artigiano_id, note=body.note)
+    db.add(assoc); db.commit()
+    a = db.query(Artigiano).filter(Artigiano.id == body.artigiano_id).first()
     if not a: raise HTTPException(404, "Artigiano non trovato")
-    contenuto = await file.read()
-    if len(contenuto) > settings.MAX_FILE_SIZE:
-        raise HTTPException(413, "File troppo grande")
-    import os
-    ext = os.path.splitext(file.filename or "")[1].lower() or ".pdf"
-    url, _ = salva_file(contenuto, f"artigiani/{artigiano_id}", ext)
-    setattr(a, _DOC_TIPI[tipo], url)
-    db.commit(); db.refresh(a)
     return _artigiano_out(a, db)
 
+
+@router.delete("/cantiere/{cantiere_id}/{artigiano_id}", status_code=204)
+def rimuovi_artigiano_cantiere(
+    cantiere_id: int,
+    artigiano_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    if str(user.ruolo).split(".")[-1] not in _RUOLI_SCRIVE:
+        raise HTTPException(403, "Non autorizzato")
+    assoc = db.query(CantiereArtigiano).filter(
+        CantiereArtigiano.cantiere_id == cantiere_id,
+        CantiereArtigiano.artigiano_id == artigiano_id,
+    ).first()
+    if not assoc: raise HTTPException(404, "Associazione non trovata")
+    db.delete(assoc); db.commit()
+
+
+# ── Documenti scadenza (admin panel) ─────────────────────────────────────────
+
+@router.get("/scadenze", response_model=List[dict])
+def documenti_in_scadenza(
+    giorni: int = Query(30, description="Documenti in scadenza entro N giorni"),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Tutti i documenti in scadenza o scaduti, per Susanna."""
+    from datetime import timedelta
+    oggi = date.today()
+    limite = oggi + timedelta(days=giorni)
+    artigiani = db.query(Artigiano).filter(Artigiano.attivo == True).all()
+    result = []
+    for a in artigiani:
+        docs = [
+            ("DURC", a.durc_scadenza, a.durc_drive_url),
+            ("Primo Soccorso", a.primo_soccorso_scadenza, a.primo_soccorso_drive_url),
+            ("Visura Camerale", a.visura_camerale_scadenza, a.visura_camerale_drive_url),
+        ]
+        for nome_doc, scad, url in docs:
+            if scad and scad <= limite:
+                result.append({
+                    "artigiano_id": a.id,
+                    "artigiano_nome": f"{a.nome} {a.cognome}",
+                    "azienda": a.azienda,
+                    "documento": nome_doc,
+                    "scadenza": scad.isoformat(),
+                    "scaduto": scad < oggi,
+                    "giorni_mancanti": (scad - oggi).days,
+                    "url": url,
+                    "drive_folder_url": a.drive_folder_url,
+                })
+    result.sort(key=lambda x: x["scadenza"])
+    return result
+
+
+# ── Feedback ─────────────────────────────────────────────────────────────────
 
 @router.post("/{artigiano_id}/feedback", response_model=FeedbackOut, status_code=201)
 def aggiungi_feedback(
