@@ -1577,12 +1577,17 @@ function DiarioTab({ cantiereId, utente }) {
     { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Nota eliminata') } }
   )
 
-  const uploadFoto = async (diarioId, file) => {
+  const uploadFoto = async (diarioId, files) => {
+    const fileList = Array.from(files)
+    if (!fileList.length) return
     setUploadingFor(diarioId)
     try {
-      const fd = new FormData(); fd.append('file', file)
-      await api.post(`/cantieri/${cantiereId}/diari/${diarioId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      qc.invalidateQueries(['diari', cantiereId]); toast.success('Foto caricata!')
+      await Promise.all(fileList.map(async (file) => {
+        const fd = new FormData(); fd.append('file', file)
+        await api.post(`/cantieri/${cantiereId}/diari/${diarioId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      }))
+      qc.invalidateQueries(['diari', cantiereId])
+      toast.success(fileList.length > 1 ? `${fileList.length} foto caricate!` : 'Foto caricata!')
     } catch { toast.error('Errore upload foto') }
     finally { setUploadingFor(null) }
   }
@@ -1957,8 +1962,8 @@ function DiarioTab({ cantiereId, utente }) {
           <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor===d.id?'opacity-50':''}`}>
               <Camera size={16} />
               {uploadingFor===d.id ? 'Caricamento...' : 'Aggiungi foto'}
-              <input type="file" accept="image/*" className="hidden"
-                onChange={e => e.target.files[0] && uploadFoto(d.id, e.target.files[0])} disabled={uploadingFor===d.id} />
+              <input type="file" accept="image/*" multiple className="hidden"
+                onChange={e => e.target.files.length && uploadFoto(d.id, e.target.files)} disabled={uploadingFor===d.id} />
             </label>
           </div>
         ))}
@@ -2662,7 +2667,7 @@ function NCTab({ cantiereId, utente }) {
 function FotoTab({ cantiereId, utente }) {
   const qc = useQueryClient()
   const canWrite = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','artigiano'].includes(utente?.ruolo)
-  const [uploading, setUploading] = useState(false)
+  const [uploadingCount, setUploadingCount] = useState(0)
   const [selected, setSelected] = useState(null)
   const fileRef = useRef(null)
 
@@ -2673,15 +2678,14 @@ function FotoTab({ cantiereId, utente }) {
   )
 
   const uploadFoto = async (file) => {
-    setUploading(true)
+    setUploadingCount(n => n + 1)
     try {
       const fd = new FormData(); fd.append('file', file)
       await api.post(`/cantieri/${cantiereId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       qc.invalidateQueries(['foto-cantiere', cantiereId])
       qc.invalidateQueries(['diari', cantiereId])
-      toast.success('Foto caricata!')
     } catch { toast.error('Errore upload foto') }
-    finally { setUploading(false) }
+    finally { setUploadingCount(n => n - 1) }
   }
 
   if (isLoading) return <div className="text-center py-10 text-gray-400">Caricamento...</div>
@@ -2695,11 +2699,18 @@ function FotoTab({ cantiereId, utente }) {
           <p className="text-xs text-gray-400">{foto.length} foto totali (diario + pin mappa)</p>
         </div>
         {canWrite && (
-          <label className={`btn-primary flex items-center gap-2 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
-            {uploading ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
-            {uploading ? 'Caricamento...' : 'Aggiungi foto'}
+          <label className={`btn-primary flex items-center gap-2 cursor-pointer ${uploadingCount > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+            {uploadingCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+            {uploadingCount > 0 ? `⏳ ${uploadingCount} in caricamento...` : 'Aggiungi foto'}
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
-              onChange={e => { Array.from(e.target.files).forEach(f => uploadFoto(f)); e.target.value = '' }} />
+              onChange={e => {
+                const files = Array.from(e.target.files)
+                if (!files.length) return
+                Promise.all(files.map(f => uploadFoto(f))).then(() => {
+                  toast.success(files.length > 1 ? `${files.length} foto caricate!` : 'Foto caricata!')
+                })
+                e.target.value = ''
+              }} />
           </label>
         )}
       </div>
