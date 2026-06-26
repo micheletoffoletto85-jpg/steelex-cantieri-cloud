@@ -1520,6 +1520,7 @@ function DiarioTab({ cantiereId, utente }) {
   const [lightboxUrl, setLightboxUrl] = useState(null)
   const [confirmDiario, setConfirmDiario] = useState(null) // { id, attivita } da confermare
   const [editId, setEditId] = useState(null)       // id nota in modifica
+  const [confermaEliminaId, setConfermaEliminaId] = useState(null)
   const [editTesto, setEditTesto] = useState('')    // testo in modifica
   // Stato registrazione vocale
   const [recStato, setRecStato] = useState('idle') // idle | recording | processing
@@ -1585,7 +1586,10 @@ function DiarioTab({ cantiereId, utente }) {
 
   const deleteMutation = useMutation(
     id => api.delete(`/cantieri/${cantiereId}/diari/${id}`),
-    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Nota eliminata') } }
+    {
+      onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Nota eliminata'); setConfermaEliminaId(null) },
+      onError: err => { toast.error(err.response?.data?.detail || 'Errore eliminazione'); setConfermaEliminaId(null) }
+    }
   )
 
   const uploadFoto = async (diarioId, files) => {
@@ -1924,10 +1928,23 @@ function DiarioTab({ cantiereId, utente }) {
                     className="p-1 text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica">
                     <Edit2 size={14} />
                   </button>
-                  <button onClick={() => { if (window.confirm('Eliminare questa nota?')) deleteMutation.mutate(d.id) }}
-                    className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Elimina">
-                    <Trash2 size={14} />
-                  </button>
+                  {confermaEliminaId === d.id ? (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => deleteMutation.mutate(d.id)}
+                        className="text-xs bg-red-600 text-white px-2 py-0.5 rounded font-semibold">
+                        Sì
+                      </button>
+                      <button onClick={() => setConfermaEliminaId(null)}
+                        className="text-xs text-gray-400 hover:text-gray-600 px-1">
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfermaEliminaId(d.id)}
+                      className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Elimina">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </>)}
               </div>
             </div>
