@@ -436,6 +436,20 @@ def valida_rapportino(
         if r.criticita:
             testo_diario += f"\n\n⚠️ Criticità: {r.criticita}"
 
+        # Costruisce voci_estratte con le ore del rapportino
+        voci = []
+        if r.ore_lavorate and r.ore_lavorate > 0:
+            nome_op = ""
+            if r.operativo:
+                nome_op = f"{r.operativo.nome} {r.operativo.cognome}".strip()
+            voci.append({
+                "tipo": "ore_extra",
+                "operaio": nome_op,
+                "ore": float(r.ore_lavorate),
+                "attivita": r.riassunto or "",
+                "approvato": False,
+            })
+
         diario = DiarioGiornaliero(
             cantiere_id     = cantiere_id,
             data            = data_obj,
@@ -445,7 +459,8 @@ def valida_rapportino(
             testo_originale = r.testo_originale,
             lingua_originale = r.lingua_originale,
             stato_validazione = "pubblicata",
-            foto_urls       = [],
+            foto_urls       = r.foto_urls or [],
+            voci_estratte   = voci,
         )
         db.add(diario); db.flush()
         r.diario_id = diario.id
