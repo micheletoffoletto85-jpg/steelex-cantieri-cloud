@@ -94,7 +94,7 @@ def elimina_diario(cantiere_id: int, diario_id: int, db: Session = Depends(get_d
     diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id, DiarioGiornaliero.cantiere_id == cantiere_id).first()
     if not diario:
         raise HTTPException(status_code=404, detail="Diario non trovato")
-    if user.ruolo not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori") and diario.autore_id != user.id:
+    if user.ruolo.value not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori") and diario.autore_id != user.id:
         raise HTTPException(status_code=403, detail="Non autorizzato")
     db.delete(diario)
     db.commit()
