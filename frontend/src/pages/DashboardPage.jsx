@@ -732,7 +732,7 @@ export default function DashboardPage() {
   const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
   if (isCliente) return <ClienteDashboard utente={utente} cantieri={cantieri} />
-  if (utente?.ruolo === 'artigiano' && utente?.tipo_professione === 'Operativo Interno') return <ArtigianoDashboard utente={utente} cantieri={cantieri} />
+  if (['artigiano', 'capo_cantiere', 'capo_cantiere_sub'].includes(utente?.ruolo)) return <ArtigianoDashboard utente={utente} cantieri={cantieri} />
 
   return (
     <div className="space-y-6">

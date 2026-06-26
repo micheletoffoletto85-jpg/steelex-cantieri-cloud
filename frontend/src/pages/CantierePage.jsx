@@ -1509,6 +1509,8 @@ function getSupportedMimeType() {
 function DiarioTab({ cantiereId, utente }) {
   const qc = useQueryClient()
   const ruolo = utente?.ruolo
+  // Solo admin può scrivere/modificare/eliminare note nel diario direttamente
+  const isAdminDiario = ruolo === 'admin'
   const puoInserireNota = ['artigiano', 'fornitore', 'capo_cantiere_sub'].includes(ruolo)
   const puoValidare = ['admin', 'capo_cantiere', 'amministrazione'].includes(ruolo)
 
@@ -1533,6 +1535,15 @@ function DiarioTab({ cantiereId, utente }) {
   )
   const diariBozza = diari.filter(d => d.stato_validazione === 'bozza')
   const diariPubblicati = diari.filter(d => d.stato_validazione !== 'bozza')
+  // Rapportini pending dell'utente corrente per questo cantiere (mostrati in trasparenza)
+  const { data: mieiRapportini = [] } = useQuery(
+    ['rapportini-miei-cantiere', cantiereId],
+    () => api.get('/rapportini/miei').then(r => r.data),
+    { enabled: !isAdminDiario, staleTime: 30000 }
+  )
+  const rapportiniPendingQui = mieiRapportini.filter(
+    r => r.cantiere_id === Number(cantiereId) && r.stato === 'inviato'
+  )
   const { data: noteArtigiani = [] } = useQuery(
     ['note-campo', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/note-campo`).then(r => r.data),
@@ -1746,32 +1757,33 @@ function DiarioTab({ cantiereId, utente }) {
 
       {/* ──────────────────────────────────────────────────────────────────── */}
 
-      {/* Header azioni */}
-      <div className="flex gap-2">
-        <button onClick={() => { setShowForm(!showForm); setRecStato('idle') }}
-          className="btn-primary flex-1 flex items-center justify-center gap-2">
-          <Plus size={16} /> Nuovo Diario
-        </button>
-        {/* Pulsante voce */}
-        {recStato === 'idle' && (
-          <button onClick={avviaRec}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
-            title="Registra nota vocale — va direttamente nel diario">
-            <Mic size={16} /> Voce
+      {/* Header azioni — solo admin può inserire note direttamente */}
+      {isAdminDiario && (
+        <div className="flex gap-2">
+          <button onClick={() => { setShowForm(!showForm); setRecStato('idle') }}
+            className="btn-primary flex-1 flex items-center justify-center gap-2">
+            <Plus size={16} /> Nuovo Diario
           </button>
-        )}
-        {recStato === 'recording' && (
-          <button onClick={fermaRec}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium animate-pulse">
-            <MicOff size={16} /> {fmtSec(recSecondi)}
-          </button>
-        )}
-        {recStato === 'processing' && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl text-sm font-medium">
-            <Loader2 size={16} className="animate-spin" /> Claude...
-          </div>
-        )}
-      </div>
+          {recStato === 'idle' && (
+            <button onClick={avviaRec}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
+              title="Registra nota vocale — va direttamente nel diario">
+              <Mic size={16} /> Voce
+            </button>
+          )}
+          {recStato === 'recording' && (
+            <button onClick={fermaRec}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium animate-pulse">
+              <MicOff size={16} /> {fmtSec(recSecondi)}
+            </button>
+          )}
+          {recStato === 'processing' && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl text-sm font-medium">
+              <Loader2 size={16} className="animate-spin" /> Claude...
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Form manuale */}
       {showForm && (
@@ -1865,8 +1877,34 @@ function DiarioTab({ cantiereId, utente }) {
         </div>
       )}
 
-      {diariPubblicati.length === 0 && diariBozza.length === 0
-        ? <div className="card text-center py-8 text-gray-400"><BookOpen size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun diario</p><p className="text-xs mt-1">Premi "Voce" per registrare direttamente</p></div>
+      {/* Rapportini pending (in trasparenza) — solo per il mittente, in attesa di validazione admin */}
+      {!isAdminDiario && rapportiniPendingQui.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-1">
+            <Loader2 size={11} className="animate-spin" /> In attesa di validazione
+          </p>
+          {rapportiniPendingQui.map(r => (
+            <div key={r.id} className="card opacity-50 border border-dashed border-gray-300 space-y-1">
+              <div className="flex items-center gap-2">
+                <Mic size={12} className="text-gray-400" />
+                <span className="text-xs text-gray-500 font-medium">{dayjs(r.creato_il).format('dddd D MMMM YYYY')}</span>
+                <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full ml-auto">In attesa</span>
+              </div>
+              <p className="text-sm text-gray-500 leading-relaxed">{r.testo_italiano || r.riassunto}</p>
+              {r.foto_urls?.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap">
+                  {r.foto_urls.map((url, i) => (
+                    <img key={i} src={url} alt="" className="w-12 h-12 object-cover rounded-lg border border-gray-200 opacity-60" />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {diariPubblicati.length === 0 && diariBozza.length === 0 && rapportiniPendingQui.length === 0
+        ? <div className="card text-center py-8 text-gray-400"><BookOpen size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun diario</p><p className="text-xs mt-1">Registra dalla dashboard per aggiungere una nota</p></div>
         : diariPubblicati.map(d => (
           <div key={d.id} className="card space-y-2">
             <div className="flex items-start justify-between gap-2">
@@ -1881,14 +1919,16 @@ function DiarioTab({ cantiereId, utente }) {
               <div className="flex items-center gap-2 flex-shrink-0">
                 {d.meteo && <span className="text-sm text-gray-500">{d.meteo}</span>}
                 {d.operai_presenti > 0 && <span className="text-sm text-gray-500">👷 {d.operai_presenti}</span>}
-                <button onClick={() => { setEditId(d.id); setEditTesto(d.attivita || '') }}
-                  className="p-1 text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica">
-                  <Edit2 size={14} />
-                </button>
-                <button onClick={() => { if (window.confirm('Eliminare questa nota?')) deleteMutation.mutate(d.id) }}
-                  className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Elimina">
-                  <Trash2 size={14} />
-                </button>
+                {isAdminDiario && (<>
+                  <button onClick={() => { setEditId(d.id); setEditTesto(d.attivita || '') }}
+                    className="p-1 text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica">
+                    <Edit2 size={14} />
+                  </button>
+                  <button onClick={() => { if (window.confirm('Eliminare questa nota?')) deleteMutation.mutate(d.id) }}
+                    className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Elimina">
+                    <Trash2 size={14} />
+                  </button>
+                </>)}
               </div>
             </div>
 
