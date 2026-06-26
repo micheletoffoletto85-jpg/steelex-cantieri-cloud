@@ -96,6 +96,9 @@ def elimina_diario(cantiere_id: int, diario_id: int, db: Session = Depends(get_d
         raise HTTPException(status_code=404, detail="Diario non trovato")
     if user.ruolo.value not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori") and diario.autore_id != user.id:
         raise HTTPException(status_code=403, detail="Non autorizzato")
+    # Sgancia eventuali rapportini che puntano a questo diario (FK senza cascade)
+    from app.models.rapportino import RapportinoOperativo
+    db.query(RapportinoOperativo).filter(RapportinoOperativo.diario_id == diario_id).update({"diario_id": None})
     db.delete(diario)
     db.commit()
 
