@@ -1997,8 +1997,23 @@ function DiarioTab({ cantiereId, utente }) {
             {d.foto_urls?.length > 0 && (
               <div className="flex gap-2 flex-wrap">
                 {d.foto_urls.map((url, i) => (
-                  <img key={i} src={url} onClick={() => setLightboxUrl(url)}
-                    className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
+                  <div key={i} className="relative group">
+                    <img src={url} onClick={() => setLightboxUrl(url)}
+                      className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
+                    {isAdminDiario && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.delete(`/cantieri/${cantiereId}/diari/${d.id}/foto`, { params: { url } })
+                            qc.invalidateQueries(['diari', cantiereId])
+                          } catch { toast.error('Errore eliminazione foto') }
+                        }}
+                        className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                        title="Elimina foto">
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}

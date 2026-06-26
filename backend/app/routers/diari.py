@@ -138,6 +138,20 @@ async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(
     return _diario_out(diario)
 
 
+@router.delete("/{diario_id}/foto", status_code=200)
+def elimina_foto_diario(cantiere_id: int, diario_id: int, url: str, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo.value not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id, DiarioGiornaliero.cantiere_id == cantiere_id).first()
+    if not diario:
+        raise HTTPException(status_code=404, detail="Diario non trovato")
+    urls = [u for u in (diario.foto_urls or []) if u != url]
+    diario.foto_urls = urls
+    db.commit()
+    db.refresh(diario)
+    return _diario_out(diario)
+
+
 # ─── REGISTRAZIONE VOCALE → DIARIO ───────────────────────────────────────────
 
 LINGUE_SUPPORTATE = {
