@@ -268,7 +268,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const [risultato, setRisultato] = useState(null)
   const [errore, setErrore] = useState(null)
   const [mostraTestuale, setMostraTestuale] = useState(false)
-  const [mostraIstruzioni, setMostraIstruzioni] = useState(true)
+  const [mostraIstruzioni, setMostraIstruzioni] = useState(false)
   const [conferma, setConferma] = useState(null)  // null | { testo: string }
   const [linguaReg, setLinguaReg] = useState(utente?.lingua_preferita || 'it')
   useEffect(() => { if (utente?.lingua_preferita) setLinguaReg(utente.lingua_preferita) }, [utente?.lingua_preferita])
@@ -405,9 +405,9 @@ function ArtigianoDashboard({ utente, cantieri }) {
               </p>
             </div>
             <button
-              onClick={() => setMostraIstruzioni(false)}
+              onClick={() => { setMostraIstruzioni(false); startRec() }}
               className="w-full py-3.5 bg-steelex-orange text-white rounded-xl font-bold text-sm hover:bg-orange-600 active:scale-98 transition-all">
-              Ho capito — procedi
+              Ho capito — inizia registrazione
             </button>
           </div>
         </div>
@@ -553,7 +553,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
           <div className="flex flex-col items-center gap-3">
             {fase === 'idle' || fase === 'error' ? (
               <button
-                onClick={startRec}
+                onClick={() => setMostraIstruzioni(true)}
                 className="w-28 h-28 rounded-full bg-steelex-orange text-white flex items-center justify-center shadow-xl hover:bg-orange-700 active:scale-95 transition-all">
                 <Mic size={44} />
               </button>
