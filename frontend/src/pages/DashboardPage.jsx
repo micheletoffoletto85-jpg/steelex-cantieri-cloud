@@ -315,6 +315,9 @@ function ArtigianoDashboard({ utente, cantieri }) {
     return fd
   }
 
+  const MAX_REC_SEC = 600 // 10 minuti
+  const autoStopRef = useRef(null)
+
   const startRec = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -326,6 +329,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
       chunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = async () => {
+        clearTimeout(autoStopRef.current)
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' })
         setFase('transcribing')
@@ -346,12 +350,20 @@ function ArtigianoDashboard({ utente, cantieri }) {
       mediaRef.current = mr
       setFase('recording')
       setErrore(null)
+      // Auto-stop dopo 10 minuti
+      autoStopRef.current = setTimeout(() => {
+        if (mediaRef.current?.state === 'recording') {
+          mediaRef.current.stop()
+          setErrore('Registrazione fermata automaticamente (limite 10 minuti raggiunto)')
+        }
+      }, MAX_REC_SEC * 1000)
     } catch {
       setErrore('Microfono non disponibile — controlla i permessi')
     }
   }
 
   const stopRec = () => {
+    clearTimeout(autoStopRef.current)
     if (mediaRef.current?.state === 'recording') mediaRef.current.stop()
   }
 
