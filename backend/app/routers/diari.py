@@ -25,6 +25,28 @@ def _diario_out(d: DiarioGiornaliero) -> dict:
         nome = f"{d.autore.nome} {d.autore.cognome}".strip() or d.autore.email
     out = DiarioOut.model_validate(d).model_dump()
     out["autore_nome"] = nome
+    # Se il diario ha voci_estratte vuote ma viene da un rapportino, esponi le ore
+    if not out.get("voci_estratte"):
+        from app.models.rapportino import RapportinoOperativo
+        rap = None
+        try:
+            from sqlalchemy.orm import object_session
+            sess = object_session(d)
+            if sess:
+                rap = sess.query(RapportinoOperativo).filter(RapportinoOperativo.diario_id == d.id).first()
+        except Exception:
+            pass
+        if rap and rap.ore_lavorate and rap.ore_lavorate > 0:
+            op_nome = ""
+            if rap.operativo:
+                op_nome = f"{rap.operativo.nome} {rap.operativo.cognome}".strip()
+            out["voci_estratte"] = [{
+                "tipo": "ore_extra",
+                "operaio": op_nome,
+                "ore": float(rap.ore_lavorate),
+                "attivita": rap.riassunto or "",
+                "approvato": False,
+            }]
     return out
 
 
