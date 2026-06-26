@@ -435,6 +435,30 @@ function ArtigianoDashboard({ utente, cantieri }) {
                 className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange"
               />
             </div>
+            {/* Foto allegate — visibili e modificabili anche nel modal */}
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
+                Foto allegate {foto.length > 0 ? `(${foto.length})` : ''}
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {foto.map((f, i) => (
+                  <div key={i} className="relative">
+                    <img src={URL.createObjectURL(f)} alt="" className="w-14 h-14 object-cover rounded-lg border border-gray-200" />
+                    <button
+                      onClick={() => setFoto(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center">
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+                {foto.length < 5 && (
+                  <button onClick={() => fotoInputRef.current?.click()}
+                    className="w-14 h-14 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 hover:border-steelex-orange hover:text-steelex-orange transition-colors">
+                    <Camera size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
               <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-red-800">

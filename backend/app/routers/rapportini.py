@@ -64,7 +64,7 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
     prompt = PROMPT_ESTRAI.format(testo=testo) + hint_cantieri
     msg = claude.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
+        max_tokens=4096,
         messages=[{"role": "user", "content": prompt}]
     )
     raw = msg.content[0].text.strip()
@@ -188,7 +188,7 @@ async def trascrivi_audio(
             "Trascrizione grezza:\n{txt}\n\nTesto riordinato:"
         )
         msg_a = claude.messages.create(
-            model="claude-haiku-4-5-20251001", max_tokens=1024,
+            model="claude-haiku-4-5-20251001", max_tokens=4096,
             messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale, lingua=lingua_nome)}])
         testo_riordinato = msg_a.content[0].text.strip()
 
@@ -203,7 +203,7 @@ async def trascrivi_audio(
                 f"Testo in {lingua_nome}:\n{{txt}}\n\nTraduzione in italiano:"
             )
             msg_b = claude.messages.create(
-                model="claude-haiku-4-5-20251001", max_tokens=1024,
+                model="claude-haiku-4-5-20251001", max_tokens=4096,
                 messages=[{"role":"user","content":TRADUCI.format(txt=testo_riordinato)}])
             testo_finale = msg_b.content[0].text.strip()
         else:
@@ -267,7 +267,7 @@ async def invia_rapportino(
                 "NON tradurre. Solo testo scorrevole.\n\nTrascrizione:\n{txt}\n\nTesto ordinato:"
             )
             msg_a = claude.messages.create(
-                model="claude-haiku-4-5-20251001", max_tokens=1024,
+                model="claude-haiku-4-5-20251001", max_tokens=4096,
                 messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale)}])
             testo_elaborato = msg_a.content[0].text.strip()
 
@@ -278,7 +278,7 @@ async def invia_rapportino(
                     f"Testo:\n{testo_elaborato}\n\nTraduzione:"
                 )
                 msg_b = claude.messages.create(
-                    model="claude-sonnet-4-6", max_tokens=1024,
+                    model="claude-sonnet-4-6", max_tokens=4096,
                     messages=[{"role":"user","content":TRADUCI}])
                 testo_ita = msg_b.content[0].text.strip()
             else:
