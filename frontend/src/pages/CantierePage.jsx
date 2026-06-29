@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
@@ -715,7 +715,7 @@ function MappeTab({ cantiereId }) {
   const [modalPin, setModalPin] = useState(null)
   const [pinForm, setPinForm] = useState({ tipo: 'lavorazione', nota: '', importo: null, assegnato_a: 'capo_cantiere', assegnato_a_user_id: null, assegnato_a_nome: null, visibilita: ['admin','capo_cantiere','fornitore'], stato: 'aperto' })
   const [fotePinModal, setFotePinModal] = useState([]) // foto da caricare insieme al pin
-  const [lightboxUrl, setLightboxUrl] = useState(null) // foto aperta a schermo intero
+  const [lightbox, setLightbox] = useState(null) // {urls: [], idx: 0}
   const [annotaState, setAnnotaState] = useState(null) // { url, idx }
   const [confirmPending, setConfirmPending] = useState(null) // { messaggio, onConfirm }
   const [pinSelezionato, setPinSelezionato] = useState(null)
@@ -1157,7 +1157,7 @@ function MappeTab({ cantiereId }) {
                       <div className="flex gap-2 flex-wrap">
                         {pinSelezionato.foto_urls.map((url, i) => (
                           <div key={i} className="relative group">
-                            <img src={url} onClick={() => setLightboxUrl(url)}
+                            <img src={url} onClick={() => setLightbox({ urls: pinSelezionato.foto_urls, idx: i })}
                               className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
                             {canContrib && (
                               <div className="absolute bottom-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1402,25 +1402,14 @@ function MappeTab({ cantiereId }) {
         </div>
       )}
 
-      {/* ── Lightbox foto ── */}
-      {lightboxUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
-          onClick={() => setLightboxUrl(null)}
-        >
-          <button
-            onClick={() => setLightboxUrl(null)}
-            className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition-colors"
-          >
-            <X size={24} />
-          </button>
-          <img
-            src={lightboxUrl}
-            alt="Foto ingrandita"
-            className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          />
-        </div>
+      {/* ── Lightbox foto (navigabile) ── */}
+      {lightbox && (
+        <LightboxNav
+          urls={lightbox.urls}
+          idx={lightbox.idx}
+          onClose={() => setLightbox(null)}
+          onSetIdx={fn => setLightbox(lb => ({ ...lb, idx: fn(lb.idx) }))}
+        />
       )}
 
       {/* ── Annotazione foto ── */}
@@ -1517,7 +1506,7 @@ function DiarioTab({ cantiereId, utente }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ data: dayjs().format('YYYY-MM-DD'), attivita: '', meteo: '', operai_presenti: 0, extra_preventivo: false, extra_preventivo_nota: '' })
   const [uploadingFor, setUploadingFor] = useState(null)
-  const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [lightbox, setLightbox] = useState(null) // {urls: [], idx: 0}
   const [confirmDiario, setConfirmDiario] = useState(null) // { id, attivita } da confermare
   const [editId, setEditId] = useState(null)       // id nota in modifica
   const [confermaEliminaId, setConfermaEliminaId] = useState(null)
@@ -1998,7 +1987,7 @@ function DiarioTab({ cantiereId, utente }) {
               <div className="flex gap-2 flex-wrap">
                 {d.foto_urls.map((url, i) => (
                   <div key={i} className="relative group">
-                    <img src={url} onClick={() => setLightboxUrl(url)}
+                    <img src={url} onClick={() => setLightbox({ urls: d.foto_urls, idx: i })}
                       className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
                     {isAdminDiario && (
                       <button
@@ -2061,25 +2050,14 @@ function DiarioTab({ cantiereId, utente }) {
         </div>
       )}
 
-      {/* ── Lightbox foto diario ── */}
-      {lightboxUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
-          onClick={() => setLightboxUrl(null)}
-        >
-          <button
-            onClick={() => setLightboxUrl(null)}
-            className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition-colors"
-          >
-            <X size={24} />
-          </button>
-          <img
-            src={lightboxUrl}
-            alt="Foto ingrandita"
-            className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          />
-        </div>
+      {/* ── Lightbox foto diario (navigabile) ── */}
+      {lightbox && (
+        <LightboxNav
+          urls={lightbox.urls}
+          idx={lightbox.idx}
+          onClose={() => setLightbox(null)}
+          onSetIdx={fn => setLightbox(lb => ({ ...lb, idx: fn(lb.idx) }))}
+        />
       )}
     </div>
   )
@@ -2740,7 +2718,7 @@ function FotoTab({ cantiereId, utente }) {
   const qc = useQueryClient()
   const canWrite = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','artigiano'].includes(utente?.ruolo)
   const [uploadingCount, setUploadingCount] = useState(0)
-  const [selected, setSelected] = useState(null)
+  const [selIdx, setSelIdx] = useState(null)
   const fileRef = useRef(null)
 
   const { data: foto = [], isLoading } = useQuery(
@@ -2798,7 +2776,7 @@ function FotoTab({ cantiereId, utente }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {foto.map((f, i) => (
             <div key={i} className="relative group cursor-pointer rounded-xl overflow-hidden bg-gray-100 aspect-square"
-              onClick={() => setSelected(f)}>
+              onClick={() => setSelIdx(i)}>
               <AuthImage url={f.url} className="w-full h-full object-cover" />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <p className="text-white text-xs font-medium truncate">{f.fonte_label}</p>
@@ -2809,25 +2787,83 @@ function FotoTab({ cantiereId, utente }) {
         </div>
       )}
 
-      {/* Lightbox */}
-      {selected && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setSelected(null)}>
-          <div className="relative max-w-2xl w-full" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setSelected(null)}
-              className="absolute -top-10 right-0 text-white/70 hover:text-white">
-              <X size={24} />
-            </button>
-            <AuthImage url={selected.url} className="w-full rounded-xl max-h-[75vh] object-contain" />
-            <div className="mt-3 text-white/80 text-sm space-y-0.5">
-              <p className="font-medium">{selected.fonte_label}</p>
-              {selected.autore && <p className="text-white/60 text-xs">{selected.autore}</p>}
-              {selected.nota && <p className="text-white/60 text-xs italic">"{selected.nota}"</p>}
-              {selected.data && <p className="text-white/60 text-xs">{selected.data}</p>}
-            </div>
-          </div>
-        </div>
+      {/* Lightbox navigabile */}
+      {selIdx !== null && foto[selIdx] && (
+        <LightboxNav
+          urls={foto.map(f => f.url)}
+          idx={selIdx}
+          onClose={() => setSelIdx(null)}
+          onSetIdx={fn => setSelIdx(i => fn(i))}
+          renderImg={(url) => {
+            const item = foto.find(f => f.url === url)
+            return (
+              <div className="max-w-2xl w-full">
+                <AuthImage url={url} className="w-full rounded-xl max-h-[75vh] object-contain" />
+                {item && (
+                  <div className="mt-3 text-white/80 text-sm space-y-0.5">
+                    <p className="font-medium">{item.fonte_label}</p>
+                    {item.autore && <p className="text-white/60 text-xs">{item.autore}</p>}
+                    {item.nota && <p className="text-white/60 text-xs italic">"{item.nota}"</p>}
+                    {item.data && <p className="text-white/60 text-xs">{item.data}</p>}
+                  </div>
+                )}
+              </div>
+            )
+          }}
+        />
       )}
+    </div>
+  )
+}
+
+// Lightbox navigabile con frecce prev/next
+// urls: string[] — indice corrente; onClose; onSetIdx
+function LightboxNav({ urls, idx, onClose, onSetIdx, renderImg }) {
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowRight') onSetIdx(i => Math.min(i + 1, urls.length - 1))
+      if (e.key === 'ArrowLeft')  onSetIdx(i => Math.max(i - 1, 0))
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [urls.length, onClose, onSetIdx])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      onClick={onClose}>
+      <button onClick={onClose}
+        className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition-colors z-10">
+        <X size={24} />
+      </button>
+      {urls.length > 1 && (
+        <>
+          <button
+            onClick={e => { e.stopPropagation(); onSetIdx(i => Math.max(i - 1, 0)) }}
+            disabled={idx === 0}
+            className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white rounded-full p-2 transition-colors disabled:opacity-20 z-10">
+            <ChevronLeft size={28} />
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onSetIdx(i => Math.min(i + 1, urls.length - 1)) }}
+            disabled={idx === urls.length - 1}
+            className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white rounded-full p-2 transition-colors disabled:opacity-20 z-10">
+            <ChevronRight size={28} />
+          </button>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+            {urls.map((_, i) => (
+              <button key={i} onClick={e => { e.stopPropagation(); onSetIdx(() => i) }}
+                className={`w-2 h-2 rounded-full transition-colors ${i === idx ? 'bg-white' : 'bg-white/40 hover:bg-white/70'}`} />
+            ))}
+          </div>
+        </>
+      )}
+      <div className="max-w-[95vw] max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        {renderImg ? renderImg(urls[idx]) : (
+          <img src={urls[idx]} alt={`foto ${idx + 1}`}
+            className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" />
+        )}
+      </div>
     </div>
   )
 }

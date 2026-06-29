@@ -17,6 +17,20 @@ api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const original = err.config
+    // Logga errori significativi (non i 401 che gestiamo sotto, non i log stessi)
+    const sc = err.response?.status
+    if (sc && sc !== 401 && !original._skipLog && !original.url?.includes('/error-log')) {
+      try {
+        api.post('/error-log', {
+          endpoint: original.url,
+          metodo: original.method?.toUpperCase(),
+          status_code: sc,
+          messaggio: err.response?.data?.detail || err.message,
+          url_pagina: window.location.pathname,
+          dettagli: JSON.stringify(err.response?.data).slice(0, 500),
+        }, { _skipLog: true }).catch(() => {})
+      } catch {}
+    }
     if (err.response?.status === 401 && !original._retry) {
       original._retry = true
       const refreshToken = localStorage.getItem('refresh_token')

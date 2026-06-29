@@ -21,6 +21,8 @@ from app.routers import non_conformita as nc_router
 from app.routers import dashboard as dashboard_router
 from app.routers import rapportini as rapportini_router
 from app.routers import programmazione as programmazione_router
+from app.routers import error_log as error_log_router
+from app.routers import appunti as appunti_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -229,6 +231,29 @@ def _migra():
         )""",
         "ALTER TABLE programmazione_settimana ADD COLUMN IF NOT EXISTS notificato_il TIMESTAMPTZ",
         "ALTER TABLE utenti ADD COLUMN IF NOT EXISTS lingua_preferita VARCHAR(10) NOT NULL DEFAULT 'it'",
+        # Error log: tutti gli errori API segnalati dal frontend
+        """CREATE TABLE IF NOT EXISTS error_log (
+            id          SERIAL PRIMARY KEY,
+            utente_id   INTEGER REFERENCES utenti(id) ON DELETE SET NULL,
+            ruolo       VARCHAR(30),
+            endpoint    VARCHAR(300),
+            metodo      VARCHAR(10),
+            status_code INTEGER,
+            messaggio   TEXT,
+            url_pagina  VARCHAR(500),
+            dettagli    TEXT,
+            creato_il   TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_error_log_creato ON error_log(creato_il DESC)",
+        # Appunti condivisi admin+amministrazione
+        """CREATE TABLE IF NOT EXISTS appunti_admin (
+            id            SERIAL PRIMARY KEY,
+            testo         TEXT NOT NULL,
+            colore        VARCHAR(10) DEFAULT 'giallo',
+            autore_id     INTEGER REFERENCES utenti(id) ON DELETE SET NULL,
+            creato_il     TIMESTAMPTZ DEFAULT NOW(),
+            aggiornato_il TIMESTAMPTZ
+        )""",
     ]
     _u = engine.url
     import psycopg2
@@ -306,6 +331,8 @@ app.include_router(nc_router.router, prefix="/api/v1")
 app.include_router(dashboard_router.router, prefix="/api/v1")
 app.include_router(rapportini_router.router, prefix="/api/v1")
 app.include_router(programmazione_router.router, prefix="/api/v1")
+app.include_router(error_log_router.router, prefix="/api/v1")
+app.include_router(appunti_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():

@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser, ClipboardList, CalendarDays } from 'lucide-react'
+import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser, ClipboardList, CalendarDays, AlertTriangle, StickyNote } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
@@ -13,6 +13,8 @@ const navItems = [
   { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','artigiano'] },
   { to: '/programmazione', label: 'Programmazione', icon: CalendarDays, roles: ['admin','capo_cantiere','capo_cantiere_sub','amministrazione'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
+  { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },
+  { to: '/error-log', label: 'Error Log', icon: AlertTriangle, adminOnly: true },
 ]
 
 function filtraNav(items, utente) {
