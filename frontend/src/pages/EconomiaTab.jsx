@@ -32,7 +32,7 @@ export default function EconomiaTab({ cantiereId }) {
   const { utente } = useAuth()
   const qc = useQueryClient()
   const isDL = utente?.ruolo === 'direzione_lavori'
-  const canWrite = ['admin','capo_cantiere'].includes(utente?.ruolo)
+  const canWrite = ['admin','capo_cantiere','amministrazione'].includes(utente?.ruolo)
   const [sezione, setSezione] = useState('riepilogo')
 
   const SEZIONI_DL = [

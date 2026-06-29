@@ -35,6 +35,7 @@ _RUOLI_STAFF = (
     RuoloUtente.capo_cantiere,
     RuoloUtente.capo_cantiere_sub,
     RuoloUtente.direzione_lavori,
+    RuoloUtente.amministrazione,
 )
 
 def _check(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
@@ -44,6 +45,8 @@ def _check(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
         raise HTTPException(404, "Cantiere non trovato")
     if user.ruolo == RuoloUtente.admin:
         return c
+    if user.ruolo == RuoloUtente.amministrazione:
+        return c  # amministrazione vede tutti i cantieri
     if user.ruolo == RuoloUtente.capo_cantiere and c.responsabile_id == user.id:
         return c
     # capo_cantiere_sub, direzione_lavori, artigiano, fornitore, cliente:
@@ -58,13 +61,13 @@ def _solo_staff(user: Utente):
         raise HTTPException(403, "Accesso riservato allo staff di cantiere")
 
 def _solo_economia(user: Utente):
-    """Modulo economico (preventivi, spese, SAL) — solo admin e capo cantiere interno."""
-    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere):
-        raise HTTPException(403, "Modulo economico riservato ad admin e capo cantiere STEELEX")
+    """Modulo economico (preventivi, spese, SAL) — admin, capo cantiere e amministrazione."""
+    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione):
+        raise HTTPException(403, "Modulo economico riservato ad admin, capo cantiere e amministrazione")
 
 def _economia_o_dl(user: Utente):
-    """Lettura economia — admin, capo_cantiere + direzione_lavori (prezzi cliente only)."""
-    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.direzione_lavori):
+    """Lettura economia — admin, capo_cantiere, amministrazione + direzione_lavori."""
+    if user.ruolo not in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione, RuoloUtente.direzione_lavori):
         raise HTTPException(403, "Accesso non autorizzato")
 
 def _is_dl(user: Utente) -> bool:
