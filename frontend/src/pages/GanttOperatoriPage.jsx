@@ -1,12 +1,13 @@
 /**
  * Gantt mensile/settimanale operatori
- * Desktop: colonne M e P separate
- * Mobile: una cella per giorno divisa in metà M (sopra) / P (sotto)
- * Drag: pointermove + elementFromPoint + refs (no stale closure)
+ * Desktop: griglia M/P separata + drag con pointermove
+ * Mobile: griglia M/P sovrapposta (mattina sopra, pomeriggio sotto)
+ *   - modalità normale: scroll orizzontale + click per popover
+ *   - modalità assegna (FAB): touch drag per assegnare più celle
  */
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, PenLine } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -21,7 +22,7 @@ const PALETTE = [
   '#06b6d4','#ec4899','#64748b','#84cc16','#f97316',
   '#6366f1','#14b8a6','#e11d48','#0ea5e9','#8b5cf6',
 ]
-const colore = id => id ? PALETTE[(id - 1) % PALETTE.length] : null
+const getColore = id => id ? PALETTE[(id - 1) % PALETTE.length] : null
 
 function ck(tipo, id, data, turno) { return `${tipo}__${id}__${data}__${turno}` }
 function parseKey(k) { const [tipo, id, data, turno] = k.split('__'); return { tipo, id: parseInt(id), data, turno } }
@@ -102,74 +103,20 @@ function Legenda({ cantieri, usatiIds }) {
     <div className="flex flex-wrap gap-2 mt-2 px-1">
       {usati.map(c => (
         <div key={c.id} className="flex items-center gap-1.5 text-xs text-gray-600">
-          <div className="w-3 h-3 rounded-sm" style={{ background: colore(c.id) }}/>{c.nome}
+          <div className="w-3 h-3 rounded-sm" style={{ background: getColore(c.id) }}/>{c.nome}
         </div>
       ))}
     </div>
   )
 }
 
-// ── Griglia DESKTOP: colonne M/P separate ─────────────────────────────────────
-function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi }) {
-  const [popover, setPopover] = useState(null)
-  const [selKeys, setSelKeys] = useState(new Set())
-  const dragRef    = useRef(null)
-  const selRef     = useRef(new Set())
-  const assMapRef  = useRef(assMap)
-  const opRef      = useRef(operatori)
-  const onSalvaRef = useRef(onSalva)
-  useEffect(() => { assMapRef.current = assMap }, [assMap])
-  useEffect(() => { opRef.current = operatori }, [operatori])
-  useEffect(() => { onSalvaRef.current = onSalva }, [onSalva])
+// ── Hook drag condiviso (desktop pointer + mobile touch in modalità assegna) ──
+function useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopover }) {
+  const dragRef = useRef(null)
+  const selRef  = useRef(new Set())
 
-  useEffect(() => {
+  const startDrag = (op, data, turno) => {
     if (!canWrite) return
-    const onMove = e => {
-      if (!dragRef.current) return
-      e.preventDefault()
-      const x = e.touches ? e.touches[0].clientX : e.clientX
-      const y = e.touches ? e.touches[0].clientY : e.clientY
-      const td = document.elementFromPoint(x, y)?.closest('[data-cella]')
-      if (!td) return
-      const { tipo, id, data, turno } = td.dataset
-      const d = dragRef.current
-      if (tipo !== d.op.tipo || parseInt(id) !== d.op.id) return
-      const key = ck(tipo, id, data, turno)
-      if (!selRef.current.has(key)) {
-        selRef.current = new Set([...selRef.current, key])
-        setSelKeys(new Set(selRef.current))
-      }
-    }
-    const onUp = () => {
-      const d = dragRef.current
-      if (!d) return
-      dragRef.current = null
-      const sel = [...selRef.current]
-      selRef.current = new Set()
-      setSelKeys(new Set())
-      if (sel.length <= 1) { setPopover({ op: d.op, data: d.startData, turno: d.startTurno }); return }
-      const celle = sel.map(k => { const p = parseKey(k); const o = opRef.current.find(x => x.tipo===p.tipo && x.id===p.id); return o ? { op: o, data: p.data, turno: p.turno } : null }).filter(Boolean)
-      if (d.cantiereId) {
-        celle.forEach(c => onSalvaRef.current({ ...(c.op.tipo==='artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }), data: c.data, turno: c.turno, cantiere_id: d.cantiereId, lavorazione: d.lavorazione||null }))
-      } else {
-        setPopover({ op: d.op, data: d.startData, turno: d.startTurno, rangeCelle: celle })
-      }
-    }
-    document.addEventListener('pointermove', onMove)
-    document.addEventListener('pointerup', onUp)
-    document.addEventListener('touchmove', onMove, { passive: false })
-    document.addEventListener('touchend', onUp)
-    return () => {
-      document.removeEventListener('pointermove', onMove)
-      document.removeEventListener('pointerup', onUp)
-      document.removeEventListener('touchmove', onMove)
-      document.removeEventListener('touchend', onUp)
-    }
-  }, [canWrite])
-
-  const startDrag = (e, op, data, turno) => {
-    if (!canWrite) return
-    e.preventDefault()
     const ass = assMapRef.current[ck(op.tipo, op.id, data, turno)]
     dragRef.current = { op, startData: data, startTurno: turno, cantiereId: ass?.cantiere_id ?? null, lavorazione: ass?.lavorazione ?? null }
     selRef.current = new Set([ck(op.tipo, op.id, data, turno)])
@@ -177,24 +124,91 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
     setPopover(null)
   }
 
+  const moveDrag = (x, y) => {
+    if (!dragRef.current) return
+    const td = document.elementFromPoint(x, y)?.closest('[data-cella]')
+    if (!td) return
+    const { tipo, id, data, turno } = td.dataset
+    const d = dragRef.current
+    if (tipo !== d.op.tipo || parseInt(id) !== d.op.id) return
+    const key = ck(tipo, id, data, turno)
+    if (!selRef.current.has(key)) {
+      selRef.current = new Set([...selRef.current, key])
+      setSelKeys(new Set(selRef.current))
+    }
+  }
+
+  const endDrag = () => {
+    const d = dragRef.current
+    if (!d) return
+    dragRef.current = null
+    const sel = [...selRef.current]
+    selRef.current = new Set()
+    setSelKeys(new Set())
+
+    if (sel.length <= 1) {
+      setPopover({ op: d.op, data: d.startData, turno: d.startTurno })
+      return
+    }
+    const celle = sel.map(k => {
+      const p = parseKey(k)
+      const op2 = opRef.current.find(o => o.tipo === p.tipo && o.id === p.id)
+      return op2 ? { op: op2, data: p.data, turno: p.turno } : null
+    }).filter(Boolean)
+
+    if (d.cantiereId) {
+      celle.forEach(c => onSalvaRef.current({
+        ...(c.op.tipo === 'artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }),
+        data: c.data, turno: c.turno, cantiere_id: d.cantiereId, lavorazione: d.lavorazione || null,
+      }))
+    } else {
+      setPopover({ op: d.op, data: d.startData, turno: d.startTurno, rangeCelle: celle })
+    }
+  }
+
+  return { dragRef, startDrag, moveDrag, endDrag }
+}
+
+// ── Griglia DESKTOP ───────────────────────────────────────────────────────────
+function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi }) {
+  const [popover, setPopover] = useState(null)
+  const [selKeys, setSelKeys] = useState(new Set())
+  const assMapRef  = useRef(assMap)
+  const opRef      = useRef(operatori)
+  const onSalvaRef = useRef(onSalva)
+  useEffect(() => { assMapRef.current = assMap }, [assMap])
+  useEffect(() => { opRef.current = operatori }, [operatori])
+  useEffect(() => { onSalvaRef.current = onSalva }, [onSalva])
+
+  const { startDrag, moveDrag, endDrag } = useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopover })
+
+  useEffect(() => {
+    if (!canWrite) return
+    const onMove = e => { if (!e.buttons) return; moveDrag(e.clientX, e.clientY) }
+    const onUp = () => endDrag()
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    return () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp) }
+  }, [canWrite]) // eslint-disable-line
+
   const artigiani = operatori.filter(o => o.tipo === 'artigiano')
   const utentiOp  = operatori.filter(o => o.tipo === 'utente')
 
-  const Cella = ({ op, d }) => {
+  const CellaMP = ({ op, d }) => {
     const dataStr = d.format('YYYY-MM-DD')
     const isWeekend = d.day() === 0 || d.day() === 6
     const isOggi = d.isSame(oggi, 'day')
-    return (['M','P']).map(turno => {
+    return ['M','P'].map(turno => {
       const key = ck(op.tipo, op.id, dataStr, turno)
       const ass = assMap[key]
-      const col = colore(ass?.cantiere_id)
+      const col = getColore(ass?.cantiere_id)
       const isSel = selKeys.has(key)
       const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
       return (
         <td key={key} data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno={turno}
           className={`relative border border-gray-100 p-0 select-none ${isWeekend && !ass ? 'bg-gray-50' : ''} ${isOggi ? 'ring-1 ring-inset ring-steelex-orange' : ''}`}
           style={{ width: 24, minWidth: 24, height: 30 }}
-          onPointerDown={canWrite ? e => startDrag(e, op, dataStr, turno) : undefined}>
+          onPointerDown={canWrite ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}>
           <div className={`w-full h-full flex items-center justify-center ${canWrite ? 'cursor-pointer' : ''} ${!ass && !isSel && canWrite ? 'hover:bg-orange-50' : ''}`}
             style={{ background: isSel ? (col || '#fdba74') : (col || undefined) }}
             title={ass ? `${ass.cantiere_nome||''}${ass.lavorazione?' — '+ass.lavorazione:''}` : undefined}>
@@ -213,7 +227,7 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
         <p className="text-xs font-semibold text-gray-800 truncate">{op.nome}</p>
         <p className="text-[10px] text-gray-400 truncate capitalize">{op.azienda || op.categoria}</p>
       </td>
-      {giorni.map(d => <Cella key={d.format('YYYY-MM-DD')} op={op} d={d}/>)}
+      {giorni.map(d => <CellaMP key={d.format('YYYY-MM-DD')} op={op} d={d}/>)}
     </tr>
   )
 
@@ -229,14 +243,15 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
         <table className="border-collapse" style={{ minWidth: 140 + giorni.length * 48 }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              <th className="sticky left-0 z-20 px-2 py-2 text-left border-r-2 border-gray-600" style={{ background: '#1e293b', minWidth: 140 }}>
+              <th className="sticky left-0 z-20 px-2 py-2 text-left border-r-2 border-gray-600"
+                style={{ background: '#1e293b', minWidth: 140 }}>
                 <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Operatore</span>
               </th>
               {giorni.map(d => {
-                const isWeekend = d.day()===0||d.day()===6
                 const isOggi = d.isSame(oggi,'day')
                 return <th key={d.format('YYYY-MM-DD')} colSpan={2}
-                  className={`text-center border-l border-gray-700 py-1 ${isWeekend?'opacity-40':''}`} style={{ minWidth: 48 }}>
+                  className={`text-center border-l border-gray-700 py-1 ${d.day()===0||d.day()===6?'opacity-40':''}`}
+                  style={{ minWidth: 48 }}>
                   <div className={`text-xs font-bold ${isOggi?'text-steelex-orange':'text-white'}`}>{d.format('D')}</div>
                   <div className="text-[9px] uppercase text-gray-400">{d.format('dd')}</div>
                 </th>
@@ -244,13 +259,13 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
             </tr>
             <tr style={{ background: '#f1f5f9' }}>
               <th className="sticky left-0 z-20 border-r-2 border-gray-300 border-b border-gray-200" style={{ background: '#f1f5f9', minWidth: 140 }}/>
-              {giorni.map(d => {
-                const isWeekend = d.day()===0||d.day()===6
-                return ['M','P'].map(t => <th key={`${d.format('YYYY-MM-DD')}_${t}`}
-                  className={`text-center border-l border-gray-200 border-b border-gray-200 py-0.5 ${isWeekend?'bg-gray-100':''}`} style={{ width: 24, minWidth: 24 }}>
+              {giorni.map(d => ['M','P'].map(t => (
+                <th key={`${d.format('YYYY-MM-DD')}_${t}`}
+                  className={`text-center border-l border-gray-200 border-b border-gray-200 py-0.5 ${d.day()===0||d.day()===6?'bg-gray-100':''}`}
+                  style={{ width: 24 }}>
                   <span className="text-[9px] font-semibold text-gray-400">{t}</span>
-                </th>)
-              })}
+                </th>
+              )))}
             </tr>
           </thead>
           <tbody>
@@ -263,118 +278,192 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
   )
 }
 
-// ── Griglia MOBILE: una cella per giorno, divisa in M (sopra) / P (sotto) ────
-function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi }) {
+// ── Griglia MOBILE ────────────────────────────────────────────────────────────
+function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi, modalitaAssegna }) {
   const [popover, setPopover] = useState(null)
+  const [selKeys, setSelKeys] = useState(new Set())
+  const assMapRef  = useRef(assMap)
+  const opRef      = useRef(operatori)
+  const onSalvaRef = useRef(onSalva)
+  useEffect(() => { assMapRef.current = assMap }, [assMap])
+  useEffect(() => { opRef.current = operatori }, [operatori])
+  useEffect(() => { onSalvaRef.current = onSalva }, [onSalva])
 
-  // Su mobile: click su metà cella → popover
-  const apriPopover = (op, data, turno) => {
-    if (!canWrite) return
-    setPopover({ op, data, turno })
-  }
+  const { startDrag, moveDrag, endDrag } = useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopover })
+
+  // Listener touch solo quando modalità assegna è attiva
+  useEffect(() => {
+    if (!canWrite || !modalitaAssegna) return
+    const onMove = e => {
+      e.preventDefault()
+      const t = e.touches[0]
+      moveDrag(t.clientX, t.clientY)
+    }
+    const onEnd = () => endDrag()
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend', onEnd)
+    return () => {
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onEnd)
+    }
+  }, [canWrite, modalitaAssegna]) // eslint-disable-line
 
   const artigiani = operatori.filter(o => o.tipo === 'artigiano')
   const utentiOp  = operatori.filter(o => o.tipo === 'utente')
 
-  // Larghezza cella adattiva al numero di giorni
-  const CELL_W = Math.max(36, Math.floor((window.innerWidth - 90) / giorni.length))
+  const CELL_W = Math.max(34, Math.floor((window.innerWidth - 90) / Math.min(giorni.length, 10)))
   const NAME_W = 88
 
   const CellaGiorno = ({ op, d }) => {
     const dataStr = d.format('YYYY-MM-DD')
     const isWeekend = d.day() === 0 || d.day() === 6
     const isOggi = d.isSame(oggi, 'day')
-    const assM = assMap[ck(op.tipo, op.id, dataStr, 'M')]
-    const assP = assMap[ck(op.tipo, op.id, dataStr, 'P')]
-    const colM = colore(assM?.cantiere_id)
-    const colP = colore(assP?.cantiere_id)
 
-    const isOpenM = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno==='M'
-    const isOpenP = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno==='P'
+    return ['M','P'].map(turno => {
+      const key = ck(op.tipo, op.id, dataStr, turno)
+      const ass = assMap[key]
+      const col = getColore(ass?.cantiere_id)
+      const isSel = selKeys.has(key)
+      const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
+
+      const bg = isSel ? (col || '#fdba74') : (col || undefined)
+
+      return (
+        <td key={key} data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno={turno}
+          className={`relative border-r border-gray-100 p-0 ${isWeekend && !ass ? '' : ''}`}
+          style={{
+            width: CELL_W,
+            height: 28,
+            background: bg || (isWeekend ? '#f9fafb' : undefined),
+            borderBottom: '1px solid #f3f4f6',
+            outline: isOggi ? '1px solid #FF6B00' : undefined,
+            outlineOffset: isOggi ? '-1px' : undefined,
+          }}
+          onTouchStart={canWrite && modalitaAssegna ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}
+          onClick={canWrite && !modalitaAssegna ? () => setPopover({ op, data: dataStr, turno }) : undefined}>
+          <div className="w-full h-full flex items-center justify-center">
+            {ass?.cantiere_nome
+              ? <span className="text-white font-bold pointer-events-none select-none" style={{ fontSize: 8 }}>{ass.cantiere_nome.slice(0,3).toUpperCase()}</span>
+              : <span style={{ fontSize: 7, color: isSel ? '#fff' : '#d1d5db' }}>{turno}</span>
+            }
+          </div>
+          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+        </td>
+      )
+    })
+  }
+
+  // Raggruppiamo per righe: ogni riga = un operatore, ogni coppia di td = un giorno (M sopra, P sotto)
+  // Ma con la struttura a tabella dobbiamo fare 2 righe per operatore (una M, una P)
+  const RigheOp = ({ op, zebra }) => {
+    const bg = zebra ? '#f9fafb' : '#fff'
+    const celleTurno = (turno) => giorni.map(d => {
+      const dataStr = d.format('YYYY-MM-DD')
+      const isWeekend = d.day() === 0 || d.day() === 6
+      const isOggi = d.isSame(oggi, 'day')
+      const key = ck(op.tipo, op.id, dataStr, turno)
+      const ass = assMap[key]
+      const col = getColore(ass?.cantiere_id)
+      const isSel = selKeys.has(key)
+      const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
+      const bg2 = isSel ? (col || '#fdba74') : (col || (isWeekend ? '#f9fafb' : undefined))
+
+      return (
+        <td key={key} data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno={turno}
+          className="relative p-0 select-none"
+          style={{
+            width: CELL_W, minWidth: CELL_W, height: 24,
+            background: bg2,
+            border: '1px solid #f3f4f6',
+            outline: isOggi ? '1px solid #FF6B00' : undefined,
+            outlineOffset: isOggi ? '-1px' : undefined,
+          }}
+          onTouchStart={canWrite && modalitaAssegna ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}
+          onClick={canWrite && !modalitaAssegna ? () => setPopover({ op, data: dataStr, turno }) : undefined}>
+          <div className="w-full h-full flex items-center justify-center">
+            {ass?.cantiere_nome
+              ? <span className="font-bold pointer-events-none select-none text-white" style={{ fontSize: 7 }}>{ass.cantiere_nome.slice(0,3).toUpperCase()}</span>
+              : null}
+          </div>
+          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+        </td>
+      )
+    })
 
     return (
-      <td className={`relative border border-gray-100 p-0 ${isWeekend && !assM && !assP ? 'bg-gray-50' : ''} ${isOggi ? 'ring-1 ring-inset ring-steelex-orange' : ''}`}
-        style={{ width: CELL_W, minWidth: CELL_W }}>
-        {/* Metà Mattina */}
-        <div className={`flex items-center justify-center border-b border-gray-100 relative ${canWrite ? 'active:opacity-70' : ''}`}
-          style={{ height: 28, background: colM || undefined }}
-          onClick={() => apriPopover(op, dataStr, 'M')}>
-          <span className="text-[8px] font-bold text-white pointer-events-none select-none leading-none">
-            {assM?.cantiere_nome ? assM.cantiere_nome.slice(0,3).toUpperCase() : <span className="text-gray-300 text-[7px]">M</span>}
-          </span>
-          {isOpenM && <Popover op={op} data={dataStr} turno="M" ass={assM} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
-        </div>
-        {/* Metà Pomeriggio */}
-        <div className={`flex items-center justify-center relative ${canWrite ? 'active:opacity-70' : ''}`}
-          style={{ height: 28, background: colP || undefined }}
-          onClick={() => apriPopover(op, dataStr, 'P')}>
-          <span className="text-[8px] font-bold text-white pointer-events-none select-none leading-none">
-            {assP?.cantiere_nome ? assP.cantiere_nome.slice(0,3).toUpperCase() : <span className="text-gray-300 text-[7px]">P</span>}
-          </span>
-          {isOpenP && <Popover op={op} data={dataStr} turno="P" ass={assP} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
-        </div>
-      </td>
+      <>
+        {/* Riga nome + Mattina */}
+        <tr>
+          <td rowSpan={2} className="sticky left-0 z-10 border-r-2 border-gray-200 px-1.5"
+            style={{ background: bg, minWidth: NAME_W, maxWidth: NAME_W, width: NAME_W, verticalAlign: 'middle', borderBottom: '2px solid #e5e7eb' }}>
+            <p className="font-semibold text-gray-800 leading-tight truncate" style={{ fontSize: 11 }}>
+              {op.nome.split(' ').slice(0,2).join(' ')}
+            </p>
+            <p className="text-gray-400 truncate capitalize" style={{ fontSize: 9 }}>{op.azienda || op.categoria}</p>
+          </td>
+          {celleTurno('M')}
+        </tr>
+        {/* Riga Pomeriggio */}
+        <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+          {celleTurno('P')}
+        </tr>
+      </>
     )
   }
 
-  const Riga = ({ op, zebra }) => (
-    <tr className={zebra ? 'bg-gray-50/40' : ''}>
-      <td className="sticky left-0 z-10 border-r-2 border-gray-200 border-b border-gray-100 px-1.5 py-0.5"
-        style={{ background: zebra ? '#f9fafb' : '#fff', minWidth: NAME_W, maxWidth: NAME_W, width: NAME_W }}>
-        <p className="text-xs font-semibold text-gray-800 leading-tight" style={{ fontSize: 11 }}>
-          {op.nome.split(' ').slice(0,2).join(' ')}
-        </p>
-        <p className="text-[9px] text-gray-400 truncate capitalize">{op.azienda || op.categoria}</p>
-      </td>
-      {giorni.map(d => <CellaGiorno key={d.format('YYYY-MM-DD')} op={op} d={d}/>)}
-    </tr>
-  )
-
-  const Gruppo = ({ label }) => (
-    <tr><td colSpan={1 + giorni.length}
+  const Gruppo = ({ label, colSpan }) => (
+    <tr><td colSpan={colSpan}
       className="px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-400 bg-gray-100 border-b border-gray-200"
       style={{ position: 'sticky', left: 0 }}>{label}</td></tr>
   )
 
+  const totalCols = 1 + giorni.length
+
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-        <table className="border-collapse w-full">
+        <table className="border-collapse" style={{ tableLayout: 'fixed', minWidth: NAME_W + giorni.length * CELL_W }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
               <th className="sticky left-0 z-20 px-1.5 py-2 text-left border-r-2 border-gray-600"
-                style={{ background: '#1e293b', minWidth: NAME_W, width: NAME_W }}>
-                <span className="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Nome</span>
+                style={{ background: '#1e293b', width: NAME_W, minWidth: NAME_W }}>
+                <span style={{ fontSize: 9 }} className="font-bold text-gray-300 uppercase tracking-widest">Nome</span>
               </th>
               {giorni.map(d => {
-                const isWeekend = d.day()===0||d.day()===6
                 const isOggi = d.isSame(oggi,'day')
+                const isWeekend = d.day()===0||d.day()===6
                 return <th key={d.format('YYYY-MM-DD')}
                   className={`text-center border-l border-gray-700 py-1 ${isWeekend?'opacity-50':''}`}
                   style={{ width: CELL_W, minWidth: CELL_W }}>
                   <div className={`font-bold ${isOggi?'text-steelex-orange':'text-white'}`} style={{ fontSize: 11 }}>{d.format('D')}</div>
-                  <div className="text-[8px] uppercase text-gray-400">{d.format('dd')}</div>
+                  <div className="uppercase text-gray-400" style={{ fontSize: 8 }}>{d.format('dd')}</div>
                 </th>
               })}
             </tr>
-            {/* Legenda M/P fissa */}
+            {/* Riga M/P */}
             <tr style={{ background: '#f8fafc' }}>
               <th className="sticky left-0 z-20 border-r-2 border-gray-200 border-b border-gray-200"
-                style={{ background: '#f8fafc', minWidth: NAME_W, width: NAME_W }}/>
+                style={{ background: '#f8fafc', width: NAME_W }}/>
               {giorni.map(d => (
                 <th key={d.format('YYYY-MM-DD')} className="border-l border-gray-200 border-b border-gray-200 p-0"
-                  style={{ width: CELL_W, minWidth: CELL_W }}>
-                  <div className="flex flex-col">
-                    <span className="text-[7px] text-gray-300 text-center border-b border-gray-100 leading-4">M</span>
-                    <span className="text-[7px] text-gray-300 text-center leading-4">P</span>
+                  style={{ width: CELL_W }}>
+                  <div className="flex flex-col text-center" style={{ fontSize: 7, color: '#cbd5e1', lineHeight: '14px' }}>
+                    <span style={{ borderBottom: '1px solid #f1f5f9' }}>M</span>
+                    <span>P</span>
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {artigiani.length > 0 && <><Gruppo label="Artigiani / Esterni"/>{artigiani.map((op,i)=><Riga key={`a_${op.id}`} op={op} zebra={i%2!==0}/>)}</>}
-            {utentiOp.length > 0 && <><Gruppo label="Operativi Interni"/>{utentiOp.map((op,i)=><Riga key={`u_${op.id}`} op={op} zebra={i%2!==0}/>)}</>}
+            {artigiani.length > 0 && <>
+              <Gruppo label="Artigiani / Esterni" colSpan={totalCols}/>
+              {artigiani.map((op,i) => <RigheOp key={`a_${op.id}`} op={op} zebra={i%2!==0}/>)}
+            </>}
+            {utentiOp.length > 0 && <>
+              <Gruppo label="Operativi Interni" colSpan={totalCols}/>
+              {utentiOp.map((op,i) => <RigheOp key={`u_${op.id}`} op={op} zebra={i%2!==0}/>)}
+            </>}
           </tbody>
         </table>
       </div>
@@ -391,6 +480,7 @@ export default function GanttOperatoriPage() {
   const oggi = dayjs()
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const [vista, setVista] = useState(isMobile ? 'settimana' : 'mese')
+  const [modalitaAssegna, setModalitaAssegna] = useState(false)
 
   const [anno, setAnno] = useState(oggi.year())
   const [mese, setMese] = useState(oggi.month() + 1)
@@ -437,6 +527,7 @@ export default function GanttOperatoriPage() {
   }, [assegnazioni])
 
   const usatiIds = useMemo(() => new Set(assegnazioni.map(a => a.cantiere_id).filter(Boolean)), [assegnazioni])
+  const salva = body => upsertMutation.mutate(body)
 
   const upsertMutation = useMutation(
     body => api.put('/assegnazioni', body),
@@ -451,15 +542,12 @@ export default function GanttOperatoriPage() {
     ? (anno === oggi.year() && mese === oggi.month()+1)
     : (settAnno === oggi.year() && sett === oggi.isoWeek())
 
-  const salva = body => upsertMutation.mutate(body)
-
   if (isLoading) return <div className="text-center py-12 text-gray-400">Caricamento...</div>
 
-  // Mobile usa la griglia compatta; desktop usa quella con M/P separati
-  const usaMobile = isMobile || vista === 'settimana'
+  const usaMobile = isMobile
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pb-20">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
@@ -469,16 +557,18 @@ export default function GanttOperatoriPage() {
             <p className="text-xs text-gray-400">{operatori.filter(o=>o.tipo==='artigiano').length} artigiani · {operatori.filter(o=>o.tipo==='utente').length} interni</p>
           </div>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          <button onClick={() => setVista('settimana')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='settimana'?'bg-white shadow text-steelex-orange':'text-gray-500'}`}>
-            <Calendar size={13}/> Settimana
-          </button>
-          <button onClick={() => setVista('mese')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='mese'?'bg-white shadow text-steelex-orange':'text-gray-500'}`}>
-            <CalendarDays size={13}/> Mese
-          </button>
-        </div>
+        {!usaMobile && (
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            <button onClick={() => setVista('settimana')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='settimana'?'bg-white shadow text-steelex-orange':'text-gray-500'}`}>
+              <Calendar size={13}/> Settimana
+            </button>
+            <button onClick={() => setVista('mese')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='mese'?'bg-white shadow text-steelex-orange':'text-gray-500'}`}>
+              <CalendarDays size={13}/> Mese
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Navigazione */}
@@ -491,7 +581,7 @@ export default function GanttOperatoriPage() {
         <button onClick={vista==='mese' ? nextMese : nextSett} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"><ChevronRight size={18}/></button>
       </div>
 
-      {canWrite && !usaMobile && (
+      {!usaMobile && canWrite && (
         <p className="text-xs text-gray-400 px-1">
           💡 <strong>Click</strong> per assegnare · <strong>Trascina</strong> per più turni · Trascina da cella colorata per <strong>replicare</strong>
         </p>
@@ -501,17 +591,30 @@ export default function GanttOperatoriPage() {
         <div className="card text-center py-12 text-gray-400">
           <Users size={36} className="mx-auto mb-2 opacity-30"/>
           <p className="font-medium">Nessun operatore trovato</p>
-          <p className="text-sm mt-1">Aggiungi artigiani dalla Rubrica o crea utenti operativi</p>
         </div>
       ) : (
         <>
           {usaMobile
-            ? <GrigliaMobile operatori={operatori} giorni={giorni} assMap={assMap} cantieri={cantieri} onSalva={salva} canWrite={canWrite} oggi={oggi}/>
-            : <GrigliaDesktop operatori={operatori} giorni={giorni} assMap={assMap} cantieri={cantieri} onSalva={salva} canWrite={canWrite} oggi={oggi}/>
+            ? <GrigliaMobile operatori={operatori} giorni={giorni} assMap={assMap} cantieri={cantieri}
+                onSalva={salva} canWrite={canWrite} oggi={oggi} modalitaAssegna={modalitaAssegna}/>
+            : <GrigliaDesktop operatori={operatori} giorni={giorni} assMap={assMap} cantieri={cantieri}
+                onSalva={salva} canWrite={canWrite} oggi={oggi}/>
           }
           <Legenda cantieri={cantieri} usatiIds={usatiIds}/>
-          {!canWrite && <p className="text-xs text-gray-400 text-center">Solo admin e capo cantiere possono modificare le assegnazioni</p>}
         </>
+      )}
+
+      {/* FAB modalità assegna — solo mobile + canWrite */}
+      {usaMobile && canWrite && (
+        <button
+          onClick={() => setModalitaAssegna(v => !v)}
+          className={`fixed bottom-6 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg font-semibold text-sm transition-all
+            ${modalitaAssegna
+              ? 'bg-steelex-orange text-white shadow-orange-200'
+              : 'bg-white text-gray-700 border border-gray-200 shadow-gray-100'}`}>
+          <PenLine size={16}/>
+          {modalitaAssegna ? 'Assegna attivo — tocca/trascina' : 'Modalità assegna'}
+        </button>
       )}
     </div>
   )
