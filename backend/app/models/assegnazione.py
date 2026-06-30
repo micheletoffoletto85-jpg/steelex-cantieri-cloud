@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -8,7 +8,8 @@ class AssegnazioneOperatore(Base):
     __tablename__ = "assegnazioni_operatore"
 
     id           = Column(Integer, primary_key=True, index=True)
-    artigiano_id = Column(Integer, ForeignKey("artigiani.id", ondelete="CASCADE"), nullable=False)
+    artigiano_id = Column(Integer, ForeignKey("artigiani.id", ondelete="CASCADE"), nullable=True)
+    utente_id    = Column(Integer, ForeignKey("utenti.id",    ondelete="CASCADE"), nullable=True)
     data         = Column(Date, nullable=False)
     turno        = Column(String(1), nullable=False)   # 'M' o 'P'
     cantiere_id  = Column(Integer, ForeignKey("cantieri.id", ondelete="SET NULL"), nullable=True)
@@ -18,8 +19,5 @@ class AssegnazioneOperatore(Base):
     creato_il    = Column(DateTime(timezone=True), server_default=func.now())
 
     artigiano = relationship("Artigiano", foreign_keys=[artigiano_id])
+    utente    = relationship("Utente",    foreign_keys=[utente_id])
     cantiere  = relationship("Cantiere",  foreign_keys=[cantiere_id])
-
-    __table_args__ = (
-        UniqueConstraint("artigiano_id", "data", "turno", name="uq_assegnazione"),
-    )

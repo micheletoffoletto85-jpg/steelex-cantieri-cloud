@@ -14,13 +14,21 @@ from app.auth import get_current_user
 router = APIRouter(prefix="/assegnazioni", tags=["Assegnazioni"])
 
 RUOLI_ADMIN = {"admin", "capo_cantiere", "capo_cantiere_sub", "amministrazione", "direzione_lavori"}
+RUOLI_OPERATIVI = {"artigiano", "capo_cantiere", "capo_cantiere_sub"}
 
 
 def _dict(a: AssegnazioneOperatore) -> dict:
+    if a.artigiano_id:
+        nome = f"{a.artigiano.nome} {a.artigiano.cognome}" if a.artigiano else None
+    elif a.utente_id:
+        nome = f"{a.utente.nome} {a.utente.cognome}" if a.utente else None
+    else:
+        nome = None
     return {
         "id": a.id,
         "artigiano_id": a.artigiano_id,
-        "artigiano_nome": f"{a.artigiano.nome} {a.artigiano.cognome}" if a.artigiano else None,
+        "utente_id": a.utente_id,
+        "nome": nome,
         "data": a.data.isoformat() if a.data else None,
         "turno": a.turno,
         "cantiere_id": a.cantiere_id,
@@ -28,6 +36,48 @@ def _dict(a: AssegnazioneOperatore) -> dict:
         "lavorazione": a.lavorazione,
         "note": a.note,
     }
+
+
+@router.get("/operatori")
+def lista_operatori(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Lista unificata: artigiani attivi + utenti operativi interni."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+
+    artigiani = (
+        db.query(Artigiano)
+        .filter(Artigiano.attivo == True)
+        .order_by(Artigiano.cognome, Artigiano.nome)
+        .all()
+    )
+    utenti_op = (
+        db.query(Utente)
+        .filter(Utente.ruolo.in_(list(RUOLI_OPERATIVI)), Utente.attivo == True)
+        .order_by(Utente.cognome, Utente.nome)
+        .all()
+    )
+
+    result = []
+    for a in artigiani:
+        result.append({
+            "tipo": "artigiano",
+            "id": a.id,
+            "nome": f"{a.nome} {a.cognome}",
+            "azienda": a.azienda,
+            "categoria": a.categoria,
+        })
+    for u in utenti_op:
+        result.append({
+            "tipo": "utente",
+            "id": u.id,
+            "nome": f"{u.nome} {u.cognome}",
+            "azienda": None,
+            "categoria": u.ruolo.replace("_", " "),
+        })
+    return result
 
 
 @router.get("")
@@ -51,9 +101,10 @@ def lista_assegnazioni(
 
 
 class AssegnazioneBody(BaseModel):
-    artigiano_id: int
+    artigiano_id: Optional[int] = None
+    utente_id: Optional[int] = None
     data: date
-    turno: str          # 'M' o 'P'
+    turno: str
     cantiere_id: Optional[int] = None
     lavorazione: Optional[str] = None
     note: Optional[str] = None
@@ -69,20 +120,22 @@ def upsert_assegnazione(
         raise HTTPException(403)
     if body.turno not in ("M", "P"):
         raise HTTPException(422, "turno deve essere 'M' o 'P'")
+    if not body.artigiano_id and not body.utente_id:
+        raise HTTPException(422, "artigiano_id o utente_id obbligatorio")
 
-    existing = (
-        db.query(AssegnazioneOperatore)
-        .filter(
-            AssegnazioneOperatore.artigiano_id == body.artigiano_id,
-            AssegnazioneOperatore.data == body.data,
-            AssegnazioneOperatore.turno == body.turno,
-        )
-        .first()
+    q = db.query(AssegnazioneOperatore).filter(
+        AssegnazioneOperatore.data == body.data,
+        AssegnazioneOperatore.turno == body.turno,
     )
+    if body.artigiano_id:
+        q = q.filter(AssegnazioneOperatore.artigiano_id == body.artigiano_id)
+    else:
+        q = q.filter(AssegnazioneOperatore.utente_id == body.utente_id)
+
+    existing = q.first()
 
     if existing:
         if body.cantiere_id is None and body.lavorazione is None and body.note is None:
-            # Se tutto vuoto → elimina
             db.delete(existing)
             db.commit()
             return {"deleted": True}
@@ -97,6 +150,7 @@ def upsert_assegnazione(
             return {"noop": True}
         row = AssegnazioneOperatore(
             artigiano_id=body.artigiano_id,
+            utente_id=body.utente_id,
             data=body.data,
             turno=body.turno,
             cantiere_id=body.cantiere_id,

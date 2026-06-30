@@ -255,19 +255,23 @@ def _migra():
             creato_il     TIMESTAMPTZ DEFAULT NOW(),
             aggiornato_il TIMESTAMPTZ
         )""",
-        # Gantt operatori: assegnazioni mensili artigiani × cantiere × turno M/P
+        # Gantt operatori: assegnazioni mensili artigiani/utenti × cantiere × turno M/P
         """CREATE TABLE IF NOT EXISTS assegnazioni_operatore (
             id           SERIAL PRIMARY KEY,
-            artigiano_id INTEGER NOT NULL REFERENCES artigiani(id) ON DELETE CASCADE,
+            artigiano_id INTEGER REFERENCES artigiani(id) ON DELETE CASCADE,
+            utente_id    INTEGER REFERENCES utenti(id) ON DELETE CASCADE,
             data         DATE NOT NULL,
             turno        VARCHAR(1) NOT NULL,
             cantiere_id  INTEGER REFERENCES cantieri(id) ON DELETE SET NULL,
             lavorazione  VARCHAR(200),
             note         TEXT,
             creato_da    INTEGER REFERENCES utenti(id),
-            creato_il    TIMESTAMPTZ DEFAULT NOW(),
-            UNIQUE(artigiano_id, data, turno)
+            creato_il    TIMESTAMPTZ DEFAULT NOW()
         )""",
+        "ALTER TABLE assegnazioni_operatore ADD COLUMN IF NOT EXISTS utente_id INTEGER REFERENCES utenti(id) ON DELETE CASCADE",
+        "ALTER TABLE assegnazioni_operatore ALTER COLUMN artigiano_id DROP NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_ass_artigiano ON assegnazioni_operatore(artigiano_id, data, turno) WHERE artigiano_id IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_ass_utente ON assegnazioni_operatore(utente_id, data, turno) WHERE utente_id IS NOT NULL",
     ]
     _u = engine.url
     import psycopg2
