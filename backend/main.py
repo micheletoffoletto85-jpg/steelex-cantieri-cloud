@@ -9,7 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp, rapportino, programmazione  # importa tutti i modelli
+from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp, rapportino, programmazione, assegnazione  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
@@ -23,6 +23,7 @@ from app.routers import rapportini as rapportini_router
 from app.routers import programmazione as programmazione_router
 from app.routers import error_log as error_log_router
 from app.routers import appunti as appunti_router
+from app.routers import assegnazioni as assegnazioni_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -254,6 +255,19 @@ def _migra():
             creato_il     TIMESTAMPTZ DEFAULT NOW(),
             aggiornato_il TIMESTAMPTZ
         )""",
+        # Gantt operatori: assegnazioni mensili artigiani × cantiere × turno M/P
+        """CREATE TABLE IF NOT EXISTS assegnazioni_operatore (
+            id           SERIAL PRIMARY KEY,
+            artigiano_id INTEGER NOT NULL REFERENCES artigiani(id) ON DELETE CASCADE,
+            data         DATE NOT NULL,
+            turno        VARCHAR(1) NOT NULL,
+            cantiere_id  INTEGER REFERENCES cantieri(id) ON DELETE SET NULL,
+            lavorazione  VARCHAR(200),
+            note         TEXT,
+            creato_da    INTEGER REFERENCES utenti(id),
+            creato_il    TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(artigiano_id, data, turno)
+        )""",
     ]
     _u = engine.url
     import psycopg2
@@ -333,6 +347,7 @@ app.include_router(rapportini_router.router, prefix="/api/v1")
 app.include_router(programmazione_router.router, prefix="/api/v1")
 app.include_router(error_log_router.router, prefix="/api/v1")
 app.include_router(appunti_router.router, prefix="/api/v1")
+app.include_router(assegnazioni_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():
