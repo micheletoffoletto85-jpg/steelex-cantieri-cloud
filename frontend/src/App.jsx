@@ -10,6 +10,7 @@ import ForniturePage from './pages/ForniturePage'
 import ArtigianiPage from './pages/ArtigianiPage'
 import RapportiniPage from './pages/RapportiniPage'
 import ProgrammazioneAdminPage from './pages/ProgrammazioneAdminPage'
+import GanttOperatoriPage from './pages/GanttOperatoriPage'
 import ErrorLogPage from './pages/ErrorLogPage'
 import AppuntiPage from './pages/AppuntiPage'
 import Layout from './components/Layout'
@@ -52,6 +53,7 @@ function AppContent() {
           <Route path="artigiani" element={<ArtigianiPage />} />
           <Route path="rapportini" element={<RapportiniPage />} />
           <Route path="programmazione" element={<ProgrammazioneAdminPage />} />
+          <Route path="gantt-operatori" element={<GanttOperatoriPage />} />
           <Route path="error-log" element={<ErrorLogPage />} />
           <Route path="appunti" element={<AppuntiPage />} />
         </Route>
