@@ -220,6 +220,7 @@ async def invia_rapportino(
     testo: str = Form(None),
     cantiere_id: Optional[int] = Form(None),
     lingua_hint: Optional[str] = Form(None),
+    data_riferimento: Optional[str] = Form(None),
     foto: TypingList[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
@@ -329,7 +330,7 @@ async def invia_rapportino(
     rapportino = RapportinoOperativo(
         operativo_id    = user.id,
         cantiere_id     = cantiere_id,
-        data_lavoro     = dati.get("data_lavoro") or str(date_today.today()),
+        data_lavoro     = data_riferimento or dati.get("data_lavoro") or str(date_today.today()),
         testo_originale = testo_originale,
         testo_elaborato = testo_elaborato,
         testo_italiano  = testo_ita,

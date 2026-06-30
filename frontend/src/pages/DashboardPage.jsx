@@ -269,7 +269,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const [errore, setErrore] = useState(null)
   const [mostraTestuale, setMostraTestuale] = useState(false)
   const [mostraIstruzioni, setMostraIstruzioni] = useState(false)
-  const [conferma, setConferma] = useState(null)  // null | { testo: string }
+  const [conferma, setConferma] = useState(null)  // null | { testo: string, dataRif: string }
   const [linguaReg, setLinguaReg] = useState(utente?.lingua_preferita || 'it')
   useEffect(() => { if (utente?.lingua_preferita) setLinguaReg(utente.lingua_preferita) }, [utente?.lingua_preferita])
   const mediaRef = useRef(null)
@@ -306,11 +306,12 @@ function ArtigianoDashboard({ utente, cantieri }) {
     }
   )
 
-  const _buildFormData = (testo) => {
+  const _buildFormData = (testo, dataRif) => {
     const fd = new FormData()
     fd.append('testo', testo)
     fd.append('lingua_hint', linguaReg)
     if (cantiereSelezionato) fd.append('cantiere_id', cantiereSelezionato)
+    if (dataRif) fd.append('data_riferimento', dataRif)
     foto.forEach(f => fd.append('foto', f))
     return fd
   }
@@ -339,7 +340,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
           fd.append('audio', blob, `rapportino.${ext}`)
           fd.append('lingua_hint', linguaReg)
           const res = await api.post('/rapportini/trascrivi', fd)
-          setConferma({ testo: res.data.testo })
+          setConferma({ testo: res.data.testo, dataRif: dayjs().format('YYYY-MM-DD') })
           setFase('idle')
         } catch (err) {
           setErrore(err?.response?.data?.detail || 'Errore trascrizione — riprova')
@@ -369,7 +370,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
 
   const inviaTestuale = () => {
     if (!testoLibero.trim()) return
-    setConferma({ testo: testoLibero.trim() })
+    setConferma({ testo: testoLibero.trim(), dataRif: dayjs().format('YYYY-MM-DD') })
   }
 
   const confermaInvio = () => {
@@ -377,7 +378,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
     setConferma(null)
     setFase('processing')
     setErrore(null)
-    inviaMutation.mutate(_buildFormData(testo))
+    inviaMutation.mutate(_buildFormData(testo, conferma.dataRif))
   }
 
   const aggiungiAnteprima = (files) => {
@@ -437,6 +438,17 @@ function ArtigianoDashboard({ utente, cantieri }) {
                 <p className="font-bold text-gray-900 text-lg">Controlla e conferma</p>
                 <p className="text-xs text-gray-400">Leggi il testo, correggilo se necessario, poi invia</p>
               </div>
+            </div>
+            {/* Data di riferimento */}
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">A quale giorno si riferisce?</label>
+              <input
+                type="date"
+                value={conferma.dataRif}
+                max={dayjs().format('YYYY-MM-DD')}
+                onChange={e => setConferma(c => ({ ...c, dataRif: e.target.value }))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange"
+              />
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Contenuto del rapportino</label>
@@ -510,6 +522,24 @@ function ArtigianoDashboard({ utente, cantieri }) {
 
       {/* Programmazione settimana */}
       <ProgrammazioneWidget/>
+
+      {/* ── Banner manca rapportino ── */}
+      {(() => {
+        const ieri = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+        const haiIeri = miei.some(r => r.data_lavoro === ieri)
+        if (haiIeri) return null
+        // Non mostrare il lunedì (ieri era domenica)
+        if (dayjs().day() === 1) return null
+        return (
+          <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex items-start gap-3">
+            <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-amber-800">Manca il rapportino di ieri</p>
+              <p className="text-xs text-amber-700 mt-0.5">{dayjs().subtract(1, 'day').format('dddd D MMMM')} — registra ora per non perdere le ore</p>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── BLOCCO REGISTRAZIONE ── */}
       {fase === 'done' ? (
