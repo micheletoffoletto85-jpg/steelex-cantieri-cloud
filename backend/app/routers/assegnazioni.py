@@ -88,16 +88,23 @@ def lista_operatori(
 
 @router.get("")
 def lista_assegnazioni(
-    anno: int,
-    mese: int,
+    anno: Optional[int] = None,
+    mese: Optional[int] = None,
+    data_inizio: Optional[date] = None,
+    data_fine: Optional[date] = None,
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
-    from calendar import monthrange
-    primo = date(anno, mese, 1)
-    ultimo = date(anno, mese, monthrange(anno, mese)[1])
+    if data_inizio and data_fine:
+        primo, ultimo = data_inizio, data_fine
+    elif anno and mese:
+        from calendar import monthrange
+        primo = date(anno, mese, 1)
+        ultimo = date(anno, mese, monthrange(anno, mese)[1])
+    else:
+        raise HTTPException(422, "Specificare anno+mese oppure data_inizio+data_fine")
     rows = (
         db.query(AssegnazioneOperatore)
         .filter(AssegnazioneOperatore.data >= primo, AssegnazioneOperatore.data <= ultimo)
