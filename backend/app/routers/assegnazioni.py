@@ -53,9 +53,15 @@ def lista_operatori(
         .order_by(Artigiano.cognome, Artigiano.nome)
         .all()
     )
+    # ID utenti già presenti in rubrica artigiani → non duplicare
+    utenti_in_rubrica = {a.utente_id for a in artigiani if a.utente_id}
     utenti_op = (
         db.query(Utente)
-        .filter(Utente.ruolo.in_(list(RUOLI_OPERATIVI)), Utente.attivo == True)
+        .filter(
+            Utente.ruolo.in_(list(RUOLI_OPERATIVI)),
+            Utente.attivo == True,
+            ~Utente.id.in_(utenti_in_rubrica) if utenti_in_rubrica else True,
+        )
         .order_by(Utente.cognome, Utente.nome)
         .all()
     )
