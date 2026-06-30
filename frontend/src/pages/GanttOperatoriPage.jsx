@@ -311,105 +311,82 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
   const artigiani = operatori.filter(o => o.tipo === 'artigiano')
   const utentiOp  = operatori.filter(o => o.tipo === 'utente')
 
-  const CELL_W = Math.max(34, Math.floor((window.innerWidth - 90) / Math.min(giorni.length, 10)))
-  const NAME_W = 88
+  // Larghezza cella: adatta allo schermo, minimo 40px per essere toccabile
+  const NAME_W = 90
+  const CELL_W = Math.max(40, Math.floor((window.innerWidth - NAME_W - 2) / Math.min(giorni.length, 10)))
+  const CELL_H = 48
 
-  const CellaGiorno = ({ op, d }) => {
-    const dataStr = d.format('YYYY-MM-DD')
-    const isWeekend = d.day() === 0 || d.day() === 6
-    const isOggi = d.isSame(oggi, 'day')
+  // Una riga per operatore, una td per giorno divisa in sinistra=M / destra=P
+  const RigaOp = ({ op, zebra }) => (
+    <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+      <td className="sticky left-0 z-10 border-r-2 border-gray-200 px-2"
+        style={{ background: zebra ? '#f9fafb' : '#fff', width: NAME_W, minWidth: NAME_W, maxWidth: NAME_W, height: CELL_H, verticalAlign: 'middle' }}>
+        <p className="font-semibold text-gray-800 leading-tight truncate" style={{ fontSize: 11 }}>
+          {op.nome.split(' ').slice(0,2).join(' ')}
+        </p>
+        <p className="text-gray-400 truncate capitalize" style={{ fontSize: 9 }}>{op.azienda || op.categoria}</p>
+      </td>
+      {giorni.map(d => {
+        const dataStr = d.format('YYYY-MM-DD')
+        const isWeekend = d.day() === 0 || d.day() === 6
+        const isOggi = d.isSame(oggi, 'day')
+        const assM = assMap[ck(op.tipo, op.id, dataStr, 'M')]
+        const assP = assMap[ck(op.tipo, op.id, dataStr, 'P')]
+        const colM = getColore(assM?.cantiere_id)
+        const colP = getColore(assP?.cantiere_id)
+        const selM = selKeys.has(ck(op.tipo, op.id, dataStr, 'M'))
+        const selP = selKeys.has(ck(op.tipo, op.id, dataStr, 'P'))
+        const openM = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno==='M'
+        const openP = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno==='P'
 
-    return ['M','P'].map(turno => {
-      const key = ck(op.tipo, op.id, dataStr, turno)
-      const ass = assMap[key]
-      const col = getColore(ass?.cantiere_id)
-      const isSel = selKeys.has(key)
-      const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
-
-      const bg = isSel ? (col || '#fdba74') : (col || undefined)
-
-      return (
-        <td key={key} data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno={turno}
-          className={`relative border-r border-gray-100 p-0 ${isWeekend && !ass ? '' : ''}`}
-          style={{
-            width: CELL_W,
-            height: 28,
-            background: bg || (isWeekend ? '#f9fafb' : undefined),
-            borderBottom: '1px solid #f3f4f6',
-            outline: isOggi ? '1px solid #FF6B00' : undefined,
-            outlineOffset: isOggi ? '-1px' : undefined,
-          }}
-          onTouchStart={canWrite && modalitaAssegna ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}
-          onClick={canWrite && !modalitaAssegna ? () => setPopover({ op, data: dataStr, turno }) : undefined}>
-          <div className="w-full h-full flex items-center justify-center">
-            {ass?.cantiere_nome
-              ? <span className="text-white font-bold pointer-events-none select-none" style={{ fontSize: 8 }}>{ass.cantiere_nome.slice(0,3).toUpperCase()}</span>
-              : <span style={{ fontSize: 7, color: isSel ? '#fff' : '#d1d5db' }}>{turno}</span>
-            }
-          </div>
-          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
-        </td>
-      )
-    })
-  }
-
-  // Raggruppiamo per righe: ogni riga = un operatore, ogni coppia di td = un giorno (M sopra, P sotto)
-  // Ma con la struttura a tabella dobbiamo fare 2 righe per operatore (una M, una P)
-  const RigheOp = ({ op, zebra }) => {
-    const bg = zebra ? '#f9fafb' : '#fff'
-    const celleTurno = (turno) => giorni.map(d => {
-      const dataStr = d.format('YYYY-MM-DD')
-      const isWeekend = d.day() === 0 || d.day() === 6
-      const isOggi = d.isSame(oggi, 'day')
-      const key = ck(op.tipo, op.id, dataStr, turno)
-      const ass = assMap[key]
-      const col = getColore(ass?.cantiere_id)
-      const isSel = selKeys.has(key)
-      const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
-      const bg2 = isSel ? (col || '#fdba74') : (col || (isWeekend ? '#f9fafb' : undefined))
-
-      return (
-        <td key={key} data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno={turno}
-          className="relative p-0 select-none"
-          style={{
-            width: CELL_W, minWidth: CELL_W, height: 24,
-            background: bg2,
-            border: '1px solid #f3f4f6',
-            outline: isOggi ? '1px solid #FF6B00' : undefined,
-            outlineOffset: isOggi ? '-1px' : undefined,
-          }}
-          onTouchStart={canWrite && modalitaAssegna ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}
-          onClick={canWrite && !modalitaAssegna ? () => setPopover({ op, data: dataStr, turno }) : undefined}>
-          <div className="w-full h-full flex items-center justify-center">
-            {ass?.cantiere_nome
-              ? <span className="font-bold pointer-events-none select-none text-white" style={{ fontSize: 7 }}>{ass.cantiere_nome.slice(0,3).toUpperCase()}</span>
-              : null}
-          </div>
-          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
-        </td>
-      )
-    })
-
-    return (
-      <>
-        {/* Riga nome + Mattina */}
-        <tr>
-          <td rowSpan={2} className="sticky left-0 z-10 border-r-2 border-gray-200 px-1.5"
-            style={{ background: bg, minWidth: NAME_W, maxWidth: NAME_W, width: NAME_W, verticalAlign: 'middle', borderBottom: '2px solid #e5e7eb' }}>
-            <p className="font-semibold text-gray-800 leading-tight truncate" style={{ fontSize: 11 }}>
-              {op.nome.split(' ').slice(0,2).join(' ')}
-            </p>
-            <p className="text-gray-400 truncate capitalize" style={{ fontSize: 9 }}>{op.azienda || op.categoria}</p>
+        return (
+          <td key={dataStr}
+            className="relative p-0"
+            style={{
+              width: CELL_W, minWidth: CELL_W, height: CELL_H,
+              background: isWeekend ? '#f8fafc' : '#fff',
+              border: '1px solid #f3f4f6',
+              outline: isOggi ? '2px solid #FF6B00' : undefined,
+              outlineOffset: isOggi ? '-2px' : undefined,
+            }}>
+            <div style={{ display: 'flex', height: '100%' }}>
+              {/* Metà sinistra — Mattina */}
+              <div
+                data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno="M"
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  background: selM ? (colM || '#fdba74') : (colM || 'transparent'),
+                  borderRight: '1px solid rgba(0,0,0,0.06)',
+                  position: 'relative',
+                }}
+                onTouchStart={canWrite && modalitaAssegna ? e => { e.stopPropagation(); e.preventDefault(); startDrag(op, dataStr, 'M') } : undefined}
+                onClick={canWrite && !modalitaAssegna ? e => { e.stopPropagation(); setPopover({ op, data: dataStr, turno: 'M' }) } : undefined}>
+                {assM?.cantiere_nome
+                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{assM.cantiere_nome.slice(0,3).toUpperCase()}</span>
+                  : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>M</span>}
+                {openM && <Popover op={op} data={dataStr} turno="M" ass={assM} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+              </div>
+              {/* Metà destra — Pomeriggio */}
+              <div
+                data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno="P"
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  background: selP ? (colP || '#fdba74') : (colP || 'transparent'),
+                  position: 'relative',
+                }}
+                onTouchStart={canWrite && modalitaAssegna ? e => { e.stopPropagation(); e.preventDefault(); startDrag(op, dataStr, 'P') } : undefined}
+                onClick={canWrite && !modalitaAssegna ? e => { e.stopPropagation(); setPopover({ op, data: dataStr, turno: 'P' }) } : undefined}>
+                {assP?.cantiere_nome
+                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{assP.cantiere_nome.slice(0,3).toUpperCase()}</span>
+                  : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>P</span>}
+                {openP && <Popover op={op} data={dataStr} turno="P" ass={assP} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+              </div>
+            </div>
           </td>
-          {celleTurno('M')}
-        </tr>
-        {/* Riga Pomeriggio */}
-        <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-          {celleTurno('P')}
-        </tr>
-      </>
-    )
-  }
+        )
+      })}
+    </tr>
+  )
 
   const Gruppo = ({ label, colSpan }) => (
     <tr><td colSpan={colSpan}
@@ -422,10 +399,10 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-        <table className="border-collapse" style={{ tableLayout: 'fixed', minWidth: NAME_W + giorni.length * CELL_W }}>
+        <table className="border-collapse" style={{ tableLayout: 'fixed', width: NAME_W + giorni.length * CELL_W }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              <th className="sticky left-0 z-20 px-1.5 py-2 text-left border-r-2 border-gray-600"
+              <th className="sticky left-0 z-20 px-2 py-2 text-left border-r-2 border-gray-600"
                 style={{ background: '#1e293b', width: NAME_W, minWidth: NAME_W }}>
                 <span style={{ fontSize: 9 }} className="font-bold text-gray-300 uppercase tracking-widest">Nome</span>
               </th>
@@ -435,21 +412,21 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
                 return <th key={d.format('YYYY-MM-DD')}
                   className={`text-center border-l border-gray-700 py-1 ${isWeekend?'opacity-50':''}`}
                   style={{ width: CELL_W, minWidth: CELL_W }}>
-                  <div className={`font-bold ${isOggi?'text-steelex-orange':'text-white'}`} style={{ fontSize: 11 }}>{d.format('D')}</div>
+                  <div className={`font-bold ${isOggi?'text-steelex-orange':'text-white'}`} style={{ fontSize: 12 }}>{d.format('D')}</div>
                   <div className="uppercase text-gray-400" style={{ fontSize: 8 }}>{d.format('dd')}</div>
                 </th>
               })}
             </tr>
-            {/* Riga M/P */}
+            {/* Sottotestata M | P */}
             <tr style={{ background: '#f8fafc' }}>
               <th className="sticky left-0 z-20 border-r-2 border-gray-200 border-b border-gray-200"
                 style={{ background: '#f8fafc', width: NAME_W }}/>
               {giorni.map(d => (
                 <th key={d.format('YYYY-MM-DD')} className="border-l border-gray-200 border-b border-gray-200 p-0"
                   style={{ width: CELL_W }}>
-                  <div className="flex flex-col text-center" style={{ fontSize: 7, color: '#cbd5e1', lineHeight: '14px' }}>
-                    <span style={{ borderBottom: '1px solid #f1f5f9' }}>M</span>
-                    <span>P</span>
+                  <div style={{ display: 'flex', fontSize: 8, color: '#94a3b8', fontWeight: 700 }}>
+                    <span style={{ flex: 1, textAlign: 'center', borderRight: '1px solid #f1f5f9', padding: '2px 0' }}>M</span>
+                    <span style={{ flex: 1, textAlign: 'center', padding: '2px 0' }}>P</span>
                   </div>
                 </th>
               ))}
@@ -458,11 +435,11 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
           <tbody>
             {artigiani.length > 0 && <>
               <Gruppo label="Artigiani / Esterni" colSpan={totalCols}/>
-              {artigiani.map((op,i) => <RigheOp key={`a_${op.id}`} op={op} zebra={i%2!==0}/>)}
+              {artigiani.map((op,i) => <RigaOp key={`a_${op.id}`} op={op} zebra={i%2!==0}/>)}
             </>}
             {utentiOp.length > 0 && <>
               <Gruppo label="Operativi Interni" colSpan={totalCols}/>
-              {utentiOp.map((op,i) => <RigheOp key={`u_${op.id}`} op={op} zebra={i%2!==0}/>)}
+              {utentiOp.map((op,i) => <RigaOp key={`u_${op.id}`} op={op} zebra={i%2!==0}/>)}
             </>}
           </tbody>
         </table>
