@@ -257,9 +257,9 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden" style={{ userSelect: 'none' }}>
-      <div className="overflow-x-auto">
+      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 220px)' }}>
         <table style={{ borderCollapse: 'collapse', minWidth: 140 + giorni.length * 44 }}>
-          <thead>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
             <tr style={{ background: '#1e293b' }}>
               <th className="sticky left-0 z-20 px-2 py-2 text-left border-r border-gray-700"
                 style={{ background: '#1e293b', minWidth: 140 }}>
@@ -425,9 +425,9 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 220px)', WebkitOverflowScrolling: 'touch' }}>
         <table className="border-collapse" style={{ tableLayout: 'fixed', width: NAME_W + giorni.length * CELL_W }}>
-          <thead>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
             <tr style={{ background: '#1e293b' }}>
               <th className="sticky left-0 z-20 px-2 py-2 text-left border-r-2 border-gray-600"
                 style={{ background: '#1e293b', width: NAME_W, minWidth: NAME_W }}>
