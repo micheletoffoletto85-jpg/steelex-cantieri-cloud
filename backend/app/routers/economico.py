@@ -1754,39 +1754,46 @@ async def import_spese_excel(
     nome_file = (file.filename or "").lower()
     ext = os.path.splitext(nome_file)[1].lower()
 
-    # Normalizza tutto in lista di righe (lista di liste di valori)
+    # Rilevamento formato da magic bytes (più affidabile dell'estensione)
+    # XLS (OLE2): D0 CF 11 E0 — XLSX (ZIP): 50 4B 03 04 — CSV: testo
+    def _is_xls(data): return len(data) >= 8 and data[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
+    def _is_xlsx(data): return len(data) >= 4 and data[:4] == b'PK\x03\x04'
+
     righe_raw = []
     try:
-        if ext in (".xlsx", ".xlsm", ".ods", ""):
+        if _is_xls(contenuto):
+            # Vecchio formato .xls (OLE2) — usa xlrd
+            try:
+                import xlrd
+                wb = xlrd.open_workbook(file_contents=contenuto)
+                ws = wb.sheet_by_index(0)
+                righe_raw = [ws.row_values(i) for i in range(ws.nrows)]
+            except ImportError:
+                raise HTTPException(503, "Libreria xlrd non installata sul server. Usa il formato .xlsx o .csv")
+        elif _is_xlsx(contenuto) or ext in (".xlsx", ".xlsm", ".ods"):
             import openpyxl
             wb = openpyxl.load_workbook(io.BytesIO(contenuto), data_only=True)
             ws = wb.active
             righe_raw = [list(row) for row in ws.iter_rows(values_only=True)]
-        elif ext == ".xls":
-            import xlrd
-            wb = xlrd.open_workbook(file_contents=contenuto)
-            ws = wb.sheet_by_index(0)
-            righe_raw = [ws.row_values(i) for i in range(ws.nrows)]
-        elif ext in (".csv", ".txt"):
-            import csv, chardet
-            enc = chardet.detect(contenuto)["encoding"] or "utf-8"
+        else:
+            # CSV / testo (fallback)
+            import csv
+            try:
+                import chardet
+                enc = chardet.detect(contenuto)["encoding"] or "utf-8"
+            except ImportError:
+                enc = "utf-8"
             testo = contenuto.decode(enc, errors="replace")
-            dialect = csv.Sniffer().sniff(testo[:2048], delimiters=",;\t|")
+            try:
+                dialect = csv.Sniffer().sniff(testo[:2048], delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
             reader = csv.reader(testo.splitlines(), dialect)
             righe_raw = [list(row) for row in reader]
-        else:
-            # Prova openpyxl come fallback (per file senza estensione corretta)
-            try:
-                import openpyxl
-                wb = openpyxl.load_workbook(io.BytesIO(contenuto), data_only=True)
-                ws = wb.active
-                righe_raw = [list(row) for row in ws.iter_rows(values_only=True)]
-            except Exception:
-                raise HTTPException(400, "Formato file non supportato. Usa .xlsx, .xls o .csv")
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(400, f"Impossibile leggere il file: {e}")
+        raise HTTPException(400, f"Impossibile leggere il file ({ext or 'formato sconosciuto'}): {e}")
 
     ALIAS_COLONNE = {
         "data": ["data", "date", "data spesa", "data doc", "data documento", "giorno"],
