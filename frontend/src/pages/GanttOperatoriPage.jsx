@@ -86,8 +86,8 @@ function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle
         </button>
         {(ass || isRange) && (
           <button onClick={svuota}
-            className="px-3 py-2 border border-red-200 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-50 transition-colors">
-            Rimuovi
+            className="px-3 py-2 border border-red-200 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap">
+            {isRange ? `Svuota (${rangeCelle.length})` : 'Rimuovi'}
           </button>
         )}
       </div>
@@ -170,7 +170,7 @@ function useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopove
 }
 
 // ── Griglia DESKTOP ───────────────────────────────────────────────────────────
-function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi }) {
+function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi, opImpegnati = new Set() }) {
   const [popover, setPopover] = useState(null)
   const [selKeys, setSelKeys] = useState(new Set())
   const assMapRef  = useRef(assMap)
@@ -242,16 +242,22 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
     })
   }
 
-  const Riga = ({ op, zebra }) => (
-    <tr>
-      <td className="sticky left-0 z-10 border-r border-gray-200 px-2 py-1"
-        style={{ background: zebra ? '#fafafa' : '#fff', minWidth: 140, maxWidth: 140, borderBottom: '1px solid #f0f0f0' }}>
-        <p className="text-xs font-semibold text-gray-800 truncate">{op.nome}</p>
-        <p className="text-[10px] text-gray-400 truncate capitalize">{op.azienda || op.categoria}</p>
-      </td>
-      {giorni.map(d => <CellaMP key={d.format('YYYY-MM-DD')} op={op} d={d} zebraRow={zebra}/>)}
-    </tr>
-  )
+  const Riga = ({ op, zebra }) => {
+    const impegnato = opImpegnati.has(`${op.tipo}_${op.id}`)
+    return (
+      <tr>
+        <td className="sticky left-0 z-10 border-r border-gray-200 px-2 py-1"
+          style={{ background: zebra ? '#fafafa' : '#fff', minWidth: 140, maxWidth: 140, borderBottom: '1px solid #f0f0f0' }}>
+          <div className="flex items-center gap-1.5">
+            {impegnato && <div className="w-1.5 h-1.5 rounded-full bg-steelex-orange flex-shrink-0"/>}
+            <p className="text-xs font-semibold text-gray-800 truncate">{op.nome}</p>
+          </div>
+          <p className="text-[10px] text-gray-400 truncate capitalize">{op.azienda || op.categoria}</p>
+        </td>
+        {giorni.map(d => <CellaMP key={d.format('YYYY-MM-DD')} op={op} d={d} zebraRow={zebra}/>)}
+      </tr>
+    )
+  }
 
   const Gruppo = ({ label }) => (
     <tr><td colSpan={1 + giorni.length * 2}
@@ -305,7 +311,7 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
 }
 
 // ── Griglia MOBILE ────────────────────────────────────────────────────────────
-function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi, modalitaAssegna }) {
+function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi, modalitaAssegna, opImpegnati = new Set() }) {
   const [popover, setPopover] = useState(null)
   const [selKeys, setSelKeys] = useState(new Set())
   const assMapRef  = useRef(assMap)
@@ -347,9 +353,12 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
     <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
       <td className="sticky left-0 z-10 border-r-2 border-gray-200 px-2"
         style={{ background: zebra ? '#f9fafb' : '#fff', width: NAME_W, minWidth: NAME_W, maxWidth: NAME_W, height: CELL_H, verticalAlign: 'middle' }}>
-        <p className="font-semibold text-gray-800 leading-tight truncate" style={{ fontSize: 11 }}>
-          {op.nome.split(' ').slice(0,2).join(' ')}
-        </p>
+        <div className="flex items-center gap-1">
+          {opImpegnati.has(`${op.tipo}_${op.id}`) && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF6B00', flexShrink: 0 }}/>}
+          <p className="font-semibold text-gray-800 leading-tight truncate" style={{ fontSize: 11 }}>
+            {op.nome.split(' ').slice(0,2).join(' ')}
+          </p>
+        </div>
         <p className="text-gray-400 truncate capitalize" style={{ fontSize: 9 }}>{op.azienda || op.categoria}</p>
       </td>
       {giorni.map(d => {
@@ -484,6 +493,7 @@ export default function GanttOperatoriPage() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const [vista, setVista] = useState(isMobile ? 'settimana' : 'mese')
   const [modalitaAssegna, setModalitaAssegna] = useState(false)
+  const [filtroCategoria, setFiltroCategoria] = useState(null) // null = tutti
 
   const [anno, setAnno] = useState(oggi.year())
   const [mese, setMese] = useState(oggi.month() + 1)
@@ -530,12 +540,40 @@ export default function GanttOperatoriPage() {
   }, [assegnazioni])
 
   const usatiIds = useMemo(() => new Set(assegnazioni.map(a => a.cantiere_id).filter(Boolean)), [assegnazioni])
-  const salva = body => upsertMutation.mutate(body)
+
+  // Categorie disponibili (da artigiani)
+  const categorie = useMemo(() => {
+    const cats = new Set(operatori.filter(o => o.categoria).map(o => o.categoria))
+    return [...cats].sort()
+  }, [operatori])
+
+  // Chi ha almeno un'assegnazione nel periodo → in cima
+  const opImpegnati = useMemo(() => {
+    const keys = new Set(assegnazioni.map(a =>
+      a.artigiano_id ? `artigiano_${a.artigiano_id}` : `utente_${a.utente_id}`
+    ))
+    return keys
+  }, [assegnazioni])
+
+  // Filtra per categoria poi ordina: impegnati in cima
+  const operatoriFiltrati = useMemo(() => {
+    let lista = filtroCategoria
+      ? operatori.filter(o => o.categoria === filtroCategoria || (o.tipo === 'utente' && filtroCategoria === '__interni__'))
+      : operatori
+    return [...lista].sort((a, b) => {
+      const aImp = opImpegnati.has(`${a.tipo}_${a.id}`)
+      const bImp = opImpegnati.has(`${b.tipo}_${b.id}`)
+      if (aImp && !bImp) return -1
+      if (!aImp && bImp) return 1
+      return 0
+    })
+  }, [operatori, filtroCategoria, opImpegnati])
 
   const upsertMutation = useMutation(
     body => api.put('/assegnazioni', body),
     { onSuccess: () => qc.invalidateQueries(queryKey), onError: e => toast.error(e.response?.data?.detail || 'Errore') }
   )
+  const salva = body => upsertMutation.mutate(body)
 
   const navLabel = vista === 'mese'
     ? dayjs(`${anno}-${String(mese).padStart(2,'0')}-01`).format('MMMM YYYY')
@@ -557,7 +595,11 @@ export default function GanttOperatoriPage() {
           <Users size={20} className="text-steelex-orange"/>
           <div>
             <h1 className="text-lg font-bold text-gray-900">Gantt Operatori</h1>
-            <p className="text-xs text-gray-400">{operatori.filter(o=>o.tipo==='artigiano').length} artigiani · {operatori.filter(o=>o.tipo==='utente').length} interni</p>
+            <p className="text-xs text-gray-400">
+              {operatoriFiltrati.filter(o=>o.tipo==='artigiano').length} artigiani ·{' '}
+              {operatoriFiltrati.filter(o=>o.tipo==='utente').length} interni ·{' '}
+              <span className="text-steelex-orange font-semibold">{opImpegnati.size} impegnati</span>
+            </p>
           </div>
         </div>
         {!usaMobile && (
@@ -574,6 +616,29 @@ export default function GanttOperatoriPage() {
         )}
       </div>
 
+      {/* Filtri categoria */}
+      {categorie.length > 0 && (
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <button
+            onClick={() => setFiltroCategoria(null)}
+            className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${!filtroCategoria ? 'bg-steelex-orange text-white border-steelex-orange' : 'bg-white text-gray-500 border-gray-200 hover:border-steelex-orange hover:text-steelex-orange'}`}>
+            Tutti
+          </button>
+          {categorie.map(cat => (
+            <button key={cat}
+              onClick={() => setFiltroCategoria(f => f === cat ? null : cat)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors capitalize ${filtroCategoria === cat ? 'bg-steelex-orange text-white border-steelex-orange' : 'bg-white text-gray-500 border-gray-200 hover:border-steelex-orange hover:text-steelex-orange'}`}>
+              {cat}
+            </button>
+          ))}
+          <button
+            onClick={() => setFiltroCategoria('__interni__')}
+            className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${filtroCategoria === '__interni__' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-gray-500 border-gray-200 hover:border-slate-500 hover:text-slate-600'}`}>
+            Solo interni
+          </button>
+        </div>
+      )}
+
       {/* Navigazione */}
       <div className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm p-2.5">
         <button onClick={vista==='mese' ? prevMese : prevSett} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"><ChevronLeft size={18}/></button>
@@ -586,11 +651,11 @@ export default function GanttOperatoriPage() {
 
       {!usaMobile && canWrite && (
         <p className="text-xs text-gray-400 px-1">
-          💡 <strong>Click</strong> per assegnare · <strong>Trascina</strong> per più turni · Trascina da cella colorata per <strong>replicare</strong>
+          💡 <strong>Click</strong> per assegnare · <strong>Trascina</strong> per selezionare un range (anche celle già occupate) · da cella colorata <strong>replica</strong> il cantiere
         </p>
       )}
 
-      {operatori.length === 0 ? (
+      {operatoriFiltrati.length === 0 ? (
         <div className="card text-center py-12 text-gray-400">
           <Users size={36} className="mx-auto mb-2 opacity-30"/>
           <p className="font-medium">Nessun operatore trovato</p>
@@ -598,10 +663,11 @@ export default function GanttOperatoriPage() {
       ) : (
         <>
           {usaMobile
-            ? <GrigliaMobile operatori={operatori} giorni={giorni} assMap={assMap} cantieri={cantieri}
-                onSalva={salva} canWrite={canWrite} oggi={oggi} modalitaAssegna={modalitaAssegna}/>
-            : <GrigliaDesktop operatori={operatori} giorni={giorni} assMap={assMap} cantieri={cantieri}
-                onSalva={salva} canWrite={canWrite} oggi={oggi}/>
+            ? <GrigliaMobile operatori={operatoriFiltrati} giorni={giorni} assMap={assMap} cantieri={cantieri}
+                onSalva={salva} canWrite={canWrite} oggi={oggi} modalitaAssegna={modalitaAssegna}
+                opImpegnati={opImpegnati}/>
+            : <GrigliaDesktop operatori={operatoriFiltrati} giorni={giorni} assMap={assMap} cantieri={cantieri}
+                onSalva={salva} canWrite={canWrite} oggi={oggi} opImpegnati={opImpegnati}/>
           }
           <Legenda cantieri={cantieri} usatiIds={usatiIds}/>
         </>
