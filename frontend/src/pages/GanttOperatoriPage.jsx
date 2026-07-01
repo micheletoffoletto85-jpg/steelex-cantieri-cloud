@@ -28,9 +28,9 @@ function ck(tipo, id, data, turno) { return `${tipo}__${id}__${data}__${turno}` 
 function parseKey(k) { const [tipo, id, data, turno] = k.split('__'); return { tipo, id: parseInt(id), data, turno } }
 
 // ── Popover ───────────────────────────────────────────────────────────────────
-function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle }) {
-  const [cantiereId, setCantiereId] = useState(ass?.cantiere_id ?? '')
-  const [lavorazione, setLavorazione] = useState(ass?.lavorazione ?? '')
+function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle, cantiereIdIniziale, lavorazioneIniziale }) {
+  const [cantiereId, setCantiereId] = useState(cantiereIdIniziale ?? ass?.cantiere_id ?? '')
+  const [lavorazione, setLavorazione] = useState(lavorazioneIniziale ?? ass?.lavorazione ?? '')
   const ref = useRef(null)
   const isRange = rangeCelle?.length > 1
   const celle = isRange ? rangeCelle : [{ op, data, turno }]
@@ -156,14 +156,7 @@ function useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopove
       return op2 ? { op: op2, data: p.data, turno: p.turno } : null
     }).filter(Boolean)
 
-    if (d.cantiereId) {
-      celle.forEach(c => onSalvaRef.current({
-        ...(c.op.tipo === 'artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }),
-        data: c.data, turno: c.turno, cantiere_id: d.cantiereId, lavorazione: d.lavorazione || null,
-      }))
-    } else {
-      setPopover({ op: d.op, data: d.startData, turno: d.startTurno, rangeCelle: celle })
-    }
+    setPopover({ op: d.op, data: d.startData, turno: d.startTurno, rangeCelle: celle, cantiereIdIniziale: d.cantiereId, lavorazioneIniziale: d.lavorazione })
   }
 
   return { dragRef, startDrag, moveDrag, endDrag }
@@ -233,7 +226,7 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
           ) : canWrite ? (
             <div className="w-full h-full cursor-pointer hover:bg-orange-50/60 transition-colors"/>
           ) : null}
-          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} rangeCelle={popover.rangeCelle} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
         </td>
       )
     })
@@ -398,7 +391,7 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
                 {assM?.cantiere_nome
                   ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{assM.cantiere_nome.slice(0,3).toUpperCase()}</span>
                   : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>M</span>}
-                {openM && <Popover op={op} data={dataStr} turno="M" ass={assM} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+                {openM && <Popover op={op} data={dataStr} turno="M" ass={assM} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
               </div>
               {/* Metà destra — Pomeriggio */}
               <div
@@ -413,7 +406,7 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
                 {assP?.cantiere_nome
                   ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{assP.cantiere_nome.slice(0,3).toUpperCase()}</span>
                   : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>P</span>}
-                {openP && <Popover op={op} data={dataStr} turno="P" ass={assP} cantieri={cantieri} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+                {openP && <Popover op={op} data={dataStr} turno="P" ass={assP} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
               </div>
             </div>
           </td>
