@@ -1731,3 +1731,351 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{nome_file}"'},
     )
+
+
+# ─── IMPORT SPESE DA EXCEL ────────────────────────────────────────────────────
+
+@router.post("/{cantiere_id}/spese/import-excel")
+async def import_spese_excel(
+    cantiere_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """
+    Legge un file Excel con colonne: data, descrizione, fornitore, categoria, importo, note.
+    Restituisce le righe parsate per preview — il frontend le conferma prima del salvataggio.
+    Colonne accettate in modo flessibile (case-insensitive, alias italiani/inglesi).
+    """
+    import openpyxl
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+
+    contenuto = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contenuto), data_only=True)
+        ws = wb.active
+    except Exception as e:
+        raise HTTPException(400, f"File Excel non leggibile: {e}")
+
+    ALIAS_COLONNE = {
+        "data": ["data", "date", "data spesa", "data doc", "data documento", "giorno"],
+        "descrizione": ["descrizione", "description", "oggetto", "voce", "causale", "desc"],
+        "fornitore": ["fornitore", "supplier", "fornitore/venditore", "venditore", "azienda"],
+        "categoria": ["categoria", "category", "tipo", "type"],
+        "importo": ["importo", "amount", "totale", "importo totale", "€", "euro", "costo", "spesa"],
+        "note": ["note", "notes", "annotazioni", "commento", "commenti"],
+    }
+
+    CATEGORIE_VALIDE = {"materiali", "manodopera", "nolo", "servizi", "trasporto", "altro"}
+    ALIAS_CATEGORIE = {
+        "materiale": "materiali", "material": "materiali", "materials": "materiali",
+        "mat": "materiali", "manodopera": "manodopera", "mano": "manodopera",
+        "labor": "manodopera", "lavoro": "manodopera", "nolo": "nolo", "rent": "nolo",
+        "noleggio": "nolo", "servizi": "servizi", "services": "servizi",
+        "servizio": "servizi", "trasporto": "trasporto", "transport": "trasporto",
+        "logistica": "trasporto", "altro": "altro", "other": "altro",
+        "varie": "altro", "vario": "altro",
+    }
+
+    # Individua riga intestazione (prima riga non vuota)
+    header_row = None
+    col_map = {}
+    for i, row in enumerate(ws.iter_rows(values_only=True), 1):
+        if all(v is None for v in row):
+            continue
+        row_lower = [str(v).strip().lower() if v is not None else "" for v in row]
+        matched = {}
+        for campo, alias_list in ALIAS_COLONNE.items():
+            for j, cell_val in enumerate(row_lower):
+                if cell_val in alias_list:
+                    matched[campo] = j
+                    break
+        if "importo" in matched or "descrizione" in matched:
+            header_row = i
+            col_map = matched
+            break
+
+    if header_row is None:
+        raise HTTPException(400, "Intestazione non trovata. Assicurati che il file abbia colonne: Descrizione, Importo (+ opzionali: Data, Fornitore, Categoria, Note)")
+
+    righe = []
+    errori = []
+    for i, row in enumerate(ws.iter_rows(min_row=header_row + 1, values_only=True), header_row + 1):
+        if all(v is None for v in row):
+            continue
+
+        def val(campo):
+            idx = col_map.get(campo)
+            if idx is None:
+                return None
+            v = row[idx] if idx < len(row) else None
+            return str(v).strip() if v is not None else None
+
+        # Importo
+        imp_raw = val("importo")
+        if not imp_raw:
+            continue  # riga senza importo = skip silenzioso
+        try:
+            importo = round(float(str(imp_raw).replace(",", ".").replace("€", "").strip()), 2)
+            if importo <= 0:
+                continue
+        except Exception:
+            errori.append(f"Riga {i}: importo '{imp_raw}' non valido")
+            continue
+
+        # Data
+        data_raw = val("data")
+        data_str = None
+        if data_raw:
+            from datetime import datetime as _dt
+            for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y", "%d-%m-%y"):
+                try:
+                    data_str = _dt.strptime(data_raw, fmt).date().isoformat()
+                    break
+                except Exception:
+                    pass
+            if data_str is None:
+                # Prova timestamp Excel (numero float)
+                try:
+                    from openpyxl.utils.datetime import from_excel
+                    data_str = from_excel(float(data_raw)).date().isoformat()
+                except Exception:
+                    pass
+
+        # Categoria
+        cat_raw = (val("categoria") or "altro").lower().strip()
+        categoria = ALIAS_CATEGORIE.get(cat_raw, "altro") if cat_raw not in CATEGORIE_VALIDE else cat_raw
+
+        descrizione = val("descrizione") or "Spesa senza descrizione"
+        fornitore = val("fornitore") or ""
+        note = val("note") or ""
+
+        righe.append({
+            "riga_excel": i,
+            "data": data_str or date.today().isoformat(),
+            "descrizione": descrizione,
+            "fornitore": fornitore,
+            "categoria": categoria,
+            "importo": importo,
+            "note": note,
+            "ok": True,
+        })
+
+    return {
+        "righe": righe,
+        "totale": round(sum(r["importo"] for r in righe), 2),
+        "errori": errori,
+    }
+
+
+@router.post("/{cantiere_id}/spese/import-excel/conferma")
+async def conferma_import_spese_excel(
+    cantiere_id: int,
+    righe: List[Any],
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Salva in bulk le spese selezionate dalla preview Excel."""
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+
+    salvate = 0
+    for r in righe:
+        try:
+            data_val = date.fromisoformat(r["data"]) if r.get("data") else date.today()
+            sp = Spesa(
+                cantiere_id=cantiere_id,
+                descrizione=r.get("descrizione", "")[:500],
+                fornitore=r.get("fornitore", "")[:255] or None,
+                categoria=r.get("categoria", "altro"),
+                importo=float(r.get("importo", 0)),
+                data=data_val,
+                note=r.get("note", "")[:1000] or None,
+                creato_da=user.id,
+            )
+            db.add(sp)
+            salvate += 1
+        except Exception:
+            continue
+    db.commit()
+    return {"salvate": salvate}
+
+
+# ─── ORDINI ACQUISTO ─────────────────────────────────────────────────────────
+
+class OrdineBody(BaseModel):
+    fornitore_nome: str
+    descrizione: str
+    categoria: Optional[str] = "materiali"
+    importo: float
+    iva_perc: Optional[float] = 22.0
+    stato: Optional[str] = "bozza"
+    data_ordine: Optional[date] = None
+    data_consegna_prevista: Optional[date] = None
+    note: Optional[str] = None
+
+def _ordine_dict(o: OrdineAcquisto) -> dict:
+    return {
+        "id": o.id,
+        "cantiere_id": o.cantiere_id,
+        "fornitore_nome": o.fornitore_nome,
+        "descrizione": o.descrizione,
+        "categoria": o.categoria,
+        "importo": o.importo,
+        "iva_perc": o.iva_perc,
+        "importo_totale": round(o.importo * (1 + (o.iva_perc or 22) / 100), 2),
+        "stato": o.stato,
+        "data_ordine": o.data_ordine.isoformat() if o.data_ordine else None,
+        "data_consegna_prevista": o.data_consegna_prevista.isoformat() if o.data_consegna_prevista else None,
+        "note": o.note,
+        "n_bolle": len(o.bolle) if hasattr(o, "bolle") else 0,
+    }
+
+@router.get("/{cantiere_id}/ordini")
+def lista_ordini(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    rows = db.query(OrdineAcquisto).filter(OrdineAcquisto.cantiere_id == cantiere_id).order_by(OrdineAcquisto.data_ordine.desc()).all()
+    return [_ordine_dict(r) for r in rows]
+
+@router.post("/{cantiere_id}/ordini")
+def crea_ordine(cantiere_id: int, body: OrdineBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = OrdineAcquisto(
+        cantiere_id=cantiere_id,
+        fornitore_nome=body.fornitore_nome,
+        descrizione=body.descrizione,
+        categoria=body.categoria or "materiali",
+        importo=body.importo,
+        iva_perc=body.iva_perc or 22,
+        stato=body.stato or "bozza",
+        data_ordine=body.data_ordine or date.today(),
+        data_consegna_prevista=body.data_consegna_prevista,
+        note=body.note,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _ordine_dict(row)
+
+@router.put("/{cantiere_id}/ordini/{ordine_id}")
+def aggiorna_ordine(cantiere_id: int, ordine_id: int, body: OrdineBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = db.query(OrdineAcquisto).filter(OrdineAcquisto.id == ordine_id, OrdineAcquisto.cantiere_id == cantiere_id).first()
+    if not row:
+        raise HTTPException(404)
+    for k, v in body.dict(exclude_none=True).items():
+        setattr(row, k, v)
+    db.commit(); db.refresh(row)
+    return _ordine_dict(row)
+
+@router.patch("/{cantiere_id}/ordini/{ordine_id}/stato")
+def aggiorna_stato_ordine(cantiere_id: int, ordine_id: int, stato: str, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = db.query(OrdineAcquisto).filter(OrdineAcquisto.id == ordine_id, OrdineAcquisto.cantiere_id == cantiere_id).first()
+    if not row:
+        raise HTTPException(404)
+    stati_validi = {"bozza", "inviato", "confermato", "evaso", "annullato"}
+    if stato not in stati_validi:
+        raise HTTPException(422, f"Stato non valido. Valori: {stati_validi}")
+    row.stato = stato
+    db.commit()
+    return _ordine_dict(row)
+
+@router.delete("/{cantiere_id}/ordini/{ordine_id}")
+def elimina_ordine(cantiere_id: int, ordine_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = db.query(OrdineAcquisto).filter(OrdineAcquisto.id == ordine_id, OrdineAcquisto.cantiere_id == cantiere_id).first()
+    if not row:
+        raise HTTPException(404)
+    db.delete(row); db.commit()
+    return {"ok": True}
+
+
+# ─── BOLLE CONSEGNA (DDT) ────────────────────────────────────────────────────
+
+class BollaBody(BaseModel):
+    fornitore_nome: str
+    numero_bolla: Optional[str] = None
+    data: Optional[date] = None
+    importo_stimato: Optional[float] = None
+    descrizione: Optional[str] = None
+    ordine_id: Optional[int] = None
+    note: Optional[str] = None
+
+def _bolla_dict(b: BollaConsegna) -> dict:
+    return {
+        "id": b.id,
+        "cantiere_id": b.cantiere_id,
+        "fornitore_nome": b.fornitore_nome,
+        "numero_bolla": b.numero_bolla,
+        "data": b.data.isoformat() if b.data else None,
+        "importo_stimato": b.importo_stimato,
+        "descrizione": b.descrizione,
+        "ordine_id": b.ordine_id,
+        "stato": b.stato,
+        "foto_url": b.foto_url,
+        "note": getattr(b, "note", None),
+    }
+
+@router.get("/{cantiere_id}/bolle")
+def lista_bolle(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    rows = db.query(BollaConsegna).filter(BollaConsegna.cantiere_id == cantiere_id).order_by(BollaConsegna.data.desc()).all()
+    return [_bolla_dict(r) for r in rows]
+
+@router.post("/{cantiere_id}/bolle")
+def crea_bolla(cantiere_id: int, body: BollaBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = BollaConsegna(
+        cantiere_id=cantiere_id,
+        fornitore_nome=body.fornitore_nome,
+        numero_bolla=body.numero_bolla,
+        data=body.data or date.today(),
+        importo_stimato=body.importo_stimato,
+        descrizione=body.descrizione,
+        ordine_id=body.ordine_id,
+        stato="aperta",
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _bolla_dict(row)
+
+@router.put("/{cantiere_id}/bolle/{bolla_id}")
+def aggiorna_bolla(cantiere_id: int, bolla_id: int, body: BollaBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
+    if not row:
+        raise HTTPException(404)
+    for k, v in body.dict(exclude_none=True).items():
+        if hasattr(row, k):
+            setattr(row, k, v)
+    db.commit(); db.refresh(row)
+    return _bolla_dict(row)
+
+@router.post("/{cantiere_id}/bolle/{bolla_id}/foto")
+async def upload_foto_bolla(cantiere_id: int, bolla_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
+    if not row:
+        raise HTTPException(404)
+    url = await salva_file(file, f"bolle/{cantiere_id}/{bolla_id}")
+    row.foto_url = url
+    db.commit()
+    return {"foto_url": url}
+
+@router.delete("/{cantiere_id}/bolle/{bolla_id}")
+def elimina_bolla(cantiere_id: int, bolla_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user)
+    _solo_economia(user)
+    row = db.query(BollaConsegna).filter(BollaConsegna.id == bolla_id, BollaConsegna.cantiere_id == cantiere_id).first()
+    if not row:
+        raise HTTPException(404)
+    db.delete(row); db.commit()
+    return {"ok": True}

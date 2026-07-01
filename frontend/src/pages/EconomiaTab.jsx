@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle, Clock, UserCheck, Pencil, MapPin } from 'lucide-react'
+import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle, Clock, UserCheck, Pencil, MapPin, ShoppingCart, Package, Table, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -23,10 +23,20 @@ const SEZIONI = [
   ['riepilogo', 'Riepilogo', BarChart2],
   ['computo',   'Computo',   ClipboardList],
   ['spese',     'Spese',     Receipt],
+  ['ordini',    'Ordini',    ShoppingCart],
+  ['bolle',     'DDT',       Package],
   ['fatture',   'Fatture',   FileText],
   ['sal',       'SAL',       TrendingUp],
   ['ore',       'Ore Extra', Clock],
 ]
+
+const STATI_ORDINE = {
+  bozza:      { label: 'Bozza',      bg: 'bg-gray-100 text-gray-600' },
+  inviato:    { label: 'Inviato',    bg: 'bg-blue-100 text-blue-700' },
+  confermato: { label: 'Confermato', bg: 'bg-indigo-100 text-indigo-700' },
+  evaso:      { label: 'Evaso ✓',   bg: 'bg-green-100 text-green-700' },
+  annullato:  { label: 'Annullato',  bg: 'bg-red-100 text-red-600' },
+}
 
 export default function EconomiaTab({ cantiereId }) {
   const { utente } = useAuth()
@@ -83,6 +93,12 @@ export default function EconomiaTab({ cantiereId }) {
         <>
           <div style={{ display: sezione === 'spese' ? 'block' : 'none' }}>
             <SpeseSection cantiereId={cantiereId} canWrite={canWrite} />
+          </div>
+          <div style={{ display: sezione === 'ordini' ? 'block' : 'none' }}>
+            <OrdiniSection cantiereId={cantiereId} canWrite={canWrite} />
+          </div>
+          <div style={{ display: sezione === 'bolle' ? 'block' : 'none' }}>
+            <BolleSection cantiereId={cantiereId} canWrite={canWrite} />
           </div>
           <div style={{ display: sezione === 'fatture' ? 'block' : 'none' }}>
             <FattureSection cantiereId={cantiereId} canWrite={canWrite} />
@@ -1030,6 +1046,8 @@ function SpeseSection({ cantiereId, canWrite }) {
   const [uploadingFor, setUploadingFor] = useState(null)
   const [analizzando, setAnalizzando] = useState(false)
   const [pinDaImportare, setPinDaImportare] = useState(null)
+  const [importExcel, setImportExcel] = useState(null) // { righe, totale, errori, selezionate }
+  const [importandoExcel, setImportandoExcel] = useState(false)
   const [form, setForm] = useState({ descrizione:'', fornitore:'', categoria:'materiali', importo:'', data:'', note:'' })
   const set = (k,v) => setForm(f => ({...f,[k]:v}))
 
@@ -1063,6 +1081,35 @@ function SpeseSection({ cantiereId, canWrite }) {
     } catch(e) {
       toast.error(e.response?.data?.detail || 'Errore analisi foto')
     } finally { setAnalizzando(false) }
+  }
+
+  const caricaExcelSpese = async (file) => {
+    setImportandoExcel(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await api.post(`/cantieri/${cantiereId}/spese/import-excel`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const selezionate = new Set(r.data.righe.map((_,i) => i))
+      setImportExcel({ ...r.data, selezionate })
+      if (r.data.errori?.length) toast(`${r.data.righe.length} righe lette, ${r.data.errori.length} errori`, { icon: '⚠️' })
+      else toast.success(`${r.data.righe.length} righe pronte — controlla e conferma`)
+    } catch(e) {
+      toast.error(e.response?.data?.detail || 'Errore lettura Excel')
+    } finally { setImportandoExcel(false) }
+  }
+
+  const confermaImportExcel = async () => {
+    if (!importExcel) return
+    setImportandoExcel(true)
+    try {
+      const selezionate = importExcel.righe.filter((_,i) => importExcel.selezionate.has(i))
+      await api.post(`/cantieri/${cantiereId}/spese/import-excel/conferma`, selezionate)
+      toast.success(`${selezionate.length} spese importate!`)
+      qc.invalidateQueries(['spese', cantiereId])
+      qc.invalidateQueries(['economia', cantiereId])
+      setImportExcel(null)
+    } catch(e) {
+      toast.error(e.response?.data?.detail || 'Errore import')
+    } finally { setImportandoExcel(false) }
   }
 
   const { data: spese = [], isLoading } = useQuery(['spese', cantiereId], () => api.get(`/cantieri/${cantiereId}/spese`).then(r => r.data), { staleTime: 0 })
@@ -1177,6 +1224,93 @@ function SpeseSection({ cantiereId, canWrite }) {
               disabled={analizzando}
               onChange={e => e.target.files[0] && analizzaFottura(e.target.files[0])} />
           </label>
+          <label className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer flex-shrink-0 ${importandoExcel ? 'bg-green-100 text-green-400' : 'bg-green-600 text-white hover:bg-green-700'}`}
+            title="Importa più spese da un file Excel (colonne: Data, Descrizione, Fornitore, Categoria, Importo, Note)">
+            {importandoExcel ? <Loader2 size={15} className="animate-spin" /> : <Table size={15} />}
+            {importandoExcel ? 'Lettura...' : 'Excel'}
+            <input type="file" accept=".xlsx,.xls,.ods" className="hidden"
+              disabled={importandoExcel}
+              onChange={e => e.target.files[0] && caricaExcelSpese(e.target.files[0])} />
+          </label>
+        </div>
+      )}
+
+      {/* Preview import Excel */}
+      {importExcel && (
+        <div className="card border-2 border-green-300 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-sm text-green-800">
+                <Table size={14} className="inline mr-1" />
+                Import Excel — {importExcel.righe.length} righe trovate
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Totale selezionato: <strong>{fmt(importExcel.righe.filter((_,i)=>importExcel.selezionate.has(i)).reduce((s,r)=>s+r.importo,0))}</strong>
+                {' · '}selezionate {importExcel.selezionate.size}/{importExcel.righe.length}
+              </p>
+            </div>
+            <button onClick={() => setImportExcel(null)} className="text-gray-300 hover:text-gray-500"><X size={16}/></button>
+          </div>
+
+          {importExcel.errori?.length > 0 && (
+            <div className="bg-yellow-50 rounded-lg p-2 text-xs text-yellow-700 space-y-0.5">
+              {importExcel.errori.map((e,i) => <p key={i}>⚠️ {e}</p>)}
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-2 py-1.5 text-left w-6">
+                    <input type="checkbox"
+                      checked={importExcel.selezionate.size === importExcel.righe.length}
+                      onChange={e => setImportExcel(prev => ({
+                        ...prev,
+                        selezionate: e.target.checked ? new Set(prev.righe.map((_,i)=>i)) : new Set()
+                      }))} />
+                  </th>
+                  <th className="px-2 py-1.5 text-left text-gray-500">Data</th>
+                  <th className="px-2 py-1.5 text-left text-gray-500">Descrizione</th>
+                  <th className="px-2 py-1.5 text-left text-gray-500">Fornitore</th>
+                  <th className="px-2 py-1.5 text-left text-gray-500">Cat.</th>
+                  <th className="px-2 py-1.5 text-right text-gray-500">Importo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importExcel.righe.map((r, i) => (
+                  <tr key={i} className={`border-t border-gray-50 ${!importExcel.selezionate.has(i) ? 'opacity-40' : ''}`}>
+                    <td className="px-2 py-1">
+                      <input type="checkbox" checked={importExcel.selezionate.has(i)}
+                        onChange={e => setImportExcel(prev => {
+                          const s = new Set(prev.selezionate)
+                          e.target.checked ? s.add(i) : s.delete(i)
+                          return { ...prev, selezionate: s }
+                        })} />
+                    </td>
+                    <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{r.data ? r.data.split('-').reverse().join('/') : '—'}</td>
+                    <td className="px-2 py-1 text-gray-900 max-w-[160px] truncate">{r.descrizione}</td>
+                    <td className="px-2 py-1 text-gray-500 max-w-[100px] truncate">{r.fornitore || '—'}</td>
+                    <td className="px-2 py-1">
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${CAT_COLORI[r.categoria] || 'bg-gray-100 text-gray-500'}`}>{r.categoria}</span>
+                    </td>
+                    <td className="px-2 py-1 text-right font-bold text-gray-900 whitespace-nowrap">{fmt(r.importo)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={confermaImportExcel} disabled={importandoExcel || importExcel.selezionate.size === 0}
+              className="btn-primary flex items-center gap-2 flex-1 justify-center">
+              {importandoExcel ? <Loader2 size={14} className="animate-spin"/> : <CheckCircle2 size={14}/>}
+              Importa {importExcel.selezionate.size} spese
+            </button>
+            <button onClick={() => setImportExcel(null)} className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+              Annulla
+            </button>
+          </div>
         </div>
       )}
 
@@ -1647,6 +1781,279 @@ function OreExtraSection({ cantiereId, canWrite }) {
           )}
         </div>
       ))}
+    </div>
+  )
+}
+
+/* ─── ORDINI ACQUISTO ─── */
+function OrdiniSection({ cantiereId, canWrite }) {
+  const qc = useQueryClient()
+  const vuotoOrdine = { fornitore_nome: '', descrizione: '', categoria: 'materiali', importo: '', iva_perc: '22', data_ordine: '', data_consegna_prevista: '', note: '', stato: 'bozza' }
+  const [form, setForm] = useState(vuotoOrdine)
+  const [editId, setEditId] = useState(null)
+  const [apriForm, setApriForm] = useState(false)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const { data: ordini = [], isLoading } = useQuery(['ordini', cantiereId], () => api.get(`/cantieri/${cantiereId}/ordini`).then(r => r.data), { staleTime: 0 })
+
+  const crea = useMutation(body => api.post(`/cantieri/${cantiereId}/ordini`, body), {
+    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoOrdine); toast.success('Ordine creato') }
+  })
+  const aggiorna = useMutation(({ id, body }) => api.put(`/cantieri/${cantiereId}/ordini/${id}`, body), {
+    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoOrdine); toast.success('Ordine aggiornato') }
+  })
+  const cambiaStato = useMutation(({ id, stato }) => api.patch(`/cantieri/${cantiereId}/ordini/${id}/stato?stato=${stato}`), {
+    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]) }
+  })
+  const elimina = useMutation(id => api.delete(`/cantieri/${cantiereId}/ordini/${id}`), {
+    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]); toast.success('Ordine eliminato') }
+  })
+
+  const salva = () => {
+    const body = { ...form, importo: parseFloat(form.importo) || 0, iva_perc: parseFloat(form.iva_perc) || 22, data_ordine: form.data_ordine || undefined, data_consegna_prevista: form.data_consegna_prevista || undefined }
+    if (!body.fornitore_nome || !body.descrizione || !body.importo) { toast.error('Fornitore, descrizione e importo obbligatori'); return }
+    editId ? aggiorna.mutate({ id: editId, body }) : crea.mutate(body)
+  }
+
+  const apriModifica = (o) => {
+    setEditId(o.id)
+    setForm({ fornitore_nome: o.fornitore_nome, descrizione: o.descrizione, categoria: o.categoria, importo: String(o.importo), iva_perc: String(o.iva_perc || 22), data_ordine: o.data_ordine || '', data_consegna_prevista: o.data_consegna_prevista || '', note: o.note || '', stato: o.stato })
+    setApriForm(true)
+  }
+
+  const totaleOrdini = ordini.reduce((s, o) => s + (o.importo_totale || 0), 0)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs text-gray-400">Totale ordinato (IVA incl.)</p>
+          <p className="text-xl font-bold text-gray-900">{fmt(totaleOrdini)}</p>
+        </div>
+        {canWrite && (
+          <button onClick={() => { setApriForm(!apriForm); setEditId(null); setForm(vuotoOrdine) }} className="btn-primary flex items-center gap-2">
+            <Plus size={15}/> Nuovo Ordine
+          </button>
+        )}
+      </div>
+
+      {apriForm && (
+        <div className="card space-y-3 border-2 border-steelex-orange/30">
+          <h3 className="font-bold text-sm text-gray-800">{editId ? 'Modifica Ordine' : 'Nuovo Ordine Acquisto'}</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="col-span-2"><label className="label-field">Fornitore *</label><input className="input-field" value={form.fornitore_nome} onChange={e => set('fornitore_nome', e.target.value)} placeholder="Nome fornitore"/></div>
+            <div className="col-span-2"><label className="label-field">Descrizione *</label><input className="input-field" value={form.descrizione} onChange={e => set('descrizione', e.target.value)} placeholder="Cosa si ordina"/></div>
+            <div><label className="label-field">Categoria</label>
+              <select className="input-field" value={form.categoria} onChange={e => set('categoria', e.target.value)}>
+                {CATEGORIE.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div><label className="label-field">Stato</label>
+              <select className="input-field" value={form.stato} onChange={e => set('stato', e.target.value)}>
+                {Object.entries(STATI_ORDINE).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+            <div><label className="label-field">Importo netto (€) *</label><input type="number" className="input-field" value={form.importo} onChange={e => set('importo', e.target.value)} placeholder="0.00"/></div>
+            <div><label className="label-field">IVA %</label><input type="number" className="input-field" value={form.iva_perc} onChange={e => set('iva_perc', e.target.value)} placeholder="22"/></div>
+            <div><label className="label-field">Data ordine</label><input type="date" className="input-field" value={form.data_ordine} onChange={e => set('data_ordine', e.target.value)}/></div>
+            <div><label className="label-field">Consegna prevista</label><input type="date" className="input-field" value={form.data_consegna_prevista} onChange={e => set('data_consegna_prevista', e.target.value)}/></div>
+            <div className="col-span-2"><label className="label-field">Note</label><textarea className="input-field resize-none" rows={2} value={form.note} onChange={e => set('note', e.target.value)}/></div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={salva} className="btn-primary flex-1">{editId ? 'Aggiorna' : 'Crea Ordine'}</button>
+            <button onClick={() => { setApriForm(false); setEditId(null); setForm(vuotoOrdine) }} className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600">Annulla</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? <div className="text-center py-8 text-gray-400">Caricamento...</div> : ordini.length === 0 ? (
+        <div className="card text-center py-10 text-gray-400">
+          <ShoppingCart size={32} className="mx-auto mb-2 opacity-30"/>
+          <p className="font-medium">Nessun ordine registrato</p>
+          <p className="text-xs mt-1">Traccia gli ordini ai fornitori per questo cantiere</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {ordini.map(o => {
+            const statoInfo = STATI_ORDINE[o.stato] || STATI_ORDINE.bozza
+            return (
+              <div key={o.id} className="card space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-gray-900 truncate">{o.descrizione}</p>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${statoInfo.bg}`}>{statoInfo.label}</span>
+                      {o.categoria && <span className={`text-[10px] px-2 py-0.5 rounded-full ${CAT_COLORI[o.categoria] || 'bg-gray-100 text-gray-500'}`}>{o.categoria}</span>}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">{o.fornitore_nome}</p>
+                    <div className="flex gap-3 text-xs text-gray-400 mt-1 flex-wrap">
+                      {o.data_ordine && <span>📅 {fmtD(o.data_ordine)}</span>}
+                      {o.data_consegna_prevista && <span>🚚 Consegna: {fmtD(o.data_consegna_prevista)}</span>}
+                    </div>
+                    {o.note && <p className="text-xs text-gray-500 italic mt-1">{o.note}</p>}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-bold text-gray-900">{fmt(o.importo_totale)}</p>
+                    <p className="text-[10px] text-gray-400">netto {fmt(o.importo)} + IVA {o.iva_perc}%</p>
+                  </div>
+                </div>
+                {canWrite && (
+                  <div className="flex items-center gap-2 border-t border-gray-50 pt-2">
+                    <select className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
+                      value={o.stato}
+                      onChange={e => cambiaStato.mutate({ id: o.id, stato: e.target.value })}>
+                      {Object.entries(STATI_ORDINE).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                    <button onClick={() => apriModifica(o)} className="p-1 text-gray-300 hover:text-blue-500"><Edit2 size={14}/></button>
+                    <button onClick={() => confirm('Eliminare ordine?') && elimina.mutate(o.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14}/></button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── BOLLE DDT ─── */
+function BolleSection({ cantiereId, canWrite }) {
+  const qc = useQueryClient()
+  const vuotoBolla = { fornitore_nome: '', numero_bolla: '', data: '', importo_stimato: '', descrizione: '', ordine_id: '', note: '' }
+  const [form, setForm] = useState(vuotoBolla)
+  const [editId, setEditId] = useState(null)
+  const [apriForm, setApriForm] = useState(false)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const { data: bolle = [], isLoading } = useQuery(['bolle', cantiereId], () => api.get(`/cantieri/${cantiereId}/bolle`).then(r => r.data), { staleTime: 0 })
+  const { data: ordini = [] } = useQuery(['ordini', cantiereId], () => api.get(`/cantieri/${cantiereId}/ordini`).then(r => r.data), { staleTime: 60000 })
+
+  const crea = useMutation(body => api.post(`/cantieri/${cantiereId}/bolle`, body), {
+    onSuccess: () => { qc.invalidateQueries(['bolle', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoBolla); toast.success('Bolla registrata') }
+  })
+  const aggiorna = useMutation(({ id, body }) => api.put(`/cantieri/${cantiereId}/bolle/${id}`, body), {
+    onSuccess: () => { qc.invalidateQueries(['bolle', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoBolla); toast.success('Bolla aggiornata') }
+  })
+  const elimina = useMutation(id => api.delete(`/cantieri/${cantiereId}/bolle/${id}`), {
+    onSuccess: () => { qc.invalidateQueries(['bolle', cantiereId]); toast.success('Bolla eliminata') }
+  })
+  const uploadFoto = async (bollaId, file) => {
+    const fd = new FormData(); fd.append('file', file)
+    try {
+      await api.post(`/cantieri/${cantiereId}/bolle/${bollaId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      qc.invalidateQueries(['bolle', cantiereId]); toast.success('Foto caricata')
+    } catch { toast.error('Errore upload foto') }
+  }
+
+  const salva = () => {
+    const body = {
+      fornitore_nome: form.fornitore_nome, numero_bolla: form.numero_bolla || undefined,
+      data: form.data || undefined, importo_stimato: form.importo_stimato ? parseFloat(form.importo_stimato) : undefined,
+      descrizione: form.descrizione || undefined, ordine_id: form.ordine_id ? parseInt(form.ordine_id) : undefined,
+      note: form.note || undefined,
+    }
+    if (!body.fornitore_nome) { toast.error('Fornitore obbligatorio'); return }
+    editId ? aggiorna.mutate({ id: editId, body }) : crea.mutate(body)
+  }
+
+  const apriModifica = (b) => {
+    setEditId(b.id)
+    setForm({ fornitore_nome: b.fornitore_nome, numero_bolla: b.numero_bolla || '', data: b.data || '', importo_stimato: b.importo_stimato ? String(b.importo_stimato) : '', descrizione: b.descrizione || '', ordine_id: b.ordine_id ? String(b.ordine_id) : '', note: b.note || '' })
+    setApriForm(true)
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs text-gray-400">{bolle.length} bolle di consegna registrate</p>
+          <p className="text-xl font-bold text-gray-900">{bolle.filter(b => b.stato === 'aperta').length} aperte · {bolle.filter(b => b.stato === 'fatturata').length} fatturate</p>
+        </div>
+        {canWrite && (
+          <button onClick={() => { setApriForm(!apriForm); setEditId(null); setForm(vuotoBolla) }} className="btn-primary flex items-center gap-2">
+            <Plus size={15}/> Nuova DDT
+          </button>
+        )}
+      </div>
+
+      {apriForm && (
+        <div className="card space-y-3 border-2 border-steelex-orange/30">
+          <h3 className="font-bold text-sm text-gray-800">{editId ? 'Modifica DDT' : 'Nuova Bolla di Consegna'}</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="col-span-2"><label className="label-field">Fornitore *</label><input className="input-field" value={form.fornitore_nome} onChange={e => set('fornitore_nome', e.target.value)} placeholder="Nome fornitore"/></div>
+            <div><label className="label-field">N° Bolla / DDT</label><input className="input-field" value={form.numero_bolla} onChange={e => set('numero_bolla', e.target.value)} placeholder="es. DDT-2025-001"/></div>
+            <div><label className="label-field">Data consegna</label><input type="date" className="input-field" value={form.data} onChange={e => set('data', e.target.value)}/></div>
+            <div><label className="label-field">Importo stimato (€)</label><input type="number" className="input-field" value={form.importo_stimato} onChange={e => set('importo_stimato', e.target.value)} placeholder="0.00"/></div>
+            <div><label className="label-field">Collega a Ordine</label>
+              <select className="input-field" value={form.ordine_id} onChange={e => set('ordine_id', e.target.value)}>
+                <option value="">— nessun ordine —</option>
+                {ordini.map(o => <option key={o.id} value={o.id}>{o.fornitore_nome} — {o.descrizione.slice(0,30)}</option>)}
+              </select>
+            </div>
+            <div className="col-span-2"><label className="label-field">Descrizione materiali consegnati</label><textarea className="input-field resize-none" rows={2} value={form.descrizione} onChange={e => set('descrizione', e.target.value)} placeholder="es. Lastre cartongesso 12.5mm — 80 pz"/></div>
+            <div className="col-span-2"><label className="label-field">Note</label><input className="input-field" value={form.note} onChange={e => set('note', e.target.value)}/></div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={salva} className="btn-primary flex-1">{editId ? 'Aggiorna' : 'Registra DDT'}</button>
+            <button onClick={() => { setApriForm(false); setEditId(null); setForm(vuotoBolla) }} className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600">Annulla</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? <div className="text-center py-8 text-gray-400">Caricamento...</div> : bolle.length === 0 ? (
+        <div className="card text-center py-10 text-gray-400">
+          <Package size={32} className="mx-auto mb-2 opacity-30"/>
+          <p className="font-medium">Nessuna bolla di consegna</p>
+          <p className="text-xs mt-1">Registra le DDT ricevute dai fornitori</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {bolle.map(b => {
+            const ordine = ordini.find(o => o.id === b.ordine_id)
+            return (
+              <div key={b.id} className="card space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-gray-900">{b.fornitore_nome}</p>
+                      {b.numero_bolla && <span className="text-xs text-gray-500 font-mono">{b.numero_bolla}</span>}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${b.stato === 'aperta' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                        {b.stato === 'aperta' ? '📦 Aperta' : '✓ Fatturata'}
+                      </span>
+                    </div>
+                    {b.descrizione && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{b.descrizione}</p>}
+                    <div className="flex gap-3 text-xs text-gray-400 mt-1 flex-wrap">
+                      {b.data && <span>📅 {fmtD(b.data)}</span>}
+                      {ordine && <span>🔗 Ordine: {ordine.fornitore_nome}</span>}
+                    </div>
+                    {b.note && <p className="text-xs text-gray-400 italic">{b.note}</p>}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    {b.importo_stimato && <p className="font-bold text-gray-900">{fmt(b.importo_stimato)}</p>}
+                    {b.foto_url && (
+                      <a href={b.foto_url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 flex items-center gap-0.5 justify-end mt-1">
+                        <Camera size={10}/> Foto
+                      </a>
+                    )}
+                  </div>
+                </div>
+                {canWrite && (
+                  <div className="flex items-center gap-2 border-t border-gray-50 pt-2">
+                    <label className="text-xs px-2 py-1 bg-gray-100 rounded-lg cursor-pointer hover:bg-gray-200 flex items-center gap-1 flex-shrink-0">
+                      <Camera size={12}/> Foto DDT
+                      <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => e.target.files[0] && uploadFoto(b.id, e.target.files[0])}/>
+                    </label>
+                    <div className="flex-1"/>
+                    <button onClick={() => apriModifica(b)} className="p-1 text-gray-300 hover:text-blue-500"><Edit2 size={14}/></button>
+                    <button onClick={() => confirm('Eliminare DDT?') && elimina.mutate(b.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14}/></button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
