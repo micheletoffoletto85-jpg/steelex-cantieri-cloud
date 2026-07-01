@@ -162,8 +162,18 @@ async def trascrivi_audio(
             risposta = client.audio.transcriptions.create(**whisper_kwargs)
         testo_originale = risposta.text.strip()
         lingua = lingua_hint if (lingua_hint and lingua_hint != "auto") else (getattr(risposta, "language", "it") or "it")
+    except HTTPException:
+        raise
+    except Exception as e:
+        err_str = str(e).lower()
+        if "quota" in err_str or "rate" in err_str or "429" in err_str:
+            raise HTTPException(503, "Servizio di trascrizione momentaneamente sovraccarico — riprova tra qualche secondo")
+        if "format" in err_str or "codec" in err_str or "invalid" in err_str:
+            raise HTTPException(422, "Formato audio non supportato — riprova registrando di nuovo")
+        raise HTTPException(502, f"Errore trascrizione: {str(e)[:120]}")
     finally:
-        os.unlink(tmp_path)
+        try: os.unlink(tmp_path)
+        except Exception: pass
 
     if not testo_originale:
         raise HTTPException(422, "Audio non udibile o troppo corto — riprova")
@@ -249,8 +259,16 @@ async def invia_rapportino(
                 risposta = client.audio.transcriptions.create(**whisper_kwargs)
             testo_originale = risposta.text.strip()
             lingua = lingua_hint if (lingua_hint and lingua_hint != "auto") else (getattr(risposta, "language", "it") or "it")
+        except HTTPException:
+            raise
+        except Exception as e:
+            err_str = str(e).lower()
+            if "quota" in err_str or "rate" in err_str or "429" in err_str:
+                raise HTTPException(503, "Servizio di trascrizione momentaneamente sovraccarico — riprova tra qualche secondo")
+            raise HTTPException(502, f"Errore trascrizione: {str(e)[:120]}")
         finally:
-            os.unlink(tmp_path)
+            try: os.unlink(tmp_path)
+            except Exception: pass
 
         if not testo_originale:
             raise HTTPException(422, "Audio non udibile")
