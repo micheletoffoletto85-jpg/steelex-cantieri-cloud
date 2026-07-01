@@ -194,26 +194,48 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
   const artigiani = operatori.filter(o => o.tipo === 'artigiano')
   const utentiOp  = operatori.filter(o => o.tipo === 'utente')
 
-  const CellaMP = ({ op, d }) => {
+  const CellaMP = ({ op, d, zebraRow }) => {
     const dataStr = d.format('YYYY-MM-DD')
     const isWeekend = d.day() === 0 || d.day() === 6
     const isOggi = d.isSame(oggi, 'day')
-    return ['M','P'].map(turno => {
+    // Separiamo ogni giorno con un border-right leggero, nessun border interno tra M e P
+    return ['M','P'].map((turno, ti) => {
       const key = ck(op.tipo, op.id, dataStr, turno)
       const ass = assMap[key]
       const col = getColore(ass?.cantiere_id)
       const isSel = selKeys.has(key)
       const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
+      const isEmpty = !ass && !isSel
+
+      // Sfondo cella vuota: appena percettibile, diverso solo per weekend e zebra
+      const emptyBg = isWeekend ? '#f5f6f8' : (zebraRow ? '#fafafa' : '#fff')
+
       return (
         <td key={key} data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno={turno}
-          className={`relative border border-gray-100 p-0 select-none ${isWeekend && !ass ? 'bg-gray-50' : ''} ${isOggi ? 'ring-1 ring-inset ring-steelex-orange' : ''}`}
-          style={{ width: 24, minWidth: 24, height: 30 }}
+          className="relative p-0 select-none"
+          style={{
+            width: 22, minWidth: 22, height: 32,
+            background: isEmpty ? emptyBg : (isSel ? (col || '#fdba74') : col),
+            // Bordo solo a destra dell'ultimo turno del giorno (P), separatore tra giorni
+            borderRight: ti === 1 ? (isOggi ? '2px solid #FF6B00' : '1px solid #e5e7eb') : '1px solid rgba(0,0,0,0.04)',
+            borderBottom: '1px solid #f0f0f0',
+            borderLeft: ti === 0 && isOggi ? '2px solid #FF6B00' : 'none',
+            borderTop: isOggi ? '2px solid #FF6B00' : 'none',
+          }}
           onPointerDown={canWrite ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}>
-          <div className={`w-full h-full flex items-center justify-center ${canWrite ? 'cursor-pointer' : ''} ${!ass && !isSel && canWrite ? 'hover:bg-orange-50' : ''}`}
-            style={{ background: isSel ? (col || '#fdba74') : (col || undefined) }}
-            title={ass ? `${ass.cantiere_nome||''}${ass.lavorazione?' — '+ass.lavorazione:''}` : undefined}>
-            {ass?.cantiere_nome && <span className="text-white font-bold pointer-events-none" style={{ fontSize: 8 }}>{ass.cantiere_nome.slice(0,3).toUpperCase()}</span>}
-          </div>
+          {!isEmpty ? (
+            <div className="w-full h-full flex items-center justify-center cursor-pointer"
+              title={`${ass?.cantiere_nome||''}${ass?.lavorazione?' — '+ass.lavorazione:''}`}>
+              {ass?.cantiere_nome && (
+                <span className="text-white font-black pointer-events-none leading-none"
+                  style={{ fontSize: 8, textShadow: '0 1px 2px rgba(0,0,0,0.25)' }}>
+                  {ass.cantiere_nome.slice(0,3).toUpperCase()}
+                </span>
+              )}
+            </div>
+          ) : canWrite ? (
+            <div className="w-full h-full cursor-pointer hover:bg-orange-50/60 transition-colors"/>
+          ) : null}
           {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} rangeCelle={popover.rangeCelle} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
         </td>
       )
@@ -221,49 +243,53 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
   }
 
   const Riga = ({ op, zebra }) => (
-    <tr className={zebra ? 'bg-gray-50/40' : ''}>
-      <td className="sticky left-0 z-10 border-r-2 border-gray-200 border-b border-gray-100 px-2 py-1"
-        style={{ background: zebra ? '#f9fafb' : '#fff', minWidth: 140, maxWidth: 140 }}>
+    <tr>
+      <td className="sticky left-0 z-10 border-r border-gray-200 px-2 py-1"
+        style={{ background: zebra ? '#fafafa' : '#fff', minWidth: 140, maxWidth: 140, borderBottom: '1px solid #f0f0f0' }}>
         <p className="text-xs font-semibold text-gray-800 truncate">{op.nome}</p>
         <p className="text-[10px] text-gray-400 truncate capitalize">{op.azienda || op.categoria}</p>
       </td>
-      {giorni.map(d => <CellaMP key={d.format('YYYY-MM-DD')} op={op} d={d}/>)}
+      {giorni.map(d => <CellaMP key={d.format('YYYY-MM-DD')} op={op} d={d} zebraRow={zebra}/>)}
     </tr>
   )
 
   const Gruppo = ({ label }) => (
     <tr><td colSpan={1 + giorni.length * 2}
-      className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-400 bg-gray-100 border-b border-gray-200"
-      style={{ position: 'sticky', left: 0 }}>{label}</td></tr>
+      className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-400 border-b border-gray-100"
+      style={{ position: 'sticky', left: 0, background: '#f8fafc' }}>{label}</td></tr>
   )
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden" style={{ userSelect: 'none' }}>
       <div className="overflow-x-auto">
-        <table className="border-collapse" style={{ minWidth: 140 + giorni.length * 48 }}>
+        <table style={{ borderCollapse: 'collapse', minWidth: 140 + giorni.length * 44 }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              <th className="sticky left-0 z-20 px-2 py-2 text-left border-r-2 border-gray-600"
+              <th className="sticky left-0 z-20 px-2 py-2 text-left border-r border-gray-700"
                 style={{ background: '#1e293b', minWidth: 140 }}>
                 <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Operatore</span>
               </th>
               {giorni.map(d => {
                 const isOggi = d.isSame(oggi,'day')
+                const isWeekend = d.day()===0||d.day()===6
                 return <th key={d.format('YYYY-MM-DD')} colSpan={2}
-                  className={`text-center border-l border-gray-700 py-1 ${d.day()===0||d.day()===6?'opacity-40':''}`}
-                  style={{ minWidth: 48 }}>
-                  <div className={`text-xs font-bold ${isOggi?'text-steelex-orange':'text-white'}`}>{d.format('D')}</div>
-                  <div className="text-[9px] uppercase text-gray-400">{d.format('dd')}</div>
+                  style={{ minWidth: 44, borderLeft: '1px solid rgba(255,255,255,0.08)', opacity: isWeekend ? 0.4 : 1 }}>
+                  <div className={`text-xs font-bold py-1 ${isOggi?'text-steelex-orange':'text-white'}`}>{d.format('D')}</div>
+                  <div className="text-[9px] uppercase text-gray-400 pb-1">{d.format('dd')}</div>
                 </th>
               })}
             </tr>
-            <tr style={{ background: '#f1f5f9' }}>
-              <th className="sticky left-0 z-20 border-r-2 border-gray-300 border-b border-gray-200" style={{ background: '#f1f5f9', minWidth: 140 }}/>
-              {giorni.map(d => ['M','P'].map(t => (
+            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
+              <th className="sticky left-0 z-20 border-r border-gray-200" style={{ background: '#f8fafc', minWidth: 140 }}/>
+              {giorni.map(d => ['M','P'].map((t, ti) => (
                 <th key={`${d.format('YYYY-MM-DD')}_${t}`}
-                  className={`text-center border-l border-gray-200 border-b border-gray-200 py-0.5 ${d.day()===0||d.day()===6?'bg-gray-100':''}`}
-                  style={{ width: 24 }}>
-                  <span className="text-[9px] font-semibold text-gray-400">{t}</span>
+                  style={{
+                    width: 22, fontSize: 9, fontWeight: 600, color: '#9ca3af',
+                    padding: '3px 0', textAlign: 'center',
+                    borderLeft: ti === 0 ? '1px solid #e5e7eb' : '1px solid rgba(0,0,0,0.04)',
+                    background: (d.day()===0||d.day()===6) ? '#f5f6f8' : '#f8fafc',
+                  }}>
+                  {t}
                 </th>
               )))}
             </tr>
