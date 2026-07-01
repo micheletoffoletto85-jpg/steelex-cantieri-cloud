@@ -1,4 +1,5 @@
-import os, tempfile, json as _json
+import os, tempfile, json as _json, logging
+logger = logging.getLogger(__name__)
 from datetime import datetime, date as date_today
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -165,6 +166,7 @@ async def trascrivi_audio(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("[trascrivi] Errore Whisper — utente=%s filename=%s", getattr(user, 'id', '?'), audio.filename)
         err_str = str(e).lower()
         if "quota" in err_str or "rate" in err_str or "429" in err_str:
             raise HTTPException(503, "Servizio di trascrizione momentaneamente sovraccarico — riprova tra qualche secondo")
@@ -219,6 +221,7 @@ async def trascrivi_audio(
         else:
             testo_finale = testo_riordinato
       except Exception:
+        logger.exception("[trascrivi] Errore Claude reordering — fallback a testo Whisper grezzo")
         testo_finale = testo_originale
 
     return {"testo": testo_finale, "lingua": lingua}
@@ -262,6 +265,7 @@ async def invia_rapportino(
         except HTTPException:
             raise
         except Exception as e:
+            logger.exception("[invia] Errore Whisper — utente=%s filename=%s", getattr(user, 'id', '?'), getattr(file, 'filename', '?'))
             err_str = str(e).lower()
             if "quota" in err_str or "rate" in err_str or "429" in err_str:
                 raise HTTPException(503, "Servizio di trascrizione momentaneamente sovraccarico — riprova tra qualche secondo")
