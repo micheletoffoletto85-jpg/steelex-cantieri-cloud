@@ -5,7 +5,7 @@
  *   - modalità normale: scroll orizzontale + click per popover
  *   - modalità assegna (FAB): touch drag per assegnare più celle
  */
-import { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, PenLine } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -191,9 +191,6 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
     return () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp) }
   }, [canWrite]) // eslint-disable-line
 
-  const artigiani = operatori.filter(o => o.tipo === 'artigiano')
-  const utentiOp  = operatori.filter(o => o.tipo === 'utente')
-
   const CellaMP = ({ op, d, zebraRow }) => {
     const dataStr = d.format('YYYY-MM-DD')
     const isWeekend = d.day() === 0 || d.day() === 6
@@ -301,8 +298,13 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
             </tr>
           </thead>
           <tbody>
-            {artigiani.length > 0 && <><Gruppo label="Artigiani / Esterni"/>{artigiani.map((op,i)=><Riga key={`a_${op.id}`} op={op} zebra={i%2!==0}/>)}</>}
-            {utentiOp.length > 0 && <><Gruppo label="Operativi Interni"/>{utentiOp.map((op,i)=><Riga key={`u_${op.id}`} op={op} zebra={i%2!==0}/>)}</>}
+            {operatori.map((op, i) => {
+              const prevTipo = i > 0 ? operatori[i-1].tipo : null
+              const header = op.tipo !== prevTipo
+                ? <Gruppo key={`hdr_${op.tipo}`} label={op.tipo === 'artigiano' ? 'Artigiani / Esterni' : 'Operativi Interni'}/>
+                : null
+              return <React.Fragment key={`${op.tipo}_${op.id}`}>{header}<Riga op={op} zebra={i%2!==0}/></React.Fragment>
+            })}
           </tbody>
         </table>
       </div>
@@ -339,9 +341,6 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
       document.removeEventListener('touchend', onEnd)
     }
   }, [canWrite, modalitaAssegna]) // eslint-disable-line
-
-  const artigiani = operatori.filter(o => o.tipo === 'artigiano')
-  const utentiOp  = operatori.filter(o => o.tipo === 'utente')
 
   // Larghezza cella: adatta allo schermo, minimo 40px per essere toccabile
   const NAME_W = 90
@@ -468,14 +467,13 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
             </tr>
           </thead>
           <tbody>
-            {artigiani.length > 0 && <>
-              <Gruppo label="Artigiani / Esterni" colSpan={totalCols}/>
-              {artigiani.map((op,i) => <RigaOp key={`a_${op.id}`} op={op} zebra={i%2!==0}/>)}
-            </>}
-            {utentiOp.length > 0 && <>
-              <Gruppo label="Operativi Interni" colSpan={totalCols}/>
-              {utentiOp.map((op,i) => <RigaOp key={`u_${op.id}`} op={op} zebra={i%2!==0}/>)}
-            </>}
+            {operatori.map((op, i) => {
+              const prevTipo = i > 0 ? operatori[i-1].tipo : null
+              const header = op.tipo !== prevTipo
+                ? <Gruppo key={`hdr_${op.tipo}`} label={op.tipo === 'artigiano' ? 'Artigiani / Esterni' : 'Operativi Interni'} colSpan={totalCols}/>
+                : null
+              return <React.Fragment key={`${op.tipo}_${op.id}`}>{header}<RigaOp op={op} zebra={i%2!==0}/></React.Fragment>
+            })}
           </tbody>
         </table>
       </div>
