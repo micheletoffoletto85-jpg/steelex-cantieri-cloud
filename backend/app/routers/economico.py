@@ -1747,16 +1747,46 @@ async def import_spese_excel(
     Restituisce le righe parsate per preview — il frontend le conferma prima del salvataggio.
     Colonne accettate in modo flessibile (case-insensitive, alias italiani/inglesi).
     """
-    import openpyxl
     _check(cantiere_id, db, user)
     _solo_economia(user)
 
     contenuto = await file.read()
+    nome_file = (file.filename or "").lower()
+    ext = os.path.splitext(nome_file)[1].lower()
+
+    # Normalizza tutto in lista di righe (lista di liste di valori)
+    righe_raw = []
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(contenuto), data_only=True)
-        ws = wb.active
+        if ext in (".xlsx", ".xlsm", ".ods", ""):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(contenuto), data_only=True)
+            ws = wb.active
+            righe_raw = [list(row) for row in ws.iter_rows(values_only=True)]
+        elif ext == ".xls":
+            import xlrd
+            wb = xlrd.open_workbook(file_contents=contenuto)
+            ws = wb.sheet_by_index(0)
+            righe_raw = [ws.row_values(i) for i in range(ws.nrows)]
+        elif ext in (".csv", ".txt"):
+            import csv, chardet
+            enc = chardet.detect(contenuto)["encoding"] or "utf-8"
+            testo = contenuto.decode(enc, errors="replace")
+            dialect = csv.Sniffer().sniff(testo[:2048], delimiters=",;\t|")
+            reader = csv.reader(testo.splitlines(), dialect)
+            righe_raw = [list(row) for row in reader]
+        else:
+            # Prova openpyxl come fallback (per file senza estensione corretta)
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(io.BytesIO(contenuto), data_only=True)
+                ws = wb.active
+                righe_raw = [list(row) for row in ws.iter_rows(values_only=True)]
+            except Exception:
+                raise HTTPException(400, "Formato file non supportato. Usa .xlsx, .xls o .csv")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(400, f"File Excel non leggibile: {e}")
+        raise HTTPException(400, f"Impossibile leggere il file: {e}")
 
     ALIAS_COLONNE = {
         "data": ["data", "date", "data spesa", "data doc", "data documento", "giorno"],
@@ -1778,11 +1808,11 @@ async def import_spese_excel(
         "varie": "altro", "vario": "altro",
     }
 
-    # Individua riga intestazione (prima riga non vuota)
-    header_row = None
+    # Individua riga intestazione (prima riga non vuota con colonne riconoscibili)
+    header_row_idx = None  # indice 0-based in righe_raw
     col_map = {}
-    for i, row in enumerate(ws.iter_rows(values_only=True), 1):
-        if all(v is None for v in row):
+    for i, row in enumerate(righe_raw):
+        if all(v is None or str(v).strip() == "" for v in row):
             continue
         row_lower = [str(v).strip().lower() if v is not None else "" for v in row]
         matched = {}
@@ -1792,16 +1822,16 @@ async def import_spese_excel(
                     matched[campo] = j
                     break
         if "importo" in matched or "descrizione" in matched:
-            header_row = i
+            header_row_idx = i
             col_map = matched
             break
 
-    if header_row is None:
+    if header_row_idx is None:
         raise HTTPException(400, "Intestazione non trovata. Assicurati che il file abbia colonne: Descrizione, Importo (+ opzionali: Data, Fornitore, Categoria, Note)")
 
     righe = []
     errori = []
-    for i, row in enumerate(ws.iter_rows(min_row=header_row + 1, values_only=True), header_row + 1):
+    for i, row in enumerate(righe_raw[header_row_idx + 1:], header_row_idx + 2):
         if all(v is None for v in row):
             continue
 
