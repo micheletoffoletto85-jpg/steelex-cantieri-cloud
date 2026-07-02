@@ -13,6 +13,7 @@ import ProgrammazioneAdminPage from './pages/ProgrammazioneAdminPage'
 import GanttOperatoriPage from './pages/GanttOperatoriPage'
 import ErrorLogPage from './pages/ErrorLogPage'
 import AppuntiPage from './pages/AppuntiPage'
+import OreLavoratePage from './pages/OreLavoratePage'
 import Layout from './components/Layout'
 import SplashScreen from './components/SplashScreen'
 
@@ -56,6 +57,7 @@ function AppContent() {
           <Route path="gantt-operatori" element={<GanttOperatoriPage />} />
           <Route path="error-log" element={<ErrorLogPage />} />
           <Route path="appunti" element={<AppuntiPage />} />
+          <Route path="ore-lavorate" element={<OreLavoratePage />} />
         </Route>
       </Routes>
     </>

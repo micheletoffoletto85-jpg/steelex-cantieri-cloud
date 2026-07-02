@@ -24,6 +24,7 @@ from app.routers import programmazione as programmazione_router
 from app.routers import error_log as error_log_router
 from app.routers import appunti as appunti_router
 from app.routers import assegnazioni as assegnazioni_router
+from app.routers import ore_lavorate as ore_lavorate_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -255,6 +256,18 @@ def _migra():
             creato_il     TIMESTAMPTZ DEFAULT NOW(),
             aggiornato_il TIMESTAMPTZ
         )""",
+        # Registro ore lavorate admin+amministrazione (compilazione da PC)
+        """CREATE TABLE IF NOT EXISTS ore_lavorate (
+            id            SERIAL PRIMARY KEY,
+            utente_id     INTEGER REFERENCES utenti(id) ON DELETE CASCADE,
+            data          DATE NOT NULL,
+            ore           NUMERIC(5,2) NOT NULL,
+            descrizione   TEXT NOT NULL,
+            creato_il     TIMESTAMPTZ DEFAULT NOW(),
+            aggiornato_il TIMESTAMPTZ
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ore_lavorate_data ON ore_lavorate(data DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ore_lavorate_utente ON ore_lavorate(utente_id)",
         # Gantt operatori: assegnazioni mensili artigiani/utenti × cantiere × turno M/P
         """CREATE TABLE IF NOT EXISTS assegnazioni_operatore (
             id           SERIAL PRIMARY KEY,
@@ -352,6 +365,7 @@ app.include_router(programmazione_router.router, prefix="/api/v1")
 app.include_router(error_log_router.router, prefix="/api/v1")
 app.include_router(appunti_router.router, prefix="/api/v1")
 app.include_router(assegnazioni_router.router, prefix="/api/v1")
+app.include_router(ore_lavorate_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():

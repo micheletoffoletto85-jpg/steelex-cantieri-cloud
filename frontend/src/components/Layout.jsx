@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser, ClipboardList, CalendarDays, AlertTriangle, StickyNote, LayoutGrid } from 'lucide-react'
+import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser, ClipboardList, CalendarDays, AlertTriangle, StickyNote, LayoutGrid, Clock } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
@@ -15,6 +15,7 @@ const navItems = [
   { to: '/gantt-operatori', label: 'Gantt Operatori', icon: LayoutGrid, roles: ['admin','capo_cantiere','capo_cantiere_sub','amministrazione'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
   { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },
+  { to: '/ore-lavorate', label: 'Ore Lavorate', icon: Clock, roles: ['admin', 'amministrazione'] },
   { to: '/error-log', label: 'Error Log', icon: AlertTriangle, adminOnly: true },
 ]
 
