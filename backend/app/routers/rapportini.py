@@ -375,7 +375,7 @@ async def invia_rapportino(
         admins = db.query(Utente).filter(Utente.ruolo.in_(["admin","capo_cantiere"])).all()
         from app.routers.notifiche import invia_notifica
         for a in admins:
-            invia_notifica(db, a.id, "📋 Nuovo rapportino", f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}", url="/rapportini")
+            invia_notifica(db, [a.id], "📋 Nuovo rapportino", f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}", url="/rapportini")
     except Exception: pass
 
     return _rap_dict(rapportino)
@@ -498,7 +498,7 @@ def valida_rapportino(
     try:
         from app.routers.notifiche import invia_notifica
         msg = "✅ Rapportino validato" if not body.rifiuta else "❌ Rapportino rifiutato"
-        invia_notifica(db, r.operativo_id, msg, body.note_admin or "")
+        invia_notifica(db, [r.operativo_id], msg, body.note_admin or "")
     except Exception: pass
 
     return _rap_dict(r)
