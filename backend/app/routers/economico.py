@@ -1800,9 +1800,10 @@ async def import_spese_excel(
         "descrizione": ["descrizione", "description", "oggetto", "voce", "causale", "desc", "fornitore/descrizione", "oggetto/descrizione", "fattura", "documento"],
         "fornitore": ["fornitore", "supplier", "fornitore/venditore", "venditore", "azienda", "ditta", "ragione sociale", "nominativo"],
         "categoria": ["categoria", "category", "tipo", "type", "tipologia"],
-        "importo": ["importo", "amount", "totale", "importo totale", "€", "euro", "costo", "spesa",
+        "importo": ["importo", "amount", "totale", "importo totale", "€", "euro", "spesa",
                     "imponibile", "netto", "importo netto", "tot", "tot.", "totale fattura",
-                    "importo ivato", "importo lordo", "lordo", "valore", "prezzo"],
+                    "importo ivato", "importo lordo", "lordo", "valore",
+                    "costo totale", "costo complessivo"],
         "note": ["note", "notes", "annotazioni", "commento", "commenti", "riferimento", "rif", "rif."],
     }
 
@@ -1871,6 +1872,11 @@ async def import_spese_excel(
     if header_row_idx is None:
         raise HTTPException(400, "Struttura file non riconosciuta. Il file deve avere colonne leggibili (Descrizione, Importo, ecc.)")
 
+    import logging as _log
+    _log.warning(f"[IMPORT-EXCEL] header_row={header_row_idx} col_map={col_map} totale_righe={len(righe_raw)}")
+    for _dbg_i in range(header_row_idx, min(header_row_idx + 5, len(righe_raw))):
+        _log.warning(f"[IMPORT-EXCEL] riga[{_dbg_i}] = {[str(v)[:30] for v in righe_raw[_dbg_i]]}")
+
     righe = []
     errori = []
     for i, row in enumerate(righe_raw[header_row_idx + 1:], header_row_idx + 2):
@@ -1884,9 +1890,12 @@ async def import_spese_excel(
             v = row[idx] if idx < len(row) else None
             return str(v).strip() if v is not None else None
 
-        # Salta righe totale/subtotale
+        # Salta righe totale/subtotale (controlla anche le altre celle della riga, non solo la descrizione)
         desc_check = (val("descrizione") or "").strip().lower()
         if desc_check in SKIP_DESC:
+            continue
+        row_text_lower = {str(v).strip().lower() for v in row if v is not None and str(v).strip()}
+        if row_text_lower & SKIP_DESC:
             continue
 
         # Importo — usa _parsa_numero che gestisce formato italiano
