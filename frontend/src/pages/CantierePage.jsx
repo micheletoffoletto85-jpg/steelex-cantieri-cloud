@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
+import MeteoMappa from '../components/MeteoMappa'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
 import AggiornnamentiTab from './AggiornnamentiTab'
@@ -151,6 +152,7 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
   const percSpesa = valoreCantiere > 0 ? Math.min(100, (totaleSpese / valoreCantiere) * 100) : 0
 
   return (
+    <div className="space-y-4">
     <div className="card space-y-4">
       <div className="flex items-center justify-between">
         {editing
@@ -221,6 +223,10 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
             : <p className="text-sm text-gray-700">{cantiere.note}</p>}
         </div>
       )}
+    </div>
+
+    {/* Meteo 3 giorni + mappa — sotto la card principale */}
+    {!editing && <MeteoMappa cantiere={cantiere} />}
     </div>
   )
 }
