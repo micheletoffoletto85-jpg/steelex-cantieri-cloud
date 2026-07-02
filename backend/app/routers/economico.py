@@ -1839,7 +1839,7 @@ async def import_spese_excel(
     righe = []
     errori = []
     for i, row in enumerate(righe_raw[header_row_idx + 1:], header_row_idx + 2):
-        if all(v is None for v in row):
+        if all(v is None or str(v).strip() == "" for v in row):
             continue
 
         def val(campo):
@@ -1854,7 +1854,15 @@ async def import_spese_excel(
         if not imp_raw:
             continue  # riga senza importo = skip silenzioso
         try:
-            importo = round(float(str(imp_raw).replace(",", ".").replace("€", "").strip()), 2)
+            # Gestisce formato italiano (1.234,56) e inglese (1234.56)
+            imp_str = str(imp_raw).replace("€", "").replace(" ", "").replace("\xa0", "").strip()
+            if "," in imp_str and "." in imp_str:
+                # Es: 1.234,56 → rimuovi sep migliaia → 1234.56
+                imp_str = imp_str.replace(".", "").replace(",", ".")
+            elif "," in imp_str:
+                # Es: 1234,56 → 1234.56
+                imp_str = imp_str.replace(",", ".")
+            importo = round(float(imp_str), 2)
             if importo <= 0:
                 continue
         except Exception:
