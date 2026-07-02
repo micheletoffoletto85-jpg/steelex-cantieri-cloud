@@ -1796,12 +1796,14 @@ async def import_spese_excel(
         raise HTTPException(400, f"Impossibile leggere il file ({ext or 'formato sconosciuto'}): {e}")
 
     ALIAS_COLONNE = {
-        "data": ["data", "date", "data spesa", "data doc", "data documento", "giorno"],
-        "descrizione": ["descrizione", "description", "oggetto", "voce", "causale", "desc"],
-        "fornitore": ["fornitore", "supplier", "fornitore/venditore", "venditore", "azienda"],
-        "categoria": ["categoria", "category", "tipo", "type"],
-        "importo": ["importo", "amount", "totale", "importo totale", "€", "euro", "costo", "spesa"],
-        "note": ["note", "notes", "annotazioni", "commento", "commenti"],
+        "data": ["data", "date", "data spesa", "data doc", "data documento", "giorno", "dt", "del"],
+        "descrizione": ["descrizione", "description", "oggetto", "voce", "causale", "desc", "fornitore/descrizione", "oggetto/descrizione", "fattura", "documento"],
+        "fornitore": ["fornitore", "supplier", "fornitore/venditore", "venditore", "azienda", "ditta", "ragione sociale", "nominativo"],
+        "categoria": ["categoria", "category", "tipo", "type", "tipologia"],
+        "importo": ["importo", "amount", "totale", "importo totale", "€", "euro", "costo", "spesa",
+                    "imponibile", "netto", "importo netto", "tot", "tot.", "totale fattura",
+                    "importo ivato", "importo lordo", "lordo", "valore", "prezzo"],
+        "note": ["note", "notes", "annotazioni", "commento", "commenti", "riferimento", "rif", "rif."],
     }
 
     CATEGORIE_VALIDE = {"materiali", "manodopera", "nolo", "servizi", "trasporto", "altro"}
@@ -1815,8 +1817,26 @@ async def import_spese_excel(
         "varie": "altro", "vario": "altro",
     }
 
-    # Individua riga intestazione (prima riga non vuota con colonne riconoscibili)
-    header_row_idx = None  # indice 0-based in righe_raw
+    # Righe da skippare (totali/subtotali/intestazioni ripetute)
+    SKIP_DESC = {"totale", "totale generale", "subtotale", "totale parziale", "totale complessivo",
+                 "grand total", "sub total", "subtotal", "totali", "riepilogo", "totale iva"}
+
+    def _parsa_numero(raw):
+        """Converte stringa in float gestendo formato italiano (1.234,56) e inglese (1234.56)."""
+        s = str(raw).replace("€", "").replace(" ", "").replace("\xa0", "").replace("+", "").strip()
+        if not s or s in ("-", "—", "n/a", "na"):
+            return None
+        if "," in s and "." in s:
+            s = s.replace(".", "").replace(",", ".")
+        elif "," in s:
+            s = s.replace(",", ".")
+        try:
+            return round(float(s), 2)
+        except Exception:
+            return None
+
+    # Individua riga intestazione (prima riga con almeno 2 alias riconosciuti, oppure 1 se è "importo"+"descrizione")
+    header_row_idx = None
     col_map = {}
     for i, row in enumerate(righe_raw):
         if all(v is None or str(v).strip() == "" for v in row):
@@ -1828,13 +1848,28 @@ async def import_spese_excel(
                 if cell_val in alias_list:
                     matched[campo] = j
                     break
-        if "importo" in matched or "descrizione" in matched:
+        n_match = len(matched)
+        if n_match >= 2 or ("importo" in matched and "descrizione" in matched):
             header_row_idx = i
             col_map = matched
             break
+        # Fallback: anche solo importo o descrizione (ma almeno 1 match)
+        if n_match >= 1 and i < 5:
+            header_row_idx = i
+            col_map = matched
+            # continua a cercare una riga con più match
 
     if header_row_idx is None:
-        raise HTTPException(400, "Intestazione non trovata. Assicurati che il file abbia colonne: Descrizione, Importo (+ opzionali: Data, Fornitore, Categoria, Note)")
+        # Ultimo tentativo: individua colonne numeriche automaticamente
+        for i, row in enumerate(righe_raw[:10]):
+            numeric_cols = [j for j, v in enumerate(row) if v is not None and _parsa_numero(v) is not None]
+            if numeric_cols:
+                col_map = {"importo": numeric_cols[-1]}  # ultima colonna numerica = probabilmente il totale
+                header_row_idx = max(0, i - 1)
+                break
+
+    if header_row_idx is None:
+        raise HTTPException(400, "Struttura file non riconosciuta. Il file deve avere colonne leggibili (Descrizione, Importo, ecc.)")
 
     righe = []
     errori = []
@@ -1849,24 +1884,20 @@ async def import_spese_excel(
             v = row[idx] if idx < len(row) else None
             return str(v).strip() if v is not None else None
 
-        # Importo
+        # Salta righe totale/subtotale
+        desc_check = (val("descrizione") or "").strip().lower()
+        if desc_check in SKIP_DESC:
+            continue
+
+        # Importo — usa _parsa_numero che gestisce formato italiano
         imp_raw = val("importo")
         if not imp_raw:
-            continue  # riga senza importo = skip silenzioso
-        try:
-            # Gestisce formato italiano (1.234,56) e inglese (1234.56)
-            imp_str = str(imp_raw).replace("€", "").replace(" ", "").replace("\xa0", "").strip()
-            if "," in imp_str and "." in imp_str:
-                # Es: 1.234,56 → rimuovi sep migliaia → 1234.56
-                imp_str = imp_str.replace(".", "").replace(",", ".")
-            elif "," in imp_str:
-                # Es: 1234,56 → 1234.56
-                imp_str = imp_str.replace(",", ".")
-            importo = round(float(imp_str), 2)
-            if importo <= 0:
-                continue
-        except Exception:
+            continue
+        importo = _parsa_numero(imp_raw)
+        if importo is None:
             errori.append(f"Riga {i}: importo '{imp_raw}' non valido")
+            continue
+        if importo <= 0:
             continue
 
         # Data
@@ -1911,6 +1942,16 @@ async def import_spese_excel(
         "righe": righe,
         "totale": round(sum(r["importo"] for r in righe), 2),
         "errori": errori,
+        # Debug info (utile se 0 righe trovate)
+        "debug": {
+            "header_row": header_row_idx,
+            "col_map": col_map,
+            "prime_righe": [
+                [str(v)[:40] if v is not None else "" for v in righe_raw[j]]
+                for j in range(min(header_row_idx + 1, len(righe_raw)), min(header_row_idx + 6, len(righe_raw)))
+            ] if header_row_idx is not None else [],
+            "totale_righe_file": len(righe_raw),
+        } if len(righe) == 0 else None,
     }
 
 
