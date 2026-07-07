@@ -13,7 +13,8 @@ const FORM_VUOTO = () => ({ data: dayjs().format('YYYY-MM-DD'), ore: '', descriz
 export default function OreLavoratePage() {
   const qc = useQueryClient()
   const { utente } = useAuth()
-  const isAdmin = utente?.ruolo === 'admin'
+  // admin e amministrazione vedono le ore di tutti; gli operativi solo le proprie
+  const isAdmin = ['admin', 'amministrazione'].includes(utente?.ruolo)
 
   const [mese, setMese] = useState(dayjs().format('YYYY-MM'))
   const [filtroUtente, setFiltroUtente] = useState('')  // '' = tutti (solo admin)
@@ -79,7 +80,7 @@ export default function OreLavoratePage() {
             <Clock size={20} className="text-steelex-orange" />
             Ore lavorate
           </h1>
-          <p className="text-xs text-gray-400 mt-0.5">Registro ore admin e amministrazione — con dettaglio operazioni</p>
+          <p className="text-xs text-gray-400 mt-0.5">{isAdmin ? 'Registro ore di tutti gli utenti — con dettaglio operazioni' : 'Le tue ore giornaliere — visibili solo all\'amministrazione'}</p>
         </div>
         <button onClick={() => { setNuovo(true); setForm(FORM_VUOTO()) }}
           className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl bg-steelex-orange text-white font-medium hover:opacity-90 transition-opacity">

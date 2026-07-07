@@ -1015,12 +1015,13 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReo
         <span className="ml-auto text-xs text-gray-400">{totalDays} giorni tot.</span>
       </div>
 
-      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+      {/* Scroll orizzontale + verticale: header mesi/giorni sticky durante lo scroll */}
+      <div className="overflow-x-auto overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', maxHeight: '75vh' }}>
         <div style={{ minWidth }}>
 
           {/* ── RIGA 1: MESI — sfondo scuro, testo bianco ───────────────── */}
           {/* IMPORTANTE: w-14 spacer a destra = stesso della colonna % nel corpo */}
-          <div className="relative border-b-2 border-gray-400 h-8 flex" style={{ background: '#1e293b' }}>
+          <div className="sticky top-0 z-30 border-b-2 border-gray-400 h-8 flex" style={{ background: '#1e293b' }}>
             <div className="flex-shrink-0 flex items-center px-3 border-r-2 border-gray-600 z-10 relative select-none" style={{ width: LABEL_W }}>
               <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">Fase</span>
               <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group"
@@ -1049,7 +1050,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReo
           </div>
 
           {/* ── RIGA 2: SETTIMANE / GIORNI ───────────────────────────────── */}
-          <div className="relative border-b-2 border-gray-300 h-7 flex" style={{ background: '#f1f5f9' }}>
+          <div className="sticky z-30 border-b-2 border-gray-300 h-7 flex" style={{ background: '#f1f5f9', top: 32 }}>
             <div className="flex-shrink-0 border-r-2 border-gray-300" style={{ width: LABEL_W, background: '#f1f5f9' }} />
             <div ref={ganttAreaRef} className="relative flex-1 overflow-hidden">
               {zoomEff === 'giorni'

@@ -1591,15 +1591,39 @@ def export_excel(cantiere_id: int, db: Session = Depends(get_db), user: Utente =
 
 # ─── PDF PREVENTIVO ───────────────────────────────────────────────────────────
 
+# ── Brand per i documenti PDF (STEELEX) ───────────────────────────────────────
+PDF_BRAND = {
+    "nome":            "STEELEX",
+    "sottotitolo":     "Costruzioni Light Steel Frame",
+    "ragione_sociale": "STEELEX — Fontana Raffaele Srl",
+    "colore_primario": "#FF6B00",
+    "colore_scuro":    "#1A1A2E",
+    "logo":            os.path.join(os.path.dirname(__file__), "..", "assets", "logo_pdf.png"),
+    "logo_altezza_mm": 16,
+}
+
+
+def _eur_it(x) -> str:
+    """Formatta un importo in stile italiano: € 146.843,12"""
+    try:
+        x = float(x or 0)
+    except (TypeError, ValueError):
+        x = 0.0
+    s = f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"€ {s}"
+
+
 @router.get("/{cantiere_id}/preventivi/{prev_id}/genera-pdf")
 def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Genera PDF preventivo formattato STEELEX pronto per il cliente."""
+    """Genera PDF preventivo con il brand aziendale, pronto per il cliente."""
+    from xml.sax.saxutils import escape
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
-    from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, Image as RLImage
+    from reportlab.lib.enums import TA_RIGHT
 
     cantiere = _check(cantiere_id, db, user)
     _solo_economia(user)
@@ -1612,41 +1636,56 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=20*mm, rightMargin=20*mm,
-                            topMargin=20*mm, bottomMargin=20*mm)
+                            leftMargin=15*mm, rightMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=18*mm)
 
-    ARANCIO = colors.HexColor("#FF6B00")
-    BLU = colors.HexColor("#1A1A2E")
-    GRIGIO = colors.HexColor("#F5F5F5")
+    PRIMARIO = colors.HexColor(PDF_BRAND["colore_primario"])
+    SCURO    = colors.HexColor(PDF_BRAND["colore_scuro"])
+    GRIGIO   = colors.HexColor("#F5F5F5")
 
     styles = getSampleStyleSheet()
-    style_titolo = ParagraphStyle("titolo", parent=styles["Heading1"], textColor=ARANCIO, fontSize=22, spaceAfter=2)
-    style_sub = ParagraphStyle("sub", parent=styles["Normal"], textColor=BLU, fontSize=10)
-    style_label = ParagraphStyle("label", parent=styles["Normal"], textColor=BLU, fontSize=9, fontName="Helvetica-Bold")
+    style_titolo = ParagraphStyle("titolo", parent=styles["Heading1"], textColor=PRIMARIO, fontSize=22, spaceAfter=2)
+    style_sub = ParagraphStyle("sub", parent=styles["Normal"], textColor=SCURO, fontSize=10)
+    style_label = ParagraphStyle("label", parent=styles["Normal"], textColor=SCURO, fontSize=9, fontName="Helvetica-Bold")
     style_small = ParagraphStyle("small", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
     style_right = ParagraphStyle("right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=9)
     style_note = ParagraphStyle("note", parent=styles["Normal"], fontSize=9, textColor=colors.grey)
+    style_voce = ParagraphStyle("voce", parent=styles["Normal"], fontSize=8, leading=10)
+    style_voce_cat = ParagraphStyle("voce_cat", parent=styles["Normal"], fontSize=6.5, leading=8, textColor=colors.grey)
 
     story = []
 
-    # Intestazione
-    story.append(Paragraph("STEELEX", style_titolo))
-    story.append(Paragraph("Costruzioni Light Steel Frame", style_sub))
-    story.append(HRFlowable(width="100%", thickness=2, color=ARANCIO, spaceAfter=6))
+    # Intestazione — logo se disponibile, altrimenti nome testuale
+    logo_path = PDF_BRAND["logo"]
+    if os.path.exists(logo_path):
+        try:
+            iw, ih = ImageReader(logo_path).getSize()
+            h = PDF_BRAND["logo_altezza_mm"] * mm
+            img = RLImage(logo_path, width=iw * h / ih, height=h)
+            img.hAlign = "LEFT"
+            story.append(img)
+        except Exception:
+            story.append(Paragraph(PDF_BRAND["nome"], style_titolo))
+    else:
+        story.append(Paragraph(PDF_BRAND["nome"], style_titolo))
+    story.append(Paragraph(PDF_BRAND["sottotitolo"], style_sub))
+    story.append(Spacer(1, 2*mm))
+    story.append(HRFlowable(width="100%", thickness=2, color=PRIMARIO, spaceAfter=6))
 
     # Info preventivo
     numero = prev.numero or f"PRV-{prev.id:04d}"
     data_str = prev.data.strftime("%d/%m/%Y") if prev.data else date.today().strftime("%d/%m/%Y")
     info_data = [
-        [Paragraph(f"<b>PREVENTIVO N°</b> {numero}", style_label),
+        [Paragraph(f"<b>PREVENTIVO N°</b> {escape(str(numero))}", style_label),
          Paragraph(f"<b>Data:</b> {data_str}", style_right)],
-        [Paragraph(f"<b>Cantiere:</b> {cantiere.nome}", style_label),
+        [Paragraph(f"<b>Cantiere:</b> {escape(cantiere.nome or '')}", style_label),
          Paragraph(f"<b>Validità:</b> {prev.validita_giorni} giorni", style_right)],
     ]
     info_table = Table(info_data, colWidths=["60%", "40%"])
     info_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
-        ("ROWPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
     ]))
     story.append(info_table)
@@ -1656,32 +1695,45 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
     story.append(Paragraph("COMPUTO METRICO ESTIMATIVO", style_label))
     story.append(Spacer(1, 2*mm))
 
-    headers = ["#", "Descrizione", "Cat.", "Um", "Qty", "P.Unit. €", "Totale €"]
-    col_widths = [10*mm, 65*mm, 22*mm, 12*mm, 14*mm, 22*mm, 22*mm]
+    # Descrizione come Paragraph → va a capo invece di sbordare sulle colonne vicine
+    headers = ["#", "Descrizione", "Um", "Qt", "P. Unit.", "Totale"]
+    col_widths = [9*mm, 89*mm, 13*mm, 13*mm, 27*mm, 29*mm]
     table_data = [headers]
     voci = prev.voci or []
     for i, v in enumerate(voci, 1):
+        qta = v.get("quantita") or v.get("qt") or 1
+        try:
+            qta_str = f"{float(qta):g}".replace(".", ",")
+        except (TypeError, ValueError):
+            qta_str = str(qta)
+        desc = escape((v.get("descrizione") or "").strip() or "—")
+        cat = (v.get("categoria") or "").strip()
+        if cat and cat.lower() not in ("materiali", "altro"):
+            desc += f'<br/><font size="6.5" color="#888888">{escape(cat)}</font>'
+        prezzo = v.get("prezzo_cliente") or v.get("prezzo_unitario") or 0
+        totale = v.get("totale_cliente") or 0
         table_data.append([
             str(i),
-            v.get("descrizione", ""),
-            v.get("categoria", ""),
+            Paragraph(desc, style_voce),
             v.get("um", "cad"),
-            str(v.get("quantita", 1)),
-            f"€ {v.get('prezzo_cliente', 0):,.2f}",
-            f"€ {v.get('totale_cliente', 0):,.2f}",
+            qta_str,
+            _eur_it(prezzo),
+            _eur_it(totale),
         ])
 
     # Righe totali
-    table_data.append(["", "", "", "", "", "Imponibile", f"€ {prev.subtotale:,.2f}"])
-    table_data.append(["", "", "", "", "", f"IVA {prev.iva_perc:.0f}%", f"€ {(prev.totale - prev.subtotale):,.2f}"])
-    table_data.append(["", "", "", "", "", "TOTALE", f"€ {prev.totale:,.2f}"])
-    table_data.append(["", "", "", "", "", f"Acconto {prev.acconto_perc:.0f}%", f"€ {prev.acconto_importo:,.2f}"])
+    subtotale = prev.subtotale or 0
+    totale_doc = prev.totale or 0
+    table_data.append(["", "", "", "", "Imponibile", _eur_it(subtotale)])
+    table_data.append(["", "", "", "", f"IVA {(prev.iva_perc or 0):.0f}%", _eur_it(totale_doc - subtotale)])
+    table_data.append(["", "", "", "", "TOTALE", _eur_it(totale_doc)])
+    table_data.append(["", "", "", "", f"Acconto {(prev.acconto_perc or 0):.0f}%", _eur_it(prev.acconto_importo)])
 
     n_voci = len(voci)
-    voci_table = Table(table_data, colWidths=col_widths)
+    voci_table = Table(table_data, colWidths=col_widths, repeatRows=1)
     ts = TableStyle([
         # Header
-        ("BACKGROUND", (0, 0), (-1, 0), BLU),
+        ("BACKGROUND", (0, 0), (-1, 0), SCURO),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 9),
@@ -1689,17 +1741,20 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
         # Righe voci
         ("FONTSIZE", (0, 1), (-1, n_voci), 8),
         ("ROWBACKGROUNDS", (0, 1), (-1, n_voci), [colors.white, GRIGIO]),
-        ("ALIGN", (4, 1), (-1, n_voci), "RIGHT"),
+        ("ALIGN", (3, 1), (-1, n_voci), "RIGHT"),
+        ("ALIGN", (0, 1), (0, n_voci), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         # Righe totali
         ("FONTNAME", (0, n_voci + 1), (-1, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, n_voci + 1), (-1, -1), 9),
-        ("ALIGN", (5, n_voci + 1), (6, -1), "RIGHT"),
-        ("BACKGROUND", (0, n_voci + 3), (-1, n_voci + 3), ARANCIO),
+        ("ALIGN", (4, n_voci + 1), (5, -1), "RIGHT"),
+        ("BACKGROUND", (0, n_voci + 3), (-1, n_voci + 3), PRIMARIO),
         ("TEXTCOLOR", (0, n_voci + 3), (-1, n_voci + 3), colors.white),
         # Griglia
         ("GRID", (0, 0), (-1, n_voci), 0.3, colors.lightgrey),
-        ("LINEABOVE", (0, n_voci + 1), (-1, n_voci + 1), 1, ARANCIO),
-        ("ROWPADDING", (0, 0), (-1, -1), 4),
+        ("LINEABOVE", (0, n_voci + 1), (-1, n_voci + 1), 1, PRIMARIO),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ])
     voci_table.setStyle(ts)
     story.append(voci_table)
@@ -1708,14 +1763,14 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
     # Note
     if prev.note:
         story.append(Paragraph("<b>Note:</b>", style_label))
-        story.append(Paragraph(prev.note, style_note))
+        story.append(Paragraph(escape(prev.note), style_note))
         story.append(Spacer(1, 4*mm))
 
     # Piè di pagina firma
     story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
     story.append(Spacer(1, 4*mm))
     firma_data = [
-        [Paragraph("Per accettazione:", style_label), Paragraph("STEELEX — Fontana Raffaele Srl", style_label)],
+        [Paragraph("Per accettazione:", style_label), Paragraph(PDF_BRAND["ragione_sociale"], style_label)],
         [Paragraph("_" * 35, style_small), Paragraph("_" * 35, style_small)],
         [Paragraph("Timbro e firma cliente", style_small), Paragraph("Firma", style_small)],
     ]

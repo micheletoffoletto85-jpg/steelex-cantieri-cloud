@@ -419,6 +419,86 @@ class ValidaBody(BaseModel):
     rifiuta: bool = False
 
 
+def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id: int) -> None:
+    """Crea la nota diario nel cantiere a partire dal rapportino e la collega."""
+    data_str = r.data_lavoro or str(date_today.today())
+    try:
+        data_obj = date_today.fromisoformat(data_str)
+    except Exception:
+        data_obj = date_today.today()
+
+    testo_diario = r.testo_italiano or r.riassunto
+    if r.materiali:
+        testo_diario += f"\n\nMateriali usati: {', '.join(r.materiali)}"
+    if r.criticita:
+        testo_diario += f"\n\n⚠️ Criticità: {r.criticita}"
+
+    # Costruisce voci_estratte con le ore del rapportino
+    voci = []
+    if r.ore_lavorate and r.ore_lavorate > 0:
+        nome_op = ""
+        if r.operativo:
+            nome_op = f"{r.operativo.nome} {r.operativo.cognome}".strip()
+        voci.append({
+            "tipo": "ore_extra",
+            "operaio": nome_op,
+            "ore": float(r.ore_lavorate),
+            "attivita": r.riassunto or "",
+            "approvato": False,
+        })
+
+    diario = DiarioGiornaliero(
+        cantiere_id     = cantiere_id,
+        data            = data_obj,
+        autore_id       = r.operativo_id,
+        attivita        = testo_diario,
+        fonte           = "voce",
+        testo_originale = r.testo_originale,
+        lingua_originale = r.lingua_originale,
+        stato_validazione = "pubblicata",
+        foto_urls       = r.foto_urls or [],
+        voci_estratte   = voci,
+    )
+    db.add(diario); db.flush()
+    r.diario_id = diario.id
+
+
+class AssegnaBody(BaseModel):
+    cantiere_id: int
+
+
+@router.put("/{rapportino_id}/assegna-cantiere")
+def assegna_cantiere_rapportino(
+    rapportino_id: int,
+    body: AssegnaBody,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Admin: assegna (o riassegna) un cantiere a un rapportino già validato rimasto fuori cantiere."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
+    if not r: raise HTTPException(404)
+
+    cantiere = db.query(Cantiere).filter(Cantiere.id == body.cantiere_id).first()
+    if not cantiere: raise HTTPException(404, "Cantiere non trovato")
+
+    r.cantiere_id = cantiere.id
+    r.fuori_cantiere = False
+
+    if r.diario_id:
+        # Sposta la nota diario esistente sul nuovo cantiere
+        diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == r.diario_id).first()
+        if diario:
+            diario.cantiere_id = cantiere.id
+    elif r.stato == "validato":
+        # Rapportino validato senza diario (era fuori cantiere): crealo ora
+        _crea_diario_da_rapportino(db, r, cantiere.id)
+
+    db.commit()
+    return _rap_dict(r)
+
+
 @router.put("/{rapportino_id}/valida")
 def valida_rapportino(
     rapportino_id: int,
@@ -447,46 +527,7 @@ def valida_rapportino(
 
     # Crea nota diario nel cantiere (se assegnato)
     if cantiere_id:
-        data_str = r.data_lavoro or str(date_today.today())
-        try:
-            data_obj = date_today.fromisoformat(data_str)
-        except Exception:
-            data_obj = date_today.today()
-
-        testo_diario = r.testo_italiano or r.riassunto
-        if r.materiali:
-            testo_diario += f"\n\nMateriali usati: {', '.join(r.materiali)}"
-        if r.criticita:
-            testo_diario += f"\n\n⚠️ Criticità: {r.criticita}"
-
-        # Costruisce voci_estratte con le ore del rapportino
-        voci = []
-        if r.ore_lavorate and r.ore_lavorate > 0:
-            nome_op = ""
-            if r.operativo:
-                nome_op = f"{r.operativo.nome} {r.operativo.cognome}".strip()
-            voci.append({
-                "tipo": "ore_extra",
-                "operaio": nome_op,
-                "ore": float(r.ore_lavorate),
-                "attivita": r.riassunto or "",
-                "approvato": False,
-            })
-
-        diario = DiarioGiornaliero(
-            cantiere_id     = cantiere_id,
-            data            = data_obj,
-            autore_id       = r.operativo_id,
-            attivita        = testo_diario,
-            fonte           = "voce",
-            testo_originale = r.testo_originale,
-            lingua_originale = r.lingua_originale,
-            stato_validazione = "pubblicata",
-            foto_urls       = r.foto_urls or [],
-            voci_estratte   = voci,
-        )
-        db.add(diario); db.flush()
-        r.diario_id = diario.id
+        _crea_diario_da_rapportino(db, r, cantiere_id)
 
     r.stato = "validato"
     r.note_admin = body.note_admin

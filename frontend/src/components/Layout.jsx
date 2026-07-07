@@ -15,7 +15,7 @@ const navItems = [
   { to: '/gantt-operatori', label: 'Gantt Operatori', icon: LayoutGrid, roles: ['admin','capo_cantiere','capo_cantiere_sub','amministrazione'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
   { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },
-  { to: '/ore-lavorate', label: 'Ore Lavorate', icon: Clock, roles: ['admin', 'amministrazione'] },
+  { to: '/ore-lavorate', label: 'Ore Lavorate', icon: Clock, roles: ['admin', 'amministrazione', 'artigiano', 'operativo'] },
   { to: '/error-log', label: 'Error Log', icon: AlertTriangle, adminOnly: true },
 ]
 
@@ -26,8 +26,8 @@ function filtraNav(items, utente) {
     if (i.roles) return i.roles.includes(utente?.ruolo)
     return true
   }).filter(i => {
-    // operativo interno: solo dashboard (la registrazione è integrata nella dashboard)
-    if (isOperativo) return i.to === '/'
+    // operativo interno: dashboard (registrazione rapportini) + registro ore personali
+    if (isOperativo) return i.to === '/' || i.to === '/ore-lavorate'
     return true
   })
 }

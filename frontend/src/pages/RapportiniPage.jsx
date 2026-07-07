@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, MapPin, Trash2 } from 'lucide-react'
+import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, MapPin, Trash2, Pencil } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -30,11 +30,13 @@ function Chips({ rapportino }) {
 }
 
 // ── Card rapportino ───────────────────────────────────────────────────────────
-function RapportinoCard({ r, isAdmin, onValida, onElimina, cantieri = [] }) {
+function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri = [] }) {
   const [aperto, setAperto] = useState(false)
   const [noteAdmin, setNoteAdmin] = useState('')
   const [cantiereAssegnato, setCantiereAssegnato] = useState('')
   const [confermaElimina, setConfermaElimina] = useState(false)
+  const [modificaCantiere, setModificaCantiere] = useState(false)
+  const [nuovoCantiere, setNuovoCantiere] = useState('')
 
   const suggerito = cantieri.find(c =>
     r.cantiere_rilevato && c.nome?.toLowerCase().includes(r.cantiere_rilevato.toLowerCase())
@@ -65,6 +67,13 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, cantieri = [] }) {
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statoColor}`}>
               {r.stato}
             </span>
+            {isAdmin && r.stato !== 'inviato' && (
+              <button onClick={() => setModificaCantiere(v => !v)}
+                className={`transition-colors ${modificaCantiere ? 'text-steelex-orange' : 'text-gray-300 hover:text-steelex-orange'}`}
+                title="Assegna / cambia cantiere">
+                <Pencil size={14} />
+              </button>
+            )}
             {isAdmin && (
               confermaElimina ? (
                 <div className="flex items-center gap-1">
@@ -162,6 +171,39 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, cantieri = [] }) {
                 <span className="font-semibold">Note admin: </span>{r.note_admin}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Modifica cantiere — per rapportini già validati/rifiutati */}
+        {modificaCantiere && (
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <MapPin size={13} className="text-amber-600"/>
+              <p className="text-xs font-semibold text-amber-800">
+                {r.cantiere_nome ? <>Attualmente su: <strong>{r.cantiere_nome}</strong></> : 'Fuori cantiere — scegli dove imputarlo'}
+              </p>
+            </div>
+            <select
+              value={nuovoCantiere}
+              onChange={e => setNuovoCantiere(e.target.value)}
+              className="w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
+              <option value="">— scegli cantiere —</option>
+              {cantieri.map(c => (
+                <option key={c.id} value={c.id}>{c.nome}</option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <button
+                disabled={!nuovoCantiere}
+                onClick={() => { onAssegna(r.id, nuovoCantiere); setModificaCantiere(false); setNuovoCantiere('') }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-steelex-orange text-white rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-40">
+                <CheckCircle size={15} /> Assegna al cantiere
+              </button>
+              <button onClick={() => { setModificaCantiere(false); setNuovoCantiere('') }}
+                className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
+                Annulla
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -320,6 +362,18 @@ function VistaAdmin() {
     }
   )
 
+  const assegnaMutation = useMutation(
+    ({ id, cantiere_id }) =>
+      api.put(`/rapportini/${id}/assegna-cantiere`, { cantiere_id: parseInt(cantiere_id) }),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries('rapp-da-validare')
+        qc.invalidateQueries('rapp-tutti')
+        qc.invalidateQueries('rapp-fuori')
+      }
+    }
+  )
+
   const lista = tab === 'da-validare' ? daValidare : tab === 'fuori' ? fuoriCantiere : tutti
   const fuoriCount = fuoriCantiere.filter(r => r.stato === 'inviato').length
 
@@ -370,7 +424,8 @@ function VistaAdmin() {
             <RapportinoCard key={r.id} r={r} isAdmin cantieri={cantieri}
               onValida={(id, rifiuta, note_admin, cantiere_id) =>
                 validaMutation.mutate({ id, rifiuta, note_admin, cantiere_id })}
-              onElimina={(id) => eliminaMutation.mutate(id)} />
+              onElimina={(id) => eliminaMutation.mutate(id)}
+              onAssegna={(id, cantiere_id) => assegnaMutation.mutate({ id, cantiere_id })} />
           ))}
         </div>
       )}

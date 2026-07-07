@@ -267,6 +267,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
   const setB = (k,v) => setBase(f => ({...f,[k]:v}))
   const [uploadingFor, setUploadingFor] = useState(null)
   const [importando, setImportando] = useState(false)
+  const [vociAperte, setVociAperte] = useState(null)         // id preventivo con dettaglio voci aperto
   const [vociImportate, setVociImportate] = useState(null)   // tutte le righe dell'Excel
   const [righeSelezionate, setRigheSelezionate] = useState(null) // set di id selezionati
   const importInputRef = useRef(null)
@@ -553,6 +554,13 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
   }
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
+
+  // Somma effettiva delle voci (per vista dettaglio e verifica coerenza col totale salvato)
+  const _sommaVoci = (p) => (p.voci || []).reduce((s,v) => {
+    const tc = parseFloat(v.totale_cliente) || 0
+    const fallback = (parseFloat(v.prezzo_cliente)||parseFloat(v.prezzo_unitario)||0) * (parseFloat(v.quantita)||parseFloat(v.qt)||1)
+    return s + (tc > 0 ? tc : fallback)
+  }, 0)
 
   // Fallback: se il backend torna totale=0 (dati vecchi), ricalcola dai voci
   const _pSubtotale = (p) => {
@@ -1013,6 +1021,12 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
               </select>
             ) : <span className={`text-xs px-2 py-0.5 rounded-full ${STATO_PREV[p.stato]?.bg}`}>{STATO_PREV[p.stato]?.label}</span>}
             <div className="flex items-center gap-1">
+              <button onClick={() => setVociAperte(vociAperte === p.id ? null : p.id)}
+                title="Vedi voci del computo"
+                className={`p-1 flex items-center gap-0.5 text-xs font-medium ${vociAperte === p.id ? 'text-steelex-orange' : 'text-gray-400 hover:text-steelex-orange'}`}>
+                {vociAperte === p.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {(p.voci || []).length} voci
+              </button>
               <button onClick={() => generaPdfPreventivo(p.id, p.numero||p.id)} title="Genera PDF preventivo" className="p-1 text-steelex-orange hover:text-orange-700"><Download size={14} /></button>
               {p.pdf_url && <a href={p.pdf_url} target="_blank" rel="noreferrer" className="p-1 text-blue-500"><ExternalLink size={14} /></a>}
               {canWrite && <>
@@ -1025,6 +1039,66 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
               </>}
             </div>
           </div>
+          {/* Dettaglio voci — vista read-only */}
+          {vociAperte === p.id && (() => {
+            const vociP = p.voci || []
+            const somma = _sommaVoci(p)
+            const scarto = (p.subtotale > 0) ? Math.abs(somma - p.subtotale) : 0
+            return (
+              <div className="border-t border-gray-100 pt-2 space-y-1">
+                {scarto > 0.05 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5 flex items-start gap-1.5 text-xs text-red-700">
+                    <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                    <span>La somma delle voci ({fmt(somma)}) non corrisponde al totale salvato ({fmt(p.subtotale)}) — differenza {fmt(somma - p.subtotale)}. Apri la modifica e risalva per riallineare.</span>
+                  </div>
+                )}
+                {vociP.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2 text-center">Nessuna voce in questo computo</p>
+                ) : (
+                  <div className="overflow-x-auto -mx-1">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-400 border-b border-gray-100">
+                          <th className="text-left font-medium py-1 px-1 w-6">#</th>
+                          <th className="text-left font-medium py-1 px-1">Descrizione</th>
+                          <th className="text-left font-medium py-1 px-1 w-12">Um</th>
+                          <th className="text-right font-medium py-1 px-1 w-12">Qt</th>
+                          <th className="text-right font-medium py-1 px-1 w-20">P.Unit.</th>
+                          <th className="text-right font-medium py-1 px-1 w-24">Totale</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vociP.map((v, i) => {
+                          const qt = parseFloat(v.quantita) || parseFloat(v.qt) || 1
+                          const pu = parseFloat(v.prezzo_cliente) || parseFloat(v.prezzo_unitario) || 0
+                          const tot = parseFloat(v.totale_cliente) || pu * qt
+                          const vuota = !(v.descrizione || '').trim()
+                          return (
+                            <tr key={i} className={`border-b border-gray-50 ${vuota ? 'bg-amber-50' : ''}`}>
+                              <td className="py-1 px-1 text-gray-300">{i + 1}</td>
+                              <td className={`py-1 px-1 ${vuota ? 'text-amber-600 italic' : 'text-gray-700'}`}>
+                                {vuota ? '(riga senza descrizione)' : v.descrizione}
+                              </td>
+                              <td className="py-1 px-1 text-gray-400">{v.um || '—'}</td>
+                              <td className="py-1 px-1 text-right text-gray-500">{qt}</td>
+                              <td className="py-1 px-1 text-right text-gray-500">{fmt(pu)}</td>
+                              <td className="py-1 px-1 text-right font-medium text-gray-700">{fmt(tot)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={5} className="py-1.5 px-1 text-right font-semibold text-gray-500">Somma voci</td>
+                          <td className="py-1.5 px-1 text-right font-bold text-steelex-orange">{fmt(somma)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           {/* Registra acconto ricevuto */}
           {canWrite && p.stato==='accettato' && p.acconto_ricevuto < p.acconto_importo && (
             <div className="bg-blue-50 rounded-lg p-2 flex items-center justify-between">
