@@ -139,9 +139,7 @@ export default function ProgrammazioneAdminPage() {
   const fileInputRef = useRef(null)
 
   const { data: utenti = [] } = useQuery('utenti-operativi', () =>
-    api.get('/utenti').then(r => r.data.filter(u =>
-      ['artigiano', 'capo_cantiere', 'capo_cantiere_sub'].includes(u.ruolo)
-    )))
+    api.get('/programmazione/operativi').then(r => r.data))
 
   const { data: cantieri = [] } = useQuery('cantieri-attivi', () =>
     api.get('/cantieri').then(r => r.data.filter(c =>
@@ -220,7 +218,7 @@ export default function ProgrammazioneAdminPage() {
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await api.post('/programmazione/importa-pdf', fd)
+      const res = await api.post('/programmazione/importa-pdf', fd, { timeout: 180000 })
       setPreview(res.data.preview)
     } catch (err) {
       setImportErr(err?.response?.data?.detail || 'Errore import PDF')

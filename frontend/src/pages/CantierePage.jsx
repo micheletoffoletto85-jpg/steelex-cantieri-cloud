@@ -350,7 +350,7 @@ function VoceAITab({ cantiereId }) {
       const blob = new Blob(chunksRef.current, { type: mimeType })
       const fd = new FormData()
       fd.append('file', blob, `audio.${ext}`)
-      const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
       setRisultato(r.data)
       setStato('done')
     } catch (err) {
@@ -917,7 +917,7 @@ function MappeTab({ cantiereId }) {
       const blob = new Blob(pinChunksRef.current, { type: mimeType })
       const fd = new FormData()
       fd.append('file', blob, `audio.${ext}`)
-      const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
       setReportTesto(prev => prev ? prev + ' ' + r.data.testo_italiano : r.data.testo_italiano)
       toast.success('Trascritto! Modifica se vuoi, poi premi Invia.')
     } catch (err) {
@@ -943,7 +943,7 @@ function MappeTab({ cantiereId }) {
           const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
           const blob = new Blob(pinChunksRef.current, { type: mimeType })
           const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
-          const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+          const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
           setPinForm(f => ({ ...f, nota: f.nota ? f.nota + ' ' + r.data.testo_italiano : r.data.testo_italiano }))
           toast.success('Trascritto! Modifica se vuoi, poi premi Aggiungi.')
         } catch (err) { toast.error(err.response?.data?.detail || 'Errore trascrizione') }

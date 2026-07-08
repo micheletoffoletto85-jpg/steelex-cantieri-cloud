@@ -285,7 +285,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const inviaMutation = useMutation(
     async (formData) => {
       const res = await api.post('/rapportini/invia', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 180000, // Whisper + Claude possono superare di molto i 12s di default
       })
       return res.data
     },
@@ -339,7 +340,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
           const fd = new FormData()
           fd.append('audio', blob, `rapportino.${ext}`)
           fd.append('lingua_hint', linguaReg)
-          const res = await api.post('/rapportini/trascrivi', fd)
+          const res = await api.post('/rapportini/trascrivi', fd, { timeout: 180000 })
           setConferma({ testo: res.data.testo, dataRif: dayjs().format('YYYY-MM-DD') })
           setFase('idle')
         } catch (err) {

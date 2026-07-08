@@ -130,6 +130,21 @@ def salva_programmazione(
     return _prog_dict(prog, db)
 
 
+@router.get("/operativi")
+def lista_operativi(
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Utenti pianificabili — accessibile anche a capi cantiere (non solo admin)."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    utenti = db.query(Utente).filter(
+        Utente.ruolo.in_([RuoloUtente.artigiano, RuoloUtente.capo_cantiere, RuoloUtente.capo_cantiere_sub]),
+        Utente.attivo == True,
+    ).order_by(Utente.cognome, Utente.nome).all()
+    return [{"id": u.id, "nome": u.nome, "cognome": u.cognome, "ruolo": u.ruolo} for u in utenti]
+
+
 @router.get("/mia")
 def mia_programmazione(
     anno: Optional[int] = None,
