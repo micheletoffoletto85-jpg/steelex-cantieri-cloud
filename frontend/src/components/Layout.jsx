@@ -15,7 +15,7 @@ const navItems = [
   { to: '/gantt-operatori', label: 'Gantt Operatori', icon: LayoutGrid, roles: ['admin','capo_cantiere','capo_cantiere_sub','amministrazione'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
   { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },
-  { to: '/ore-lavorate', label: 'Ore Lavorate', icon: Clock, roles: ['admin', 'amministrazione', 'artigiano', 'operativo'] },
+  { to: '/ore-lavorate', label: 'Ore Lavorate', icon: Clock, roles: ['admin', 'amministrazione', 'artigiano', 'operativo', 'capo_cantiere', 'capo_cantiere_sub'] },
   { to: '/error-log', label: 'Error Log', icon: AlertTriangle, adminOnly: true },
 ]
 

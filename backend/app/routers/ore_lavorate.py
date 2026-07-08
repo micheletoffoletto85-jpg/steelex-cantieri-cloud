@@ -8,8 +8,8 @@ from typing import Optional
 
 router = APIRouter(prefix="/ore-lavorate", tags=["ore-lavorate"])
 
-# Chi può registrare le proprie ore: anche gli operativi/artigiani (es. Flavian, Alberto)
-RUOLI_AMMESSI = {"admin", "amministrazione", "artigiano", "operativo"}
+# Chi può registrare le proprie ore: anche operativi/artigiani e capi cantiere (es. Flavian, Alberto)
+RUOLI_AMMESSI = {"admin", "amministrazione", "artigiano", "operativo", "capo_cantiere", "capo_cantiere_sub"}
 # Chi vede le ore di tutti: solo admin e amministrazione
 RUOLI_VEDONO_TUTTI = {"admin", "amministrazione"}
 
@@ -29,7 +29,7 @@ def lista_utenti(db: Session = Depends(get_db), utente=Depends(get_current_user)
         raise HTTPException(403, "Accesso riservato ad admin e amministrazione")
     rows = db.execute(text("""
         SELECT id, nome, cognome, ruolo FROM utenti
-        WHERE ruolo IN ('admin', 'amministrazione', 'artigiano', 'operativo') AND attivo = TRUE
+        WHERE ruolo IN ('admin', 'amministrazione', 'artigiano', 'operativo', 'capo_cantiere', 'capo_cantiere_sub') AND attivo = TRUE
         ORDER BY cognome, nome
     """)).mappings().all()
     return [dict(r) for r in rows]
