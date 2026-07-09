@@ -152,6 +152,12 @@ async def trascrivi_audio(
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(await audio.read()); tmp_path = tmp.name
 
+    # File vuoto/minuscolo = registrazione corrotta dal telefono: messaggio chiaro invece dell'errore OpenAI
+    if os.path.getsize(tmp_path) < 1024:
+        try: os.unlink(tmp_path)
+        except Exception: pass
+        raise HTTPException(422, "Registrazione vuota o troppo breve — riprova parlando qualche secondo")
+
     try:
         from openai import OpenAI
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -166,7 +172,7 @@ async def trascrivi_audio(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("[trascrivi] Errore Whisper — utente=%s filename=%s", getattr(user, 'id', '?'), audio.filename)
+        logger.exception("[trascrivi] Errore Whisper — utente=%s filename=%s size=%s", getattr(user, 'id', '?'), audio.filename, os.path.getsize(tmp_path))
         err_str = str(e).lower()
         if "quota" in err_str or "rate" in err_str or "429" in err_str:
             raise HTTPException(503, "Servizio di trascrizione momentaneamente sovraccarico — riprova tra qualche secondo")
@@ -251,6 +257,10 @@ async def invia_rapportino(
         suffix = os.path.splitext(file.filename or "audio.webm")[1] or ".webm"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(await file.read()); tmp_path = tmp.name
+        if os.path.getsize(tmp_path) < 1024:
+            try: os.unlink(tmp_path)
+            except Exception: pass
+            raise HTTPException(422, "Registrazione vuota o troppo breve — riprova parlando qualche secondo")
         try:
             from openai import OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)

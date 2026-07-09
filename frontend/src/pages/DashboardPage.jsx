@@ -334,6 +334,12 @@ function ArtigianoDashboard({ utente, cantieri }) {
         clearTimeout(autoStopRef.current)
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' })
+        // Blob vuoto/minuscolo = registrazione corrotta o troppo breve: inutile inviarla
+        if (blob.size < 2048) {
+          setErrore('Registrazione vuota o troppo breve — tieni premuto qualche secondo e riprova')
+          setFase('error')
+          return
+        }
         setFase('transcribing')
         setErrore(null)
         try {
@@ -348,7 +354,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
           setFase('error')
         }
       }
-      mr.start()
+      // Timeslice 1s: chunk progressivi — se la registrazione si interrompe non si perde tutto
+      mr.start(1000)
       mediaRef.current = mr
       setFase('recording')
       setErrore(null)
