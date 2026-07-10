@@ -52,7 +52,7 @@ function nomeGiorno(data, i) {
 
 export default function MeteoMappa({ cantiere }) {
   const comune = cantiere.citta || ''
-  const indirizzoCompleto = [cantiere.indirizzo, cantiere.citta].filter(Boolean).join(', ')
+  const indirizzoCompleto = [cantiere.indirizzo, cantiere.citta, cantiere.provincia].filter(Boolean).join(', ')
 
   const { data: giorni, isLoading, isError } = useQuery(
     ['meteo', comune],

@@ -173,6 +173,7 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
       <div className="grid grid-cols-2 gap-3">
         <InfoField icon="👷" label="Cliente" value={data.cliente || ''} editing={editing} onChange={v => set('cliente', v)} />
         <InfoField icon={<MapPin size={14} />} label="Città" value={data.citta || ''} editing={editing} onChange={v => set('citta', v)} />
+        <InfoField icon={<MapPin size={14} />} label="Indirizzo" value={data.indirizzo || ''} editing={editing} onChange={v => set('indirizzo', v)} className="col-span-2" />
         <InfoField icon={<Calendar size={14} />} label="Inizio" type="date" value={data.data_inizio || ''} editing={editing} onChange={v => set('data_inizio', v)} />
         <InfoField icon={<Calendar size={14} />} label="Fine Prevista" type="date" value={data.data_fine_prevista || ''} editing={editing} onChange={v => set('data_fine_prevista', v)} />
       </div>
@@ -231,9 +232,9 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
   )
 }
 
-function InfoField({ icon, label, value, editing, onChange, type = 'text', display }) {
+function InfoField({ icon, label, value, editing, onChange, type = 'text', display, className }) {
   return (
-    <div>
+    <div className={className}>
       <label className="text-xs text-gray-500 flex items-center gap-1 mb-1">{icon} {label}</label>
       {editing
         ? <input className="input-field py-2 text-sm" type={type} value={value} onChange={e => onChange(e.target.value)} />

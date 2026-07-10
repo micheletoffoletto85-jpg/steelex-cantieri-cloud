@@ -116,7 +116,7 @@ export default function CantieriPage() {
 }
 
 function NuovoCantiereModal({ onClose, onSubmit, loading }) {
-  const [form, setForm] = useState({ nome: '', cliente: '', citta: '', provincia: '', stato: 'preventivo', budget: '' })
+  const [form, setForm] = useState({ nome: '', cliente: '', indirizzo: '', citta: '', provincia: '', stato: 'preventivo', budget: '' })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   return (
@@ -126,6 +126,7 @@ function NuovoCantiereModal({ onClose, onSubmit, loading }) {
         <div className="space-y-3">
           <input className="input-field" placeholder="Nome cantiere *" value={form.nome} onChange={e => set('nome', e.target.value)} required />
           <input className="input-field" placeholder="Cliente *" value={form.cliente} onChange={e => set('cliente', e.target.value)} required />
+          <input className="input-field" placeholder="Indirizzo (via e numero civico)" value={form.indirizzo} onChange={e => set('indirizzo', e.target.value)} />
           <div className="flex gap-2">
             <input className="input-field" placeholder="Città" value={form.citta} onChange={e => set('citta', e.target.value)} />
             <input className="input-field w-20" placeholder="Prov." maxLength={2} value={form.provincia} onChange={e => set('provincia', e.target.value.toUpperCase())} />
