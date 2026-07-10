@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import nullslast
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -190,7 +191,7 @@ def export_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utent
 
     def _d(v): return str(v) if v else None
 
-    fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine).all()
+    fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(nullslast(FaseLavoro.data_inizio.asc()), FaseLavoro.ordine).all()
     checklist = db.query(ChecklistItem).filter(ChecklistItem.cantiere_id == cantiere_id).all()
     ordini = db.query(OrdineAcquisto).filter(OrdineAcquisto.cantiere_id == cantiere_id).all()
     fatture = db.query(FatturaFornitore).filter(FatturaFornitore.cantiere_id == cantiere_id).all()

@@ -9,6 +9,7 @@ import io
 import os
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
+from sqlalchemy import nullslast
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
 from datetime import date, datetime
@@ -551,7 +552,8 @@ class FaseUpdate(BaseModel):
 @router.get("/{cantiere_id}/fasi", response_model=List[FaseOut])
 def lista_fasi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
-    return db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine, FaseLavoro.data_inizio).all()
+    # Ordine cronologico: prima per data di inizio (senza data in fondo), poi ordine manuale
+    return db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(nullslast(FaseLavoro.data_inizio.asc()), FaseLavoro.ordine).all()
 
 @router.get("/{cantiere_id}/aggiornamenti-cliente")
 def aggiornamenti_cliente(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
@@ -562,7 +564,7 @@ def aggiornamenti_cliente(cantiere_id: int, db: Session = Depends(get_db), user:
     import datetime
 
     cantiere = db.query(CantiereModel).filter(CantiereModel.id == cantiere_id).first()
-    fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(FaseLavoro.ordine, FaseLavoro.data_inizio).all()
+    fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(nullslast(FaseLavoro.data_inizio.asc()), FaseLavoro.ordine).all()
 
     # Fasi visibili al cliente (solo quelle segnate)
     fasi_da_mostrare = [f for f in fasi if f.visibile_cliente]
