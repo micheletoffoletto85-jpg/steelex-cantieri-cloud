@@ -532,6 +532,8 @@ class FaseOut(BaseModel):
     data_fine_prevista: Optional[date]; data_fine_reale: Optional[date]
     percentuale: float; stato: str; note: Optional[str]; creato_il: Optional[datetime]
     visibile_cliente: bool = False
+    artigiano_id: Optional[int] = None
+    artigiano_nome: Optional[str] = None
     class Config: from_attributes = True
 
 class FaseCreate(BaseModel):
@@ -540,6 +542,7 @@ class FaseCreate(BaseModel):
     data_fine_prevista: Optional[date] = None; sal_id: Optional[int] = None
     percentuale: float = 0.0; stato: str = "pianificata"; note: Optional[str] = None
     visibile_cliente: bool = False
+    artigiano_id: Optional[int] = None
 
 class FaseUpdate(BaseModel):
     nome: Optional[str] = None; categoria: Optional[str] = None
@@ -548,6 +551,7 @@ class FaseUpdate(BaseModel):
     data_fine_reale: Optional[date] = None; percentuale: Optional[float] = None
     stato: Optional[str] = None; sal_id: Optional[int] = None; note: Optional[str] = None
     visibile_cliente: Optional[bool] = None
+    artigiano_id: Optional[int] = None
 
 @router.get("/{cantiere_id}/fasi", response_model=List[FaseOut])
 def lista_fasi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
@@ -628,7 +632,8 @@ def aggiorna_fase(cantiere_id: int, fase_id: int, body: FaseUpdate, db: Session 
     _check(cantiere_id, db, user); _solo_staff(user)
     fase = db.query(FaseLavoro).filter(FaseLavoro.id == fase_id, FaseLavoro.cantiere_id == cantiere_id).first()
     if not fase: raise HTTPException(404, "Non trovata")
-    for k, v in body.model_dump(exclude_none=True).items(): setattr(fase, k, v)
+    # exclude_unset: applica solo i campi inviati — un null esplicito scollega (es. artigiano_id/sal_id)
+    for k, v in body.model_dump(exclude_unset=True).items(): setattr(fase, k, v)
     from datetime import date as d_today
     oggi = d_today.today()
     if fase.percentuale >= 100:

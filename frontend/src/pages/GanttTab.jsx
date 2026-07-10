@@ -191,7 +191,9 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     doc.setFontSize(6.5); doc.setFont('helvetica','normal')
     const lineH = doc.getLineHeight() / doc.internal.scaleFactor
     const nomeLines = doc.splitTextToSize(f.nome || '', LABEL_W - 8)
-    const rowH = Math.max(ROW_H, 2 + nomeLines.length * lineH + 2)
+    // Artigiano di riferimento su una riga aggiuntiva (troncato alla larghezza colonna)
+    const artLine = f.artigiano_nome ? doc.splitTextToSize(f.artigiano_nome, LABEL_W - 8)[0] : null
+    const rowH = Math.max(ROW_H, 2 + (nomeLines.length + (artLine ? 1 : 0)) * lineH + 2)
 
     if (fi > 0 && rowY + rowH > pageBottom) {
       // Chiudi la pagina corrente e riparti con l'asse temporale
@@ -217,6 +219,10 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     doc.roundedRect(ML + 1, rowY + 2, 3, 3, 0.5, 0.5, 'F')
     doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(...DARK)
     doc.text(nomeLines, ML + 5.5, rowY + 2 + lineH * 0.8)
+    if (artLine) {
+      doc.setFontSize(5.5); doc.setTextColor(...GRAY)
+      doc.text(artLine, ML + 5.5, rowY + 2 + lineH * 0.8 + nomeLines.length * lineH)
+    }
 
     for (let di = 0; di < totalDays; di++) {
       const dg = minD.add(di, 'day')
@@ -302,8 +308,8 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
   drawBigHeader(`ELENCO FASI — ${(cantiere?.nome||'').toUpperCase()}`, 34)
 
   const T = { x: ML, y: MT + HEADER_H + 4, rH: 7 }
-  const COL = { n: 8, nome: 90, dal: 32, al: 32, gg: 18, stato: 28, pct: 14, note: 0 }
-  COL.note = PW - MR - ML - COL.n - COL.nome - COL.dal - COL.al - COL.gg - COL.stato - COL.pct
+  const COL = { n: 8, nome: 78, dal: 30, al: 30, gg: 16, stato: 26, pct: 12, artigiano: 34, note: 0 }
+  COL.note = PW - MR - ML - COL.n - COL.nome - COL.dal - COL.al - COL.gg - COL.stato - COL.pct - COL.artigiano
 
   // ── Helper: header colonne tabella — ripetuto su ogni pagina ──
   const drawTableHeader = (y) => {
@@ -318,6 +324,7 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     doc.text('GG', hx, y + T.rH - 2); hx += COL.gg
     doc.text('STATO', hx, y + T.rH - 2); hx += COL.stato
     doc.text('%', hx, y + T.rH - 2); hx += COL.pct
+    doc.text('ARTIGIANO', hx, y + T.rH - 2); hx += COL.artigiano
     doc.text('NOTE', hx, y + T.rH - 2)
   }
 
@@ -333,7 +340,8 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     const lineH = doc.getLineHeight() / doc.internal.scaleFactor
     const nomeLines = doc.splitTextToSize(f.nome || '', COL.nome - 6)
     const noteLines = f.note ? doc.splitTextToSize(f.note, COL.note - 2) : []
-    const maxLines = Math.max(nomeLines.length, noteLines.length, 1)
+    const artigianoLines = f.artigiano_nome ? doc.splitTextToSize(f.artigiano_nome, COL.artigiano - 2) : []
+    const maxLines = Math.max(nomeLines.length, noteLines.length, artigianoLines.length, 1)
     const rowH = Math.max(BASE_H, 2.5 + maxLines * lineH + 1.5)
 
     if (fy + rowH > PH - MB - FOOTER_H) {
@@ -385,6 +393,9 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
     doc.setTextColor(...DARK)
     doc.text(`${f.percentuale}%`, cx, textY); cx += COL.pct
 
+    if (artigianoLines.length > 0) doc.text(artigianoLines, cx, textY)
+    cx += COL.artigiano
+
     if (noteLines.length > 0) doc.text(noteLines, cx, textY)
 
     doc.setDrawColor(220,220,220); doc.setLineWidth(0.1)
@@ -430,7 +441,7 @@ export default function GanttTab({ cantiereId, cantiere }) {
   const [editId, setEditId] = useState(null)
   const [vista, setVista] = useState(() => window.innerWidth < 640 ? 'lista' : 'gantt')
   const [tooltipFase, setTooltipFase] = useState(null) // fase selezionata nel Gantt
-  const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#1C1C1C', data_inizio:'', data_fine_prevista:'', sal_id:'', percentuale:0, stato:'pianificata', note:'', visibile_cliente: false })
+  const [form, setForm] = useState({ nome:'', categoria:'lavorazione', colore:'#1C1C1C', data_inizio:'', data_fine_prevista:'', sal_id:'', artigiano_id:'', percentuale:0, stato:'pianificata', note:'', visibile_cliente: false })
   const setF = (k,v) => setForm(f => ({...f, [k]:v}))
   const [importando, setImportando] = useState(false)
   const [fasiImportate, setFasiImportate] = useState(null)
@@ -446,6 +457,12 @@ export default function GanttTab({ cantiereId, cantiere }) {
     ['sal', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/sal`).then(r => r.data),
     { staleTime: 0, retry: 1 }
+  )
+  // Rubrica artigiani per l'assegnazione delle fasi
+  const { data: artigiani = [] } = useQuery(
+    ['artigiani'],
+    () => api.get('/artigiani').then(r => r.data),
+    { staleTime: 5 * 60 * 1000, retry: 1, enabled: canWrite }
   )
 
   const createMutation = useMutation(
@@ -474,7 +491,7 @@ export default function GanttTab({ cantiereId, cantiere }) {
     { onSuccess: () => qc.invalidateQueries(['fasi', cantiereId]) }
   )
 
-  const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#1C1C1C',data_inizio:'',data_fine_prevista:'',sal_id:'',percentuale:0,stato:'pianificata',note:'',visibile_cliente:false }) }
+  const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#1C1C1C',data_inizio:'',data_fine_prevista:'',sal_id:'',artigiano_id:'',percentuale:0,stato:'pianificata',note:'',visibile_cliente:false }) }
 
   // Elimina con dialogo React (no confirm() nativo — bloccato su iOS PWA)
   const richiediElimina = (ids, testo) => setConfirmDialog({ ids: Array.isArray(ids) ? ids : [ids], testo: testo || 'Eliminare questa fase?' })
@@ -523,12 +540,12 @@ export default function GanttTab({ cantiereId, cantiere }) {
 
   const apriModifica = (f) => {
     setEditId(f.id)
-    setForm({ nome:f.nome, categoria:f.categoria||'lavorazione', colore:f.colore||'#1C1C1C', data_inizio:f.data_inizio||'', data_fine_prevista:f.data_fine_prevista||'', sal_id:f.sal_id||'', percentuale:f.percentuale||0, stato:f.stato||'pianificata', note:f.note||'', visibile_cliente: f.visibile_cliente || false })
+    setForm({ nome:f.nome, categoria:f.categoria||'lavorazione', colore:f.colore||'#1C1C1C', data_inizio:f.data_inizio||'', data_fine_prevista:f.data_fine_prevista||'', sal_id:f.sal_id||'', artigiano_id:f.artigiano_id||'', percentuale:f.percentuale||0, stato:f.stato||'pianificata', note:f.note||'', visibile_cliente: f.visibile_cliente || false })
     setShowForm(true)
   }
 
   const salva = () => {
-    const payload = { ...form, percentuale: parseFloat(form.percentuale)||0, sal_id: form.sal_id ? parseInt(form.sal_id) : null, data_inizio: form.data_inizio||null, data_fine_prevista: form.data_fine_prevista||null }
+    const payload = { ...form, percentuale: parseFloat(form.percentuale)||0, sal_id: form.sal_id ? parseInt(form.sal_id) : null, artigiano_id: form.artigiano_id ? parseInt(form.artigiano_id) : null, data_inizio: form.data_inizio||null, data_fine_prevista: form.data_fine_prevista||null }
     if (editId) updateMutation.mutate({ id: editId, data: payload })
     else createMutation.mutate(payload)
   }
@@ -669,6 +686,18 @@ export default function GanttTab({ cantiereId, cantiere }) {
                 {salList.map(s => <option key={s.id} value={s.id}>SAL #{s.numero} — {s.titolo}</option>)}
               </select>
             </div>
+          </div>
+          {/* Artigiano di riferimento */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Artigiano di riferimento</label>
+            <select className="input-field" value={form.artigiano_id} onChange={e => setF('artigiano_id', e.target.value)}>
+              <option value="">— nessuno —</option>
+              {artigiani.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.azienda || `${a.nome} ${a.cognome}`}{a.categoria ? ` — ${a.categoria}` : ''}
+                </option>
+              ))}
+            </select>
           </div>
           {/* Note */}
           <div>
@@ -994,6 +1023,7 @@ function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReo
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm leading-tight">{tooltipFase.nome}</p>
               <p className="text-xs text-gray-300 mt-0.5">{tooltipFase.categoria} · {fmtDFull(tooltipFase.data_inizio)} → {fmtDFull(tooltipFase.data_fine_prevista)}</p>
+              {tooltipFase.artigiano_nome && <p className="text-xs text-gray-300 mt-0.5">👷 {tooltipFase.artigiano_nome}</p>}
               {tooltipFase.note && <p className="text-xs text-gray-400 mt-0.5 italic">{tooltipFase.note}</p>}
             </div>
           </div>
@@ -1327,7 +1357,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
                   </button>
                 )}
               </div>
-              <p className="text-xs text-gray-400">{f.categoria} {sal ? `• SAL #${sal.numero}` : ''}</p>
+              <p className="text-xs text-gray-400">{f.categoria} {sal ? `• SAL #${sal.numero}` : ''}{f.artigiano_nome ? ` • 👷 ${f.artigiano_nome}` : ''}</p>
             </div>
           </div>
 

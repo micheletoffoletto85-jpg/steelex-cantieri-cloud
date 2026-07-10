@@ -208,6 +208,16 @@ class FaseLavoro(Base):
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 
     visibile_cliente = Column(Boolean, default=False)  # condividi fase con il cliente
+    artigiano_id = Column(Integer, ForeignKey("artigiani.id", ondelete="SET NULL"), nullable=True)  # artigiano di riferimento
 
     cantiere = relationship("Cantiere", back_populates="fasi")
     sal = relationship("SAL", back_populates="fasi")
+    artigiano = relationship("Artigiano", foreign_keys=[artigiano_id])
+
+    @property
+    def artigiano_nome(self):
+        # Nome mostrato in UI e PDF: azienda se presente, altrimenti nome e cognome
+        a = self.artigiano
+        if not a:
+            return None
+        return a.azienda or f"{a.nome} {a.cognome}"
