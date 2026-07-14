@@ -1,12 +1,15 @@
 import os, tempfile, json as _json, base64
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.database import get_db
 from app.models.programmazione import ProgrammazioneSettimana
+from app.models.assegnazione import AssegnazioneOperatore
+from app.models.artigiano import Artigiano
 from app.models.utente import Utente, RuoloUtente
 from app.models.cantiere import Cantiere
 from app.auth import get_current_user
@@ -130,6 +133,15 @@ def salva_programmazione(
     return _prog_dict(prog, db)
 
 
+def _ass_info(a: AssegnazioneOperatore) -> dict:
+    return {
+        "cantiere_id": a.cantiere_id,
+        "cantiere_nome": a.cantiere.nome if a.cantiere else None,
+        "lavorazione": a.lavorazione,
+        "note": a.note,
+    }
+
+
 @router.get("/mia")
 def mia_programmazione(
     anno: Optional[int] = None,
@@ -137,16 +149,66 @@ def mia_programmazione(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
+    """Programma settimanale personale.
+
+    Fonte primaria: le assegnazioni del Gantt Operatori (turni M/P).
+    Ripiego: la programmazione manuale, per i giorni senza assegnazioni.
+    """
     if not anno or not settimana:
         anno, settimana = _settimana_corrente()
+
+    # Programmazione manuale (base di partenza, se esiste)
     prog = db.query(ProgrammazioneSettimana).filter(
         ProgrammazioneSettimana.operativo_id == user.id,
         ProgrammazioneSettimana.anno == anno,
         ProgrammazioneSettimana.settimana == settimana,
     ).first()
-    if not prog:
+    giorni_out = _prog_dict(prog, db)["giorni"] if prog else {}
+
+    # Assegnazioni Gantt: l'account può essere un utente interno
+    # o collegato a una scheda della rubrica artigiani
+    lunedi = date.fromisocalendar(anno, settimana, 1)
+    artigiano_ids = [
+        a.id for a in db.query(Artigiano).filter(Artigiano.utente_id == user.id).all()
+    ]
+    condizioni = [AssegnazioneOperatore.utente_id == user.id]
+    if artigiano_ids:
+        condizioni.append(AssegnazioneOperatore.artigiano_id.in_(artigiano_ids))
+    assegnazioni = (
+        db.query(AssegnazioneOperatore)
+        .filter(
+            AssegnazioneOperatore.data >= lunedi,
+            AssegnazioneOperatore.data <= lunedi + timedelta(days=6),
+            or_(*condizioni),
+        )
+        .all()
+    )
+
+    # Le assegnazioni Gantt sovrascrivono il giorno corrispondente
+    for a in assegnazioni:
+        giorno = GIORNI_ORDINE[a.data.isoweekday() - 1]
+        info = giorni_out.get(giorno) or {}
+        if info.get("fonte") != "gantt":
+            info = {"fonte": "gantt", "turni": {}}
+        info["turni"][a.turno] = _ass_info(a)
+        # Campi piatti retro-compatibili: mattina se c'è, altrimenti pomeriggio
+        principale = info["turni"].get("M") or info["turni"].get("P")
+        info.update(principale)
+        giorni_out[giorno] = info
+
+    if not giorni_out:
         return None
-    return _prog_dict(prog, db)
+
+    return {
+        "id": prog.id if prog else None,
+        "operativo_id": user.id,
+        "operativo_nome": f"{user.nome} {user.cognome}",
+        "anno": anno,
+        "settimana": settimana,
+        "notificato_il": prog.notificato_il.isoformat() if prog and getattr(prog, "notificato_il", None) else None,
+        "giorni": giorni_out,
+        "aggiornato_il": prog.aggiornato_il.isoformat() if prog and prog.aggiornato_il else None,
+    }
 
 
 @router.get("")
