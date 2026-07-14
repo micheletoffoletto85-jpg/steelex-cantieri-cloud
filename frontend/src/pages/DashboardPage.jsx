@@ -907,7 +907,7 @@ function NotifichePanel() {
   const qc = useQueryClient()
   const { data: notifiche = [], isLoading } = useQuery(
     'notifiche-inapp',
-    () => api.get('/notifiche/inapp').then(r => r.data),
+    () => api.get('/notifiche/inapp', { _skipLog: true }).then(r => r.data),
     { staleTime: 30000, refetchInterval: 60000 }
   )
   const leggiTutte = useMutation(

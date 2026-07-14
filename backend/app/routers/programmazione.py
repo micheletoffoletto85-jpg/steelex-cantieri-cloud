@@ -133,10 +133,16 @@ def salva_programmazione(
     return _prog_dict(prog, db)
 
 
+TIPI_LIBERI_LABEL = {"ferie": "Ferie", "corso": "Corso", "permesso": "Permesso", "altro": "Fuori cantiere"}
+
+
 def _ass_info(a: AssegnazioneOperatore) -> dict:
+    tipo = a.tipo or "cantiere"
     return {
+        "tipo": tipo,
         "cantiere_id": a.cantiere_id,
-        "cantiere_nome": a.cantiere.nome if a.cantiere else None,
+        # Per le attività libere l'etichetta del tipo prende il posto del cantiere
+        "cantiere_nome": a.cantiere.nome if a.cantiere else TIPI_LIBERI_LABEL.get(tipo),
         "lavorazione": a.lavorazione,
         "note": a.note,
     }

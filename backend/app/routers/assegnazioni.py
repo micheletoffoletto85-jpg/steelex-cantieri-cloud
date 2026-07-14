@@ -16,6 +16,9 @@ router = APIRouter(prefix="/assegnazioni", tags=["Assegnazioni"])
 RUOLI_ADMIN = {"admin", "capo_cantiere", "capo_cantiere_sub", "amministrazione", "direzione_lavori"}
 RUOLI_OPERATIVI = {"artigiano", "capo_cantiere", "capo_cantiere_sub"}
 
+# Programmazione libera: attività fuori cantiere
+TIPI_ASSEGNAZIONE = {"cantiere", "ferie", "corso", "permesso", "altro"}
+
 
 def _dict(a: AssegnazioneOperatore) -> dict:
     if a.artigiano_id:
@@ -31,6 +34,7 @@ def _dict(a: AssegnazioneOperatore) -> dict:
         "nome": nome,
         "data": a.data.isoformat() if a.data else None,
         "turno": a.turno,
+        "tipo": a.tipo or "cantiere",
         "cantiere_id": a.cantiere_id,
         "cantiere_nome": a.cantiere.nome if a.cantiere else None,
         "lavorazione": a.lavorazione,
@@ -118,6 +122,7 @@ class AssegnazioneBody(BaseModel):
     utente_id: Optional[int] = None
     data: date
     turno: str
+    tipo: Optional[str] = "cantiere"
     cantiere_id: Optional[int] = None
     lavorazione: Optional[str] = None
     note: Optional[str] = None
@@ -135,6 +140,9 @@ def upsert_assegnazione(
         raise HTTPException(422, "turno deve essere 'M' o 'P'")
     if not body.artigiano_id and not body.utente_id:
         raise HTTPException(422, "artigiano_id o utente_id obbligatorio")
+    tipo = body.tipo or "cantiere"
+    if tipo not in TIPI_ASSEGNAZIONE:
+        raise HTTPException(422, f"tipo deve essere uno di: {', '.join(sorted(TIPI_ASSEGNAZIONE))}")
 
     q = db.query(AssegnazioneOperatore).filter(
         AssegnazioneOperatore.data == body.data,
@@ -147,26 +155,32 @@ def upsert_assegnazione(
 
     existing = q.first()
 
+    # Una cella "vuota" è tipo cantiere senza cantiere né lavorazione né note;
+    # le attività libere (ferie, corso...) restano valide anche senza cantiere
+    vuota = tipo == "cantiere" and body.cantiere_id is None and body.lavorazione is None and body.note is None
+
     if existing:
-        if body.cantiere_id is None and body.lavorazione is None and body.note is None:
+        if vuota:
             db.delete(existing)
             db.commit()
             return {"deleted": True}
-        existing.cantiere_id = body.cantiere_id
+        existing.tipo = tipo
+        existing.cantiere_id = body.cantiere_id if tipo == "cantiere" else None
         existing.lavorazione = body.lavorazione
         existing.note = body.note
         db.commit()
         db.refresh(existing)
         return _dict(existing)
     else:
-        if body.cantiere_id is None and body.lavorazione is None:
+        if vuota:
             return {"noop": True}
         row = AssegnazioneOperatore(
             artigiano_id=body.artigiano_id,
             utente_id=body.utente_id,
             data=body.data,
             turno=body.turno,
-            cantiere_id=body.cantiere_id,
+            tipo=tipo,
+            cantiere_id=body.cantiere_id if tipo == "cantiere" else None,
             lavorazione=body.lavorazione,
             note=body.note,
             creato_da=user.id,

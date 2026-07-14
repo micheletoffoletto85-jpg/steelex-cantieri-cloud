@@ -12,6 +12,7 @@ class AssegnazioneOperatore(Base):
     utente_id    = Column(Integer, ForeignKey("utenti.id",    ondelete="CASCADE"), nullable=True)
     data         = Column(Date, nullable=False)
     turno        = Column(String(1), nullable=False)   # 'M' o 'P'
+    tipo         = Column(String(20), nullable=False, server_default="cantiere")  # cantiere | ferie | corso | permesso | altro
     cantiere_id  = Column(Integer, ForeignKey("cantieri.id", ondelete="SET NULL"), nullable=True)
     lavorazione  = Column(String(200), nullable=True)
     note         = Column(Text, nullable=True)
