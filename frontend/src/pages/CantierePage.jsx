@@ -30,6 +30,9 @@ export default function CantierePage() {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(null)
 
+  // Segui l'hash anche a pagina già aperta (click su notifica → cambia tab)
+  useEffect(() => { if (hash) setTab(hash.slice(1)) }, [hash])
+
   const { utente } = useAuth()
   const isCliente = utente?.ruolo === 'cliente'
   const { data: cantiere, isLoading } = useQuery(['cantiere', id], () => api.get(`/cantieri/${id}`).then(r => r.data), {
