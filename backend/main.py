@@ -30,7 +30,10 @@ from sqlalchemy import text
 # Crea tabelle al primo avvio
 Base.metadata.create_all(bind=engine)
 
-# Migra colonne nuove su tabelle esistenti (idempotente)
+# ⚠️ LISTA CONGELATA — non aggiungere più migrazioni qui.
+# Le nuove modifiche allo schema si fanno con Alembic: alembic/versions/
+# (vedi _alembic_upgrade più sotto). Questa lista resta solo come rete di
+# sicurezza per ricreare lo schema storico su un database vuoto.
 # Ogni statement usa connessione separata: in PostgreSQL un errore in transazione
 # blocca tutti i comandi successivi (InFailedSqlTransaction).
 def _migra():
@@ -313,6 +316,25 @@ def _migra():
     pg_conn.close()
 
 _migra()
+
+# Migrazioni Alembic — da qui in poi ogni modifica allo schema è una
+# revisione in alembic/versions/, applicata automaticamente al deploy.
+def _alembic_upgrade():
+    import sys
+    try:
+        from alembic.config import Config
+        from alembic import command
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        cfg = Config()
+        cfg.set_main_option("script_location", os.path.join(base_dir, "alembic"))
+        command.upgrade(cfg, "head")
+        print("[ALEMBIC] Schema allineato a head", flush=True)
+    except Exception as e:
+        # Primo rollout: non blocca l'avvio, ma l'errore deve essere ben visibile.
+        # Quando verificato in produzione, questo except andrà rimosso (fail-fast).
+        print(f"[ALEMBIC] ERRORE MIGRAZIONE (avvio proseguito): {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+
+_alembic_upgrade()
 
 from app.storage import configura_cors_r2
 configura_cors_r2()
