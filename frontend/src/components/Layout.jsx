@@ -6,15 +6,16 @@ import { useQuery } from 'react-query'
 import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
 import api from '../lib/api'
 
+// Ordine per flusso di lavoro: operatività quotidiana → anagrafiche → amministrazione
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/cantieri', label: 'Cantieri', icon: HardHat, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','architetto','responsabile_sicurezza','artigiano','fornitore','cliente'] },
-  { to: '/artigiani', label: 'Rubrica', icon: BookUser, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'] },
-  { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','artigiano'] },
   { to: '/gantt-operatori', label: 'Gantt Operatori', icon: LayoutGrid, roles: ['admin','capo_cantiere','capo_cantiere_sub','amministrazione'] },
-  { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
-  { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },
+  { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','artigiano'] },
   { to: '/ore-lavorate', label: 'Ore Lavorate', icon: Clock, roles: ['admin', 'amministrazione', 'artigiano', 'operativo', 'capo_cantiere', 'capo_cantiere_sub'] },
+  { to: '/artigiani', label: 'Rubrica', icon: BookUser, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'] },
+  { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },
+  { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
   { to: '/error-log', label: 'Error Log', icon: AlertTriangle, adminOnly: true },
 ]
 
@@ -69,7 +70,7 @@ export default function Layout() {
   const nonLette = notificheInApp.filter(n => !n.letta).length
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-50">
 
       {/* Header mobile (sm e sotto) */}
       <header className="sm:hidden bg-steelex-dark text-white px-4 py-3 flex items-center justify-between shadow-lg sticky top-0 z-50">
@@ -108,7 +109,8 @@ export default function Layout() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Sidebar desktop */}
-        <aside className="hidden sm:flex flex-col w-60 bg-steelex-dark text-white flex-shrink-0 sticky top-0 h-screen">
+        {/* Sidebar sempre visibile: la shell è alta quanto lo schermo, scorre solo il contenuto */}
+        <aside className="hidden sm:flex flex-col w-60 bg-steelex-dark text-white flex-shrink-0 h-full">
 
           {/* Logo */}
           <div className="px-4 py-5 border-b border-white/10">
