@@ -24,11 +24,26 @@ const PALETTE = [
 ]
 const getColore = id => id ? PALETTE[(id - 1) % PALETTE.length] : null
 
+// Programmazione libera: attività fuori cantiere con colori fissi
+const TIPI_LIBERI = {
+  ferie:    { label: 'Ferie',    sigla: 'FER', colore: '#eab308' },
+  corso:    { label: 'Corso',    sigla: 'COR', colore: '#7c3aed' },
+  permesso: { label: 'Permesso', sigla: 'PRM', colore: '#db2777' },
+  altro:    { label: 'Altro',    sigla: 'ALT', colore: '#475569' },
+}
+const isLibera = ass => ass?.tipo && ass.tipo !== 'cantiere'
+const coloreAss = ass => !ass ? null : (isLibera(ass) ? (TIPI_LIBERI[ass.tipo]?.colore || '#475569') : getColore(ass.cantiere_id))
+const siglaAss = ass => isLibera(ass)
+  ? (TIPI_LIBERI[ass.tipo]?.sigla || 'ALT')
+  : (ass?.cantiere_nome ? ass.cantiere_nome.slice(0,3).toUpperCase() : null)
+const labelAss = ass => isLibera(ass) ? (TIPI_LIBERI[ass.tipo]?.label || 'Altro') : (ass?.cantiere_nome || '')
+
 function ck(tipo, id, data, turno) { return `${tipo}__${id}__${data}__${turno}` }
 function parseKey(k) { const [tipo, id, data, turno] = k.split('__'); return { tipo, id: parseInt(id), data, turno } }
 
 // ── Popover ───────────────────────────────────────────────────────────────────
-function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle, cantiereIdIniziale, lavorazioneIniziale }) {
+function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle, cantiereIdIniziale, lavorazioneIniziale, tipoIniziale }) {
+  const [tipoAtt, setTipoAtt] = useState(tipoIniziale ?? ass?.tipo ?? 'cantiere')
   const [cantiereId, setCantiereId] = useState(cantiereIdIniziale ?? ass?.cantiere_id ?? '')
   const [lavorazione, setLavorazione] = useState(lavorazioneIniziale ?? ass?.lavorazione ?? '')
   const ref = useRef(null)
@@ -45,7 +60,8 @@ function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle
     celle.forEach(c => onSalva({
       ...(c.op.tipo === 'artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }),
       data: c.data, turno: c.turno,
-      cantiere_id: cantiereId ? parseInt(cantiereId) : null,
+      tipo: tipoAtt,
+      cantiere_id: tipoAtt === 'cantiere' && cantiereId ? parseInt(cantiereId) : null,
       lavorazione: lavorazione || null,
     }))
     onChiudi()
@@ -53,7 +69,7 @@ function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle
   const svuota = () => {
     celle.forEach(c => onSalva({
       ...(c.op.tipo === 'artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }),
-      data: c.data, turno: c.turno, cantiere_id: null, lavorazione: null,
+      data: c.data, turno: c.turno, tipo: 'cantiere', cantiere_id: null, lavorazione: null,
     }))
     onChiudi()
   }
@@ -70,12 +86,24 @@ function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle
         </p>
         <button onClick={onChiudi} className="text-gray-300 hover:text-gray-500"><X size={14}/></button>
       </div>
-      <select autoFocus value={cantiereId} onChange={e => setCantiereId(e.target.value)}
-        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange">
-        <option value="">— nessun cantiere —</option>
-        {cantieri.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-      </select>
-      <input type="text" placeholder="Lavorazione..." value={lavorazione}
+      {/* Tipo attività: cantiere o programmazione libera */}
+      <div className="flex gap-1 mb-2 flex-wrap">
+        {[['cantiere','Cantiere'], ...Object.entries(TIPI_LIBERI).map(([k,v]) => [k, v.label])].map(([k,l]) => (
+          <button key={k} onClick={() => setTipoAtt(k)}
+            className={`px-2 py-1 rounded-full text-[10px] font-semibold border transition-colors ${tipoAtt===k ? 'text-white' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
+            style={tipoAtt===k ? { background: k==='cantiere' ? '#FF6B00' : TIPI_LIBERI[k].colore, borderColor: 'transparent' } : undefined}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {tipoAtt === 'cantiere' && (
+        <select autoFocus value={cantiereId} onChange={e => setCantiereId(e.target.value)}
+          className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange">
+          <option value="">— nessun cantiere —</option>
+          {cantieri.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+        </select>
+      )}
+      <input type="text" placeholder={tipoAtt === 'cantiere' ? 'Lavorazione...' : 'Descrizione (facoltativa)...'} value={lavorazione}
         onChange={e => setLavorazione(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && salva()}
         className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
@@ -96,14 +124,20 @@ function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle
 }
 
 // ── Legenda ───────────────────────────────────────────────────────────────────
-function Legenda({ cantieri, usatiIds }) {
+function Legenda({ cantieri, usatiIds, tipiUsati = new Set() }) {
   const usati = cantieri.filter(c => usatiIds.has(c.id))
-  if (!usati.length) return null
+  const liberi = Object.entries(TIPI_LIBERI).filter(([k]) => tipiUsati.has(k))
+  if (!usati.length && !liberi.length) return null
   return (
     <div className="flex flex-wrap gap-2 mt-2 px-1">
       {usati.map(c => (
         <div key={c.id} className="flex items-center gap-1.5 text-xs text-gray-600">
           <div className="w-3 h-3 rounded-sm" style={{ background: getColore(c.id) }}/>{c.nome}
+        </div>
+      ))}
+      {liberi.map(([k, t]) => (
+        <div key={k} className="flex items-center gap-1.5 text-xs text-gray-600">
+          <div className="w-3 h-3 rounded-sm" style={{ background: t.colore }}/>{t.label}
         </div>
       ))}
     </div>
@@ -118,7 +152,7 @@ function useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopove
   const startDrag = (op, data, turno) => {
     if (!canWrite) return
     const ass = assMapRef.current[ck(op.tipo, op.id, data, turno)]
-    dragRef.current = { op, startData: data, startTurno: turno, cantiereId: ass?.cantiere_id ?? null, lavorazione: ass?.lavorazione ?? null }
+    dragRef.current = { op, startData: data, startTurno: turno, cantiereId: ass?.cantiere_id ?? null, lavorazione: ass?.lavorazione ?? null, tipoAss: ass?.tipo ?? 'cantiere' }
     selRef.current = new Set([ck(op.tipo, op.id, data, turno)])
     setSelKeys(new Set(selRef.current))
     setPopover(null)
@@ -156,7 +190,7 @@ function useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopove
       return op2 ? { op: op2, data: p.data, turno: p.turno } : null
     }).filter(Boolean)
 
-    setPopover({ op: d.op, data: d.startData, turno: d.startTurno, rangeCelle: celle, cantiereIdIniziale: d.cantiereId, lavorazioneIniziale: d.lavorazione })
+    setPopover({ op: d.op, data: d.startData, turno: d.startTurno, rangeCelle: celle, cantiereIdIniziale: d.cantiereId, lavorazioneIniziale: d.lavorazione, tipoIniziale: d.tipoAss })
   }
 
   return { dragRef, startDrag, moveDrag, endDrag }
@@ -192,7 +226,7 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
     return ['M','P'].map((turno, ti) => {
       const key = ck(op.tipo, op.id, dataStr, turno)
       const ass = assMap[key]
-      const col = getColore(ass?.cantiere_id)
+      const col = coloreAss(ass)
       const isSel = selKeys.has(key)
       const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
       const isEmpty = !ass && !isSel
@@ -215,18 +249,18 @@ function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite
           onPointerDown={canWrite ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}>
           {!isEmpty ? (
             <div className="w-full h-full flex items-center justify-center cursor-pointer"
-              title={`${ass?.cantiere_nome||''}${ass?.lavorazione?' — '+ass.lavorazione:''}`}>
-              {ass?.cantiere_nome && (
+              title={`${labelAss(ass)}${ass?.lavorazione?' — '+ass.lavorazione:''}`}>
+              {siglaAss(ass) && (
                 <span className="text-white font-black pointer-events-none leading-none"
                   style={{ fontSize: 8, textShadow: '0 1px 2px rgba(0,0,0,0.25)' }}>
-                  {ass.cantiere_nome.slice(0,3).toUpperCase()}
+                  {siglaAss(ass)}
                 </span>
               )}
             </div>
           ) : canWrite ? (
             <div className="w-full h-full cursor-pointer hover:bg-orange-50/60 transition-colors"/>
           ) : null}
-          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} tipoIniziale={popover.tipoIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
         </td>
       )
     })
@@ -359,8 +393,8 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
         const isOggi = d.isSame(oggi, 'day')
         const assM = assMap[ck(op.tipo, op.id, dataStr, 'M')]
         const assP = assMap[ck(op.tipo, op.id, dataStr, 'P')]
-        const colM = getColore(assM?.cantiere_id)
-        const colP = getColore(assP?.cantiere_id)
+        const colM = coloreAss(assM)
+        const colP = coloreAss(assP)
         const selM = selKeys.has(ck(op.tipo, op.id, dataStr, 'M'))
         const selP = selKeys.has(ck(op.tipo, op.id, dataStr, 'P'))
         const openM = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno==='M'
@@ -388,10 +422,10 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
                 }}
                 onTouchStart={canWrite && modalitaAssegna ? e => { e.stopPropagation(); e.preventDefault(); startDrag(op, dataStr, 'M') } : undefined}
                 onClick={canWrite && !modalitaAssegna ? e => { e.stopPropagation(); setPopover({ op, data: dataStr, turno: 'M' }) } : undefined}>
-                {assM?.cantiere_nome
-                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{assM.cantiere_nome.slice(0,3).toUpperCase()}</span>
+                {siglaAss(assM)
+                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{siglaAss(assM)}</span>
                   : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>M</span>}
-                {openM && <Popover op={op} data={dataStr} turno="M" ass={assM} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+                {openM && <Popover op={op} data={dataStr} turno="M" ass={assM} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} tipoIniziale={popover.tipoIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
               </div>
               {/* Metà destra — Pomeriggio */}
               <div
@@ -403,10 +437,10 @@ function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite,
                 }}
                 onTouchStart={canWrite && modalitaAssegna ? e => { e.stopPropagation(); e.preventDefault(); startDrag(op, dataStr, 'P') } : undefined}
                 onClick={canWrite && !modalitaAssegna ? e => { e.stopPropagation(); setPopover({ op, data: dataStr, turno: 'P' }) } : undefined}>
-                {assP?.cantiere_nome
-                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{assP.cantiere_nome.slice(0,3).toUpperCase()}</span>
+                {siglaAss(assP)
+                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{siglaAss(assP)}</span>
                   : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>P</span>}
-                {openP && <Popover op={op} data={dataStr} turno="P" ass={assP} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
+                {openP && <Popover op={op} data={dataStr} turno="P" ass={assP} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} tipoIniziale={popover.tipoIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
               </div>
             </div>
           </td>
@@ -531,6 +565,7 @@ export default function GanttOperatoriPage() {
   }, [assegnazioni])
 
   const usatiIds = useMemo(() => new Set(assegnazioni.map(a => a.cantiere_id).filter(Boolean)), [assegnazioni])
+  const tipiUsati = useMemo(() => new Set(assegnazioni.filter(a => a.tipo && a.tipo !== 'cantiere').map(a => a.tipo)), [assegnazioni])
 
   // Categorie disponibili (da artigiani)
   const categorie = useMemo(() => {
@@ -660,7 +695,7 @@ export default function GanttOperatoriPage() {
             : <GrigliaDesktop operatori={operatoriFiltrati} giorni={giorni} assMap={assMap} cantieri={cantieri}
                 onSalva={salva} canWrite={canWrite} oggi={oggi} opImpegnati={opImpegnati}/>
           }
-          <Legenda cantieri={cantieri} usatiIds={usatiIds}/>
+          <Legenda cantieri={cantieri} usatiIds={usatiIds} tipiUsati={tipiUsati}/>
         </>
       )}
 

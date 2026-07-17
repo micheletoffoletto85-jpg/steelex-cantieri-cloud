@@ -30,6 +30,9 @@ export default function CantierePage() {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(null)
 
+  // Segui l'hash anche a pagina già aperta (click su notifica → cambia tab)
+  useEffect(() => { if (hash) setTab(hash.slice(1)) }, [hash])
+
   const { utente } = useAuth()
   const isCliente = utente?.ruolo === 'cliente'
   const { data: cantiere, isLoading } = useQuery(['cantiere', id], () => api.get(`/cantieri/${id}`).then(r => r.data), {
@@ -87,7 +90,9 @@ export default function CantierePage() {
         const ruolo = utente?.ruolo
         const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
         const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
-        const puoVedereEconomia = ['admin','capo_cantiere','amministrazione','direzione_lavori'].includes(ruolo)
+        // Il capo cantiere vede l'economia solo dei cantieri di cui è responsabile (regola backend)
+        const puoVedereEconomia = ['admin','amministrazione','direzione_lavori'].includes(ruolo)
+          || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
 
         const tabs = [
           ['info','Info',null],
@@ -138,7 +143,9 @@ export default function CantierePage() {
 function InfoTab({ cantiere, editing, form, set, utente }) {
   const data = editing ? form : cantiere
   const isStaff = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
-  const puoVedereEconomia = ['admin','capo_cantiere'].includes(utente?.ruolo)
+  // Il capo cantiere vede l'economia solo dei cantieri di cui è responsabile (regola backend)
+  const puoVedereEconomia = utente?.ruolo === 'admin'
+    || (utente?.ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
   const { data: economia } = useQuery(
     ['economia', cantiere.id],
     () => api.get(`/cantieri/${cantiere.id}/economia`).then(r => r.data),

@@ -231,23 +231,47 @@ function ProgrammazioneWidget() {
             {GIORNI_ORDINE_P.map(g => {
               const info = prog.giorni?.[g]
               const isOggi = g === giornoOggi
+              // Turni M/P dal Gantt operatori: se differiscono, mostra due righe
+              const turni = info?.turni
+              const mpDiversi = turni && turni.M && turni.P &&
+                (turni.M.cantiere_id !== turni.P.cantiere_id || turni.M.lavorazione !== turni.P.lavorazione)
+              const mezzaGiornata = turni && (!turni.M || !turni.P) ? (turni.M ? 'M' : 'P') : null
               return (
                 <tr key={g} className={isOggi ? 'bg-orange-50' : ''}>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 align-top">
                     <span className={`text-xs font-bold ${isOggi ? 'text-steelex-orange' : 'text-gray-400'}`}>
                       {GIORNI_LABEL_P[g]}{isOggi ? ' ●' : ''}
                     </span>
                   </td>
-                  <td className="px-3 py-2">
-                    <p className={`text-sm ${info?.cantiere_nome ? 'font-semibold text-gray-800' : 'text-gray-300 italic'}`}>
-                      {info?.cantiere_nome || '—'}
-                    </p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <p className={`text-sm ${info?.lavorazione ? 'text-gray-600' : 'text-gray-300 italic'}`}>
-                      {info?.lavorazione || '—'}
-                    </p>
-                  </td>
+                  {mpDiversi ? (
+                    <td className="px-3 py-2" colSpan={2}>
+                      {['M','P'].map(t => (
+                        <div key={t} className="flex items-baseline gap-1.5">
+                          <span className="text-[9px] font-bold text-gray-400 w-3">{t}</span>
+                          <p className="text-sm font-semibold text-gray-800">
+                            {turni[t]?.cantiere_nome || <span className="text-gray-300 italic font-normal">—</span>}
+                            {turni[t]?.lavorazione && <span className="font-normal text-gray-500"> · {turni[t].lavorazione}</span>}
+                          </p>
+                        </div>
+                      ))}
+                    </td>
+                  ) : (
+                    <>
+                      <td className="px-3 py-2">
+                        <p className={`text-sm ${info?.cantiere_nome ? 'font-semibold text-gray-800' : 'text-gray-300 italic'}`}>
+                          {info?.cantiere_nome || '—'}
+                          {info?.cantiere_nome && mezzaGiornata && (
+                            <span className="font-normal text-gray-400 text-xs"> ({mezzaGiornata === 'M' ? 'mattina' : 'pomeriggio'})</span>
+                          )}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className={`text-sm ${info?.lavorazione ? 'text-gray-600' : 'text-gray-300 italic'}`}>
+                          {info?.lavorazione || '—'}
+                        </p>
+                      </td>
+                    </>
+                  )}
                 </tr>
               )
             })}
@@ -891,7 +915,7 @@ function NotifichePanel() {
   const qc = useQueryClient()
   const { data: notifiche = [], isLoading } = useQuery(
     'notifiche-inapp',
-    () => api.get('/notifiche/inapp').then(r => r.data),
+    () => api.get('/notifiche/inapp', { _skipLog: true }).then(r => r.data),
     { staleTime: 30000, refetchInterval: 60000 }
   )
   const leggiTutte = useMutation(

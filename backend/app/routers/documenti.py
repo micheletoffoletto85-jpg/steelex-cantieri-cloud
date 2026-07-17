@@ -175,7 +175,7 @@ async def carica_documento(
             titolo="🗺️ Nuovo documento caricato",
             corpo=f"{user.nome} {user.cognome}: {file.filename or ''}",
             escludi_id=user.id,
-            url=f"/cantieri/{cantiere_id}#documenti",
+            url=f"/cantieri/{cantiere_id}#mappe",
         )
     except Exception: pass
     return doc
@@ -287,7 +287,7 @@ def aggiungi_pin(
                 escludi_id=user.id,
                 extra_user_ids=extra,
                 tipo="extra_preventivo",
-                url=f"/cantieri/{cantiere_id}#documenti",
+                url=f"/cantieri/{cantiere_id}#mappe",
             )
         else:
             notifica_cantiere(db, cantiere_id,
@@ -297,7 +297,7 @@ def aggiungi_pin(
                 escludi_id=user.id,
                 extra_user_ids=extra,
                 tipo="info",
-                url=f"/cantieri/{cantiere_id}#documenti",
+                url=f"/cantieri/{cantiere_id}#mappe",
             )
     except Exception: pass
     doc.pin_dati = _filtra_pin(doc.pin_dati, user)

@@ -64,7 +64,7 @@ export default function Layout() {
   // Badge notifiche non lette
   const { data: notificheInApp = [] } = useQuery(
     'notifiche-inapp',
-    () => api.get('/notifiche/inapp').then(r => r.data),
+    () => api.get('/notifiche/inapp', { _skipLog: true }).then(r => r.data),
     { staleTime: 30000, refetchInterval: 60000, enabled: !!utente }
   )
   const nonLette = notificheInApp.filter(n => !n.letta).length

@@ -290,6 +290,8 @@ def _migra():
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_ass_utente ON assegnazioni_operatore(utente_id, data, turno) WHERE utente_id IS NOT NULL",
         # Artigiano di riferimento per le fasi del Gantt
         "ALTER TABLE fasi_lavoro ADD COLUMN IF NOT EXISTS artigiano_id INTEGER REFERENCES artigiani(id) ON DELETE SET NULL",
+        # Programmazione libera: attività fuori cantiere (ferie, corsi, permessi...)
+        "ALTER TABLE assegnazioni_operatore ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'cantiere'",
     ]
     _u = engine.url
     import psycopg2
