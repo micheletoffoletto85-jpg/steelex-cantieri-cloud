@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -189,6 +189,82 @@ def upsert_assegnazione(
         db.commit()
         db.refresh(row)
         return _dict(row)
+
+
+GIORNI_LABEL = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
+TIPI_LIBERI_LABEL = {"ferie": "Ferie", "corso": "Corso", "permesso": "Permesso", "altro": "Fuori cantiere"}
+
+
+class PubblicaBody(BaseModel):
+    anno: int
+    settimana: int
+
+
+@router.post("/pubblica-settimana")
+def pubblica_settimana(
+    body: PubblicaBody,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Notifica a ogni operatore il suo programma della settimana, letto dal Gantt.
+
+    Gli artigiani della rubrica senza account collegato non possono ricevere
+    notifiche: il loro numero è riportato in `senza_account`.
+    """
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    try:
+        lunedi = date.fromisocalendar(body.anno, body.settimana, 1)
+    except ValueError:
+        raise HTTPException(422, "Settimana non valida")
+
+    rows = (
+        db.query(AssegnazioneOperatore)
+        .filter(
+            AssegnazioneOperatore.data >= lunedi,
+            AssegnazioneOperatore.data <= lunedi + timedelta(days=6),
+        )
+        .all()
+    )
+    if not rows:
+        raise HTTPException(404, "Nessuna assegnazione in questa settimana")
+
+    # Risolve l'account utente di ogni assegnazione (diretto o via rubrica artigiani)
+    artigiano_ids = {r.artigiano_id for r in rows if r.artigiano_id}
+    link_utente = {}
+    if artigiano_ids:
+        for a in db.query(Artigiano).filter(Artigiano.id.in_(artigiano_ids)).all():
+            if a.utente_id:
+                link_utente[a.id] = a.utente_id
+
+    per_utente = {}      # uid -> {data -> {turno -> testo}}
+    senza_account = set()
+    for r in rows:
+        uid = r.utente_id or link_utente.get(r.artigiano_id)
+        if not uid:
+            if r.artigiano_id:
+                senza_account.add(r.artigiano_id)
+            continue
+        dove = r.cantiere.nome if r.cantiere else TIPI_LIBERI_LABEL.get(r.tipo or "cantiere", "—")
+        testo = dove + (f" ({r.lavorazione})" if r.lavorazione else "")
+        per_utente.setdefault(uid, {}).setdefault(r.data, {})[r.turno] = testo
+
+    from app.routers.notifiche import invia_notifica
+    notificati = 0
+    for uid, giorni in per_utente.items():
+        righe = []
+        for d in sorted(giorni):
+            turni = giorni[d]
+            label = GIORNI_LABEL[d.isoweekday() - 1]
+            if "M" in turni and "P" in turni and turni["M"] != turni["P"]:
+                righe.append(f"{label}: M {turni['M']} · P {turni['P']}")
+            else:
+                righe.append(f"{label}: {turni.get('M') or turni.get('P')}")
+        corpo = f"Settimana {body.settimana}:\n" + "\n".join(righe)
+        invia_notifica(db, [uid], "📅 Programma settimana", corpo, "/")
+        notificati += 1
+
+    return {"ok": True, "notificati": notificati, "senza_account": len(senza_account)}
 
 
 @router.delete("/{ass_id}")

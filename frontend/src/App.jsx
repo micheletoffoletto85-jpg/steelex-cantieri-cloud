@@ -9,7 +9,6 @@ import UtentiPage from './pages/UtentiPage'
 import ForniturePage from './pages/ForniturePage'
 import ArtigianiPage from './pages/ArtigianiPage'
 import RapportiniPage from './pages/RapportiniPage'
-import ProgrammazioneAdminPage from './pages/ProgrammazioneAdminPage'
 import GanttOperatoriPage from './pages/GanttOperatoriPage'
 import ErrorLogPage from './pages/ErrorLogPage'
 import AppuntiPage from './pages/AppuntiPage'
@@ -53,7 +52,9 @@ function AppContent() {
           <Route path="fornitori" element={<ForniturePage />} />
           <Route path="artigiani" element={<ArtigianiPage />} />
           <Route path="rapportini" element={<RapportiniPage />} />
-          <Route path="programmazione" element={<ProgrammazioneAdminPage />} />
+          {/* La pagina Programma manuale è stata rimossa: il programma vive nel
+              Gantt Operatori (admin) e nella scheda personale in dashboard (operai) */}
+          <Route path="programmazione" element={<Navigate to="/" replace />} />
           <Route path="gantt-operatori" element={<GanttOperatoriPage />} />
           <Route path="error-log" element={<ErrorLogPage />} />
           <Route path="appunti" element={<AppuntiPage />} />

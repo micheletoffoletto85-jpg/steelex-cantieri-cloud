@@ -7,7 +7,7 @@
  */
 import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, PenLine } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, PenLine, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -601,6 +601,24 @@ export default function GanttOperatoriPage() {
   )
   const salva = body => upsertMutation.mutate(body)
 
+  // Notifica push del programma settimanale a tutti gli operatori (dal Gantt)
+  const pubblicaMutation = useMutation(
+    () => api.post('/assegnazioni/pubblica-settimana', { anno: settAnno, settimana: sett }),
+    {
+      onSuccess: r => {
+        const d = r.data
+        toast.success(`Programma inviato a ${d.notificati} operator${d.notificati === 1 ? 'e' : 'i'}` +
+          (d.senza_account ? ` (${d.senza_account} senza account)` : ''))
+      },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore invio programma'),
+    }
+  )
+  const pubblicaSettimana = () => {
+    if (window.confirm(`Inviare il programma della settimana ${sett} a tutti gli operatori con account?`)) {
+      pubblicaMutation.mutate()
+    }
+  }
+
   const navLabel = vista === 'mese'
     ? dayjs(`${anno}-${String(mese).padStart(2,'0')}-01`).format('MMMM YYYY')
     : (() => { const l = dayjs().year(settAnno).isoWeek(sett).isoWeekday(1); return `${l.format('D MMM')} – ${l.add(5,'day').format('D MMM YYYY')}` })()
@@ -674,6 +692,15 @@ export default function GanttOperatoriPage() {
         </div>
         <button onClick={vista==='mese' ? nextMese : nextSett} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"><ChevronRight size={18}/></button>
       </div>
+
+      {/* Invia programma settimana — notifica push agli operatori con account */}
+      {vista === 'settimana' && canWrite && (
+        <button onClick={pubblicaSettimana} disabled={pubblicaMutation.isLoading}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-steelex-orange text-white text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-50 transition-opacity">
+          <Send size={15}/>
+          {pubblicaMutation.isLoading ? 'Invio in corso…' : `Invia programma settimana ${sett} agli operatori`}
+        </button>
+      )}
 
       {!usaMobile && canWrite && (
         <p className="text-xs text-gray-400 px-1">
