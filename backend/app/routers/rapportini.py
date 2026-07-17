@@ -105,6 +105,7 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
         "creato_il": r.creato_il.isoformat() if r.creato_il else None,
         "data_lavoro": r.data_lavoro,
         "testo_italiano": r.testo_italiano,
+        "testo_originale": r.testo_originale,
         "lingua_originale": r.lingua_originale,
         "ore_lavorate": r.ore_lavorate,
         "lavorazioni": r.lavorazioni or [],

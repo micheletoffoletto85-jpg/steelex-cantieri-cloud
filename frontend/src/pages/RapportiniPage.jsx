@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, MapPin, Trash2, Pencil } from 'lucide-react'
+import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MapPin, Trash2, Pencil, X } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -30,6 +30,37 @@ function Chips({ rapportino }) {
 }
 
 // ── Card rapportino ───────────────────────────────────────────────────────────
+// ── Galleria foto con visualizzatore a schermo intero ─────────────────────────
+function FotoGalleria({ urls }) {
+  const [idx, setIdx] = useState(null)
+  if (!urls?.length) return null
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5">
+        {urls.map((url, i) => (
+          <img key={i} src={url} alt={`foto ${i + 1}`} onClick={() => setIdx(i)}
+            className="w-20 h-20 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity" />
+        ))}
+      </div>
+      {idx !== null && (
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" onClick={() => setIdx(null)}>
+          {urls.length > 1 && (
+            <button onClick={e => { e.stopPropagation(); setIdx((idx - 1 + urls.length) % urls.length) }}
+              className="absolute left-2 text-white/80 hover:text-white p-2 z-10"><ChevronLeft size={30} /></button>
+          )}
+          <img src={urls[idx]} alt="" className="max-h-full max-w-full rounded-lg object-contain" onClick={e => e.stopPropagation()} />
+          {urls.length > 1 && (
+            <button onClick={e => { e.stopPropagation(); setIdx((idx + 1) % urls.length) }}
+              className="absolute right-2 text-white/80 hover:text-white p-2 z-10"><ChevronRight size={30} /></button>
+          )}
+          <button onClick={() => setIdx(null)} className="absolute top-3 right-3 text-white/80 hover:text-white p-2"><X size={24} /></button>
+          <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white/70 text-xs">{idx + 1} / {urls.length}</span>
+        </div>
+      )}
+    </>
+  )
+}
+
 function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri = [] }) {
   const [aperto, setAperto] = useState(false)
   const [noteAdmin, setNoteAdmin] = useState('')
@@ -117,7 +148,13 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri =
             {r.testo_italiano && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-1">Testo completo</p>
-                <p className="text-xs leading-relaxed bg-gray-50 p-2 rounded">{r.testo_italiano}</p>
+                <p className="text-xs leading-relaxed bg-gray-50 p-2 rounded whitespace-pre-wrap">{r.testo_italiano}</p>
+              </div>
+            )}
+            {r.testo_originale && r.lingua_originale && r.lingua_originale !== 'it' && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-1">Testo originale ({r.lingua_originale.toUpperCase()})</p>
+                <p className="text-xs leading-relaxed bg-gray-50 p-2 rounded whitespace-pre-wrap text-gray-500">{r.testo_originale}</p>
               </div>
             )}
             {r.lavorazioni?.length > 0 && (
@@ -156,14 +193,8 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri =
             )}
             {r.foto_urls?.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 mb-1">Foto allegate</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {r.foto_urls.map((url, i) => (
-                    <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                      <img src={url} alt="" className="w-16 h-16 object-cover rounded-lg border border-gray-200 hover:opacity-80 transition-opacity" />
-                    </a>
-                  ))}
-                </div>
+                <p className="text-xs font-semibold text-gray-500 mb-1">Foto allegate ({r.foto_urls.length})</p>
+                <FotoGalleria urls={r.foto_urls} />
               </div>
             )}
             {r.note_admin && (
