@@ -106,7 +106,6 @@ export default function CantierePage() {
             ['foto','Foto',Images],
           ] : []),
           ...(puoVedereEconomia ? [['economia','Economia',Euro]] : []),
-          ...(isStaffInterno || isStaffExt ? [['artigiani','Artigiani',HardHat]] : []),
           ...(isStaffInterno ? [['nc','NC',AlertCircle]] : []),
           ['documenti','Documenti',FolderOpen],
         ]
@@ -132,7 +131,6 @@ export default function CantierePage() {
       {tab === 'foto'          && <FotoTab cantiereId={id} utente={utente} />}
 
       {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
-      {tab === 'artigiani'     && <ArtigianiCantiere cantiereId={id} utente={utente} />}
       {tab === 'nc'            && <NCTab cantiereId={id} utente={utente} />}
       {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
     </div>
@@ -2081,6 +2079,7 @@ function DiarioTab({ cantiereId, utente }) {
 function TeamTab({ cantiereId, utente }) {
   const qc = useQueryClient()
   const isAdmin = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
+  const puoValutare = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'].includes(utente?.ruolo)
 
   const { data: assegnati = [], isLoading } = useQuery(
     ['artigiani', cantiereId],
@@ -2093,16 +2092,47 @@ function TeamTab({ cantiereId, utente }) {
     { enabled: isAdmin }
   )
 
+  // Schede rubrica dei membri del team (collegate via utente_id) → punteggio, contatti
+  const { data: schedeRubrica = [] } = useQuery(
+    ['team-rubrica', cantiereId],
+    () => api.get(`/artigiani/cantiere/${cantiereId}`).then(r => r.data),
+  )
+  const rubricaByUtente = {}
+  schedeRubrica.forEach(s => { if (s.utente_id) rubricaByUtente[s.utente_id] = s })
+
   const [selezionato, setSelezionato] = useState('')
+
+  // Valutazione artigiano su questo cantiere (feedback della rubrica)
+  const [showValuta, setShowValuta] = useState(false)
+  const [artigianoSel, setArtigianoSel] = useState('')
+  const [voto, setVoto] = useState('su')
+  const [nota, setNota] = useState('')
+  const { data: tuttiArtigiani = [] } = useQuery(
+    'artigiani-tutti',
+    () => api.get('/artigiani').then(r => r.data),
+    { enabled: showValuta }
+  )
 
   const aggiungi = useMutation(
     (uid) => api.post(`/cantieri/${cantiereId}/artigiani`, { utente_id: uid }),
-    { onSuccess: () => { qc.invalidateQueries(['artigiani', cantiereId]); setSelezionato(''); toast.success('Utente assegnato') } }
+    { onSuccess: () => { qc.invalidateQueries(['artigiani', cantiereId]); qc.invalidateQueries(['team-rubrica', cantiereId]); setSelezionato(''); toast.success('Utente assegnato') } }
   )
 
   const rimuovi = useMutation(
     (uid) => api.delete(`/cantieri/${cantiereId}/artigiani/${uid}`),
-    { onSuccess: () => { qc.invalidateQueries(['artigiani', cantiereId]); toast.success('Rimosso') } }
+    { onSuccess: () => { qc.invalidateQueries(['artigiani', cantiereId]); qc.invalidateQueries(['team-rubrica', cantiereId]); toast.success('Rimosso') } }
+  )
+
+  const feedbackMutation = useMutation(
+    ({ id, body }) => api.post(`/artigiani/${id}/feedback`, body),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries(['team-rubrica', cantiereId])
+        setShowValuta(false); setArtigianoSel(''); setVoto('su'); setNota('')
+        toast.success('Valutazione salvata!')
+      },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore'),
+    }
   )
 
   const assegnatiIds = assegnati.map(a => a.id)
@@ -2114,7 +2144,49 @@ function TeamTab({ cantiereId, utente }) {
 
   return (
     <div className="space-y-4">
-      <h2 className="font-semibold text-gray-800 flex items-center gap-2"><Users size={16} /> Team assegnato</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold text-gray-800 flex items-center gap-2"><Users size={16} /> Team di cantiere</h2>
+        {puoValutare && (
+          <button onClick={() => setShowValuta(!showValuta)}
+            className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5">
+            <ThumbsUp size={14} /> Valuta artigiano
+          </button>
+        )}
+      </div>
+
+      {showValuta && (
+        <div className="card border-2 border-steelex-orange/30 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold">Nuova valutazione artigiano</h4>
+            <button onClick={() => setShowValuta(false)}><X size={16} className="text-gray-400" /></button>
+          </div>
+          <select className="input-field text-sm" value={artigianoSel} onChange={e => setArtigianoSel(e.target.value)}>
+            <option value="">— Seleziona artigiano dalla rubrica —</option>
+            {tuttiArtigiani.map(a => (
+              <option key={a.id} value={a.id}>{a.nome} {a.cognome}{a.azienda ? ` (${a.azienda})` : ''} — {a.categoria_label || a.categoria}</option>
+            ))}
+          </select>
+          <div className="grid grid-cols-3 gap-2">
+            {Object.entries(VOTO_CFG).map(([v, cfg]) => {
+              const Icon = cfg.icon
+              return (
+                <button key={v} onClick={() => setVoto(v)}
+                  className={`py-3 rounded-xl flex flex-col items-center gap-1 border-2 transition-all ${voto === v ? `${cfg.bg} border-current ${cfg.color}` : 'bg-white border-gray-200 text-gray-400'}`}>
+                  <Icon size={20} /><span className="text-xs font-medium">{cfg.label}</span>
+                </button>
+              )
+            })}
+          </div>
+          <textarea className="input-field text-sm h-14 resize-none" placeholder="Nota (opzionale)..."
+            value={nota} onChange={e => setNota(e.target.value)} />
+          <button
+            disabled={!artigianoSel || feedbackMutation.isLoading}
+            onClick={() => feedbackMutation.mutate({ id: parseInt(artigianoSel), body: { voto, nota: nota || null, cantiere_id: parseInt(cantiereId) } })}
+            className="btn-primary w-full py-2.5 text-sm">
+            {feedbackMutation.isLoading ? 'Salvataggio...' : 'Salva valutazione'}
+          </button>
+        </div>
+      )}
 
       {isAdmin && (
         <div className="flex gap-2">
@@ -2137,21 +2209,44 @@ function TeamTab({ cantiereId, utente }) {
         <p className="text-gray-400 text-sm italic">Nessun utente assegnato</p>
       ) : (
         <div className="space-y-2">
-          {assegnati.map(a => (
-            <div key={a.id} className="flex items-center justify-between bg-white border rounded-lg px-4 py-3">
-              <div>
-                <span className="font-medium text-gray-800">{a.cognome} {a.nome}</span>
-                <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{RUOLO_LABEL[a.ruolo] || a.ruolo}</span>
-                <div className="text-xs text-gray-400">{a.email}</div>
+          {assegnati.map(a => {
+            const scheda = rubricaByUtente[a.id]
+            const scoreColor = !scheda || scheda.score === null ? 'bg-gray-300' : scheda.score >= 75 ? 'bg-green-500' : scheda.score >= 45 ? 'bg-yellow-500' : 'bg-red-500'
+            return (
+              <div key={a.id} className="flex items-center gap-3 bg-white border rounded-lg px-4 py-3">
+                {scheda && (
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${scoreColor}`}
+                    title="Punteggio rubrica">
+                    {scheda.score ?? '—'}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-gray-800">{a.cognome} {a.nome}</span>
+                  <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{RUOLO_LABEL[a.ruolo] || a.ruolo}</span>
+                  <div className="text-xs text-gray-400">{a.email}</div>
+                  {scheda && (
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {scheda.categoria_label || scheda.categoria}
+                      {scheda.telefono && <> · <a href={`tel:${scheda.telefono}`} className="text-blue-600">{scheda.telefono}</a></>}
+                    </div>
+                  )}
+                  {scheda?.tags?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {scheda.tags.map(t => (
+                        <span key={t} className="text-[10px] bg-gray-100 text-gray-700 border border-gray-300 rounded-full px-1.5">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {isAdmin && (
+                  <button onClick={() => rimuovi.mutate(a.id)}
+                    className="text-red-400 hover:text-red-600 p-1 flex-shrink-0" title="Rimuovi">
+                    <UserMinus size={16} />
+                  </button>
+                )}
               </div>
-              {isAdmin && (
-                <button onClick={() => rimuovi.mutate(a.id)}
-                  className="text-red-400 hover:text-red-600 p-1" title="Rimuovi">
-                  <UserMinus size={16} />
-                </button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -2472,119 +2567,6 @@ const VOTO_CFG = {
   su:    { label: 'Positivo', icon: ThumbsUp,   color: 'text-green-600',  bg: 'bg-green-100'  },
   medio: { label: 'Neutro',   icon: Minus,      color: 'text-yellow-600', bg: 'bg-yellow-100' },
   giu:   { label: 'Negativo', icon: ThumbsDown, color: 'text-red-500',    bg: 'bg-red-100'    },
-}
-
-function ArtigianiCantiere({ cantiereId, utente }) {
-  const qc = useQueryClient()
-  const puoScrivere = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'].includes(utente?.ruolo)
-  const [showForm, setShowForm] = useState(false)
-  const [artigianoSel, setArtigianoSel] = useState('')
-  const [voto, setVoto] = useState('su')
-  const [nota, setNota] = useState('')
-
-  const { data: artigianiCantiere = [] } = useQuery(
-    ['artigiani-cantiere', cantiereId],
-    () => api.get(`/artigiani?cantiere_id=${cantiereId}`).then(r => r.data),
-  )
-  const { data: tuttiArtigiani = [] } = useQuery(
-    'artigiani-tutti',
-    () => api.get('/artigiani').then(r => r.data),
-    { enabled: showForm }
-  )
-
-  const feedbackMutation = useMutation(
-    ({ id, body }) => api.post(`/artigiani/${id}/feedback`, body),
-    {
-      onSuccess: () => {
-        qc.invalidateQueries(['artigiani-cantiere', cantiereId])
-        setShowForm(false); setArtigianoSel(''); setVoto('su'); setNota('')
-        toast.success('Feedback salvato!')
-      },
-      onError: e => toast.error(e.response?.data?.detail || 'Errore'),
-    }
-  )
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-gray-800">Artigiani di questo cantiere</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Valutazioni lasciate su questo cantiere</p>
-        </div>
-        {puoScrivere && (
-          <button onClick={() => setShowForm(!showForm)}
-            className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5">
-            <Plus size={14} /> Valuta
-          </button>
-        )}
-      </div>
-
-      {showForm && (
-        <div className="card border-2 border-fr-accent/30 space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold">Nuova valutazione artigiano</h4>
-            <button onClick={() => setShowForm(false)}><X size={16} className="text-gray-400" /></button>
-          </div>
-          <select className="input-field text-sm" value={artigianoSel} onChange={e => setArtigianoSel(e.target.value)}>
-            <option value="">— Seleziona artigiano —</option>
-            {tuttiArtigiani.map(a => (
-              <option key={a.id} value={a.id}>{a.nome} {a.cognome}{a.azienda ? ` (${a.azienda})` : ''} — {a.categoria_label || a.categoria}</option>
-            ))}
-          </select>
-          <div className="grid grid-cols-3 gap-2">
-            {Object.entries(VOTO_CFG).map(([v, cfg]) => {
-              const Icon = cfg.icon
-              return (
-                <button key={v} onClick={() => setVoto(v)}
-                  className={`py-3 rounded-xl flex flex-col items-center gap-1 border-2 transition-all ${voto === v ? `${cfg.bg} border-current ${cfg.color}` : 'bg-white border-gray-200 text-gray-400'}`}>
-                  <Icon size={20} /><span className="text-xs font-medium">{cfg.label}</span>
-                </button>
-              )
-            })}
-          </div>
-          <textarea className="input-field text-sm h-14 resize-none" placeholder="Nota (opzionale)..."
-            value={nota} onChange={e => setNota(e.target.value)} />
-          <button
-            disabled={!artigianoSel || feedbackMutation.isLoading}
-            onClick={() => feedbackMutation.mutate({ id: parseInt(artigianoSel), body: { voto, nota: nota || null, cantiere_id: parseInt(cantiereId) } })}
-            className="btn-primary w-full py-2.5 text-sm">
-            {feedbackMutation.isLoading ? 'Salvataggio...' : 'Salva valutazione'}
-          </button>
-        </div>
-      )}
-
-      {artigianiCantiere.length === 0 ? (
-        <div className="card text-center py-10 text-gray-400">
-          <p className="text-3xl mb-2">👷</p>
-          <p className="font-medium text-sm">Nessuna valutazione per questo cantiere</p>
-          {puoScrivere && <p className="text-xs mt-1">Clicca "Valuta" per aggiungere un artigiano</p>}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {artigianiCantiere.map(a => {
-            const scoreColor = a.score === null ? 'bg-gray-300' : a.score >= 75 ? 'bg-green-500' : a.score >= 45 ? 'bg-yellow-500' : 'bg-red-500'
-            return (
-              <div key={a.id} className="card flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${scoreColor}`}>
-                  {a.score ?? '—'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm text-gray-900">{a.nome} {a.cognome}</p>
-                  <p className="text-xs text-gray-500">{a.categoria_label || a.categoria}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-green-600">👍{a.su}</span>
-                    <span className="text-xs text-yellow-600">👌{a.medio}</span>
-                    <span className="text-xs text-red-500">👎{a.giu}</span>
-                    <span className="text-xs text-gray-400">· score globale {a.score ?? 'N/D'}</span>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
 }
 
 /* ─── TAB NON CONFORMITÀ ─── */

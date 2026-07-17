@@ -192,6 +192,30 @@ def lista_artigiani(
     return result
 
 
+@router.get("/cantiere/{cantiere_id}", response_model=List[ArtigianoOut])
+def artigiani_del_cantiere(
+    cantiere_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """
+    Artigiani del cantiere: rubrica linked agli utenti del team via utente_id.
+    Si aggiorna automaticamente quando si aggiunge/rimuove un membro dal team.
+    """
+    from app.models.cantiere import cantiere_artigiani as team_table
+    from sqlalchemy import select
+    # ID utenti nel team del cantiere
+    stmt = select(team_table.c.utente_id).where(team_table.c.cantiere_id == cantiere_id)
+    utente_ids = [row[0] for row in db.execute(stmt).fetchall()]
+    if not utente_ids:
+        return []
+    artigiani = db.query(Artigiano).filter(
+        Artigiano.utente_id.in_(utente_ids),
+        Artigiano.attivo == True,
+    ).all()
+    return [_artigiano_out(a, db) for a in artigiani]
+
+
 @router.post("", response_model=ArtigianoOut, status_code=201)
 def crea_artigiano(
     body: ArtigianoCreate,
