@@ -162,10 +162,10 @@ def test_push(
         vapid_sub = f"mailto:{vapid_sub}"
 
     payload = json.dumps({
-        "title": "🔔 Test Notifica FR",
+        "title": "🔔 Test Notifica STEELEX",
         "body": f"Ciao {user.nome}! Push funzionante.",
         "url": "/",
-        "icon": "/icons/icon-192.png",
+        "icon": "/icon-192.png",
     })
 
     risultati = []
@@ -270,7 +270,7 @@ def invia_notifica(
         "title": titolo,
         "body": corpo,
         "url": url,
-        "icon": "/icons/icon-192.png",
+        "icon": "/icon-192.png",
     })
 
     logger.info(f"[PUSH] Invio a user_ids={user_ids} → {len(subs)} subscription(s)")

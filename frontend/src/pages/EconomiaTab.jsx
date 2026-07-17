@@ -377,7 +377,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
     setImportando(true)
     try {
       const fd = new FormData(); fd.append('file', file)
-      const r = await api.post(`/cantieri/${cantiereId}/preventivi/import-computo`, fd, { headers: {'Content-Type':'multipart/form-data'} })
+      const r = await api.post(`/cantieri/${cantiereId}/preventivi/import-computo`, fd, { headers: {'Content-Type':'multipart/form-data'}, timeout: 180000 })
       const vv = r.data.voci
       setVociImportate(vv)
       // seleziona di default solo le righe NON sospette
@@ -1136,7 +1136,7 @@ function SpeseSection({ cantiereId, canWrite }) {
     setAnalizzando(true)
     try {
       const fd = new FormData(); fd.append('file', file)
-      const r = await api.post(`/cantieri/${cantiereId}/spese/import-foto`, fd, { headers: {'Content-Type':'multipart/form-data'} })
+      const r = await api.post(`/cantieri/${cantiereId}/spese/import-foto`, fd, { headers: {'Content-Type':'multipart/form-data'}, timeout: 180000 })
       const d = r.data
       setForm({
         descrizione: d.descrizione || '',
