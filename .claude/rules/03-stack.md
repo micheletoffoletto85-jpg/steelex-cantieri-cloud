@@ -3,6 +3,9 @@
 ## Backend
 - Python 3.11+ con FastAPI
 - PostgreSQL con SQLAlchemy + Alembic
+- **Migrazioni schema: SOLO revisioni Alembic** (`backend/alembic/versions/`),
+  applicate in automatico al deploy. La lista `_migra()` in `main.py` è
+  congelata — non aggiungerci mai nuovi statement.
 - Autenticazione JWT
 - Upload file: PDF, DXF, immagini (max 50MB)
 

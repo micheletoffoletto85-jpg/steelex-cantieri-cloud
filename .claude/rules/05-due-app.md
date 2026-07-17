@@ -17,7 +17,8 @@ Esistono DUE app distinte e completamente separate. Non mescolare mai codice, gr
 - **GitHub**: `micheletoffoletto85-jpg/fontana-raffaele-cantieri`
 - **Deploy**: Vercel → `fontana-raffaele-cantieri.vercel.app`
 - **Brand**: charcoal #1C1C1C, logo FR ufficiale (PNG con doppia diagonale)
-- **Backend**: `C:\fr-server` (repo separato)
+- **Backend**: `C:\fontana-raffaele-cantieri\backend` (stesso repo del frontend, deploy Railway)
+  - ⚠️ `C:\fr-server` è una copia VECCHIA e abbandonata — NON toccarla
 
 ---
 

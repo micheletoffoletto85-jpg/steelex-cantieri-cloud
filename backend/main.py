@@ -320,19 +320,15 @@ _migra()
 # Migrazioni Alembic — da qui in poi ogni modifica allo schema è una
 # revisione in alembic/versions/, applicata automaticamente al deploy.
 def _alembic_upgrade():
-    import sys
-    try:
-        from alembic.config import Config
-        from alembic import command
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        cfg = Config()
-        cfg.set_main_option("script_location", os.path.join(base_dir, "alembic"))
-        command.upgrade(cfg, "head")
-        print("[ALEMBIC] Schema allineato a head", flush=True)
-    except Exception as e:
-        # Primo rollout: non blocca l'avvio, ma l'errore deve essere ben visibile.
-        # Quando verificato in produzione, questo except andrà rimosso (fail-fast).
-        print(f"[ALEMBIC] ERRORE MIGRAZIONE (avvio proseguito): {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+    # Fail-fast: se una migrazione fallisce l'app NON parte — Railway mantiene
+    # attivo il deploy precedente, mai un'app con schema a metà.
+    from alembic.config import Config
+    from alembic import command
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cfg = Config()
+    cfg.set_main_option("script_location", os.path.join(base_dir, "alembic"))
+    command.upgrade(cfg, "head")
+    print("[ALEMBIC] Schema allineato a head", flush=True)
 
 _alembic_upgrade()
 
