@@ -285,7 +285,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const inviaMutation = useMutation(
     async (formData) => {
       const res = await api.post('/rapportini/invia', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 180000, // Whisper + Claude possono superare di molto i 12s di default
       })
       return res.data
     },
@@ -333,13 +334,19 @@ function ArtigianoDashboard({ utente, cantieri }) {
         clearTimeout(autoStopRef.current)
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' })
+        // Blob vuoto/minuscolo = registrazione corrotta o troppo breve: inutile inviarla
+        if (blob.size < 2048) {
+          setErrore('Registrazione vuota o troppo breve — tieni premuto qualche secondo e riprova')
+          setFase('error')
+          return
+        }
         setFase('transcribing')
         setErrore(null)
         try {
           const fd = new FormData()
           fd.append('audio', blob, `rapportino.${ext}`)
           fd.append('lingua_hint', linguaReg)
-          const res = await api.post('/rapportini/trascrivi', fd)
+          const res = await api.post('/rapportini/trascrivi', fd, { timeout: 180000 })
           setConferma({ testo: res.data.testo, dataRif: dayjs().format('YYYY-MM-DD') })
           setFase('idle')
         } catch (err) {
@@ -347,7 +354,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
           setFase('error')
         }
       }
-      mr.start()
+      // Timeslice 1s: chunk progressivi — se la registrazione si interrompe non si perde tutto
+      mr.start(1000)
       mediaRef.current = mr
       setFase('recording')
       setErrore(null)
