@@ -192,6 +192,67 @@ def lista_artigiani(
     return result
 
 
+class CreaAccountBody(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+
+
+@router.post("/{artigiano_id}/crea-account")
+def crea_account_artigiano(
+    artigiano_id: int,
+    body: CreaAccountBody,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Crea (o collega) l'account app dell'artigiano in rubrica — solo admin.
+
+    - Se esiste già un utente con quella email lo collega senza crearne uno nuovo.
+    - Se la password non è fornita ne genera una leggibile, restituita UNA volta sola.
+    """
+    if str(user.ruolo).split(".")[-1] != "admin":
+        raise HTTPException(403, "Solo l'admin può creare account")
+    a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
+    if not a:
+        raise HTTPException(404, "Artigiano non trovato")
+    if a.utente_id:
+        raise HTTPException(409, "Questo artigiano ha già un account collegato")
+
+    email = (body.email or a.email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(422, "Email mancante o non valida")
+
+    esistente = db.query(Utente).filter(Utente.email == email).first()
+    if esistente:
+        occupato = db.query(Artigiano).filter(Artigiano.utente_id == esistente.id, Artigiano.id != a.id).first()
+        if occupato:
+            raise HTTPException(409, f"L'account {email} è già collegato a {occupato.nome} {occupato.cognome}")
+        a.utente_id = esistente.id
+        db.commit()
+        return {"utente_id": esistente.id, "email": email, "password_generata": None, "collegato_esistente": True}
+
+    # Password leggibile senza caratteri ambigui (0/O, 1/l/I)
+    import secrets as _secrets
+    alfabeto = "abcdefghjkmnpqrstuvwxyz23456789"
+    password = body.password or "".join(_secrets.choice(alfabeto) for _ in range(10))
+
+    from app.auth import hash_password
+    from app.models.utente import RuoloUtente
+    nuovo = Utente(
+        nome=a.nome, cognome=a.cognome, email=email,
+        password_hash=hash_password(password),
+        ruolo=RuoloUtente.artigiano, attivo=True,
+    )
+    db.add(nuovo)
+    db.flush()
+    a.utente_id = nuovo.id
+    db.commit()
+    return {
+        "utente_id": nuovo.id, "email": email,
+        "password_generata": None if body.password else password,
+        "collegato_esistente": False,
+    }
+
+
 @router.get("/cantiere/{cantiere_id}", response_model=List[ArtigianoOut])
 def artigiani_del_cantiere(
     cantiere_id: int,

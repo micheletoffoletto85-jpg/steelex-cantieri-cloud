@@ -218,6 +218,28 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
       onError: e => toast.error(e.response?.data?.detail || 'Errore') }
   )
 
+  // Crea l'account app dell'artigiano con un click (solo admin)
+  const creaAccountMutation = useMutation(
+    email => api.post(`/artigiani/${a.id}/crea-account`, { email }),
+    {
+      onSuccess: r => {
+        qc.invalidateQueries('artigiani')
+        const d = r.data
+        if (d.password_generata) {
+          try { navigator.clipboard.writeText(`${d.email} / ${d.password_generata}`) } catch {}
+          window.alert(`✅ Account creato!\n\nEmail: ${d.email}\nPassword: ${d.password_generata}\n\nComunica queste credenziali all'artigiano — la password non sarà più visibile (copiate negli appunti).`)
+        } else {
+          toast.success('Collegato ad account esistente!')
+        }
+      },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore creazione account'),
+    }
+  )
+  const creaAccount = () => {
+    const email = window.prompt(`Email per l'account di ${a.nome} ${a.cognome}:`, a.email || '')
+    if (email?.trim()) creaAccountMutation.mutate(email.trim())
+  }
+
   const { data: feedbacks = [] } = useQuery(
     ['feedback', a.id],
     () => api.get(`/artigiani/${a.id}/feedback`).then(r => r.data),
@@ -393,10 +415,18 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-600">
                   <Link2 size={13} /> Account app
                 </div>
-                <button onClick={() => setShowCollegaUtente(!showCollegaUtente)}
-                  className="text-xs text-steelex-orange hover:underline">
-                  {showCollegaUtente ? 'Annulla' : a.utente_id ? 'Modifica' : 'Collega'}
-                </button>
+                <div className="flex items-center gap-3">
+                  {!a.utente_id && puoEliminare && (
+                    <button onClick={creaAccount} disabled={creaAccountMutation.isLoading}
+                      className="text-xs text-steelex-orange hover:underline font-semibold disabled:opacity-50">
+                      {creaAccountMutation.isLoading ? 'Creazione…' : '+ Crea account'}
+                    </button>
+                  )}
+                  <button onClick={() => setShowCollegaUtente(!showCollegaUtente)}
+                    className="text-xs text-steelex-orange hover:underline">
+                    {showCollegaUtente ? 'Annulla' : a.utente_id ? 'Modifica' : 'Collega'}
+                  </button>
+                </div>
               </div>
               {a.utente_nome ? (
                 <div className="flex items-center gap-2 text-sm">
