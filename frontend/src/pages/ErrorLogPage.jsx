@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { AlertTriangle, Trash2, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Trash2, RefreshCw, X, Download } from 'lucide-react'
+import toast from 'react-hot-toast'
 import api from '../lib/api'
 import dayjs from 'dayjs'
 
@@ -32,6 +33,27 @@ export default function ErrorLogPage() {
     { onSuccess: () => qc.invalidateQueries('error-log') }
   )
 
+  const [scaricando, setScaricando] = useState(false)
+  const scarica = async () => {
+    setScaricando(true)
+    try {
+      const res = await api.get('/error-log/export', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      const oggi = dayjs().format('YYYYMMDD-HHmm')
+      a.href = url
+      a.download = `error-log-${oggi}.txt`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Errore durante il download')
+    } finally {
+      setScaricando(false)
+    }
+  }
+
   const errori = data?.errori || []
   const totale = data?.totale || 0
 
@@ -50,6 +72,12 @@ export default function ErrorLogPage() {
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
             <RefreshCw size={14} /> Aggiorna
           </button>
+          {errori.length > 0 && (
+            <button onClick={scarica} disabled={scaricando}
+              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50">
+              <Download size={14} /> {scaricando ? 'Preparazione...' : 'Scarica .txt'}
+            </button>
+          )}
           {errori.length > 0 && (
             <button onClick={() => { if (window.confirm('Svuotare tutto il log?')) svuota.mutate() }}
               className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors border border-red-200">
