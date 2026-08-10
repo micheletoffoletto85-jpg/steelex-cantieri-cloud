@@ -26,6 +26,15 @@ class Artigiano(Base):
     attestato_sicurezza_url             = Column(String(500), nullable=True)
     attestato_primo_soccorso_url        = Column(String(500), nullable=True)
 
+    # Campi allineati con la rubrica FR Cantieri (fonte condivisa, vedi migrazione 0002)
+    tags                         = Column(Text, nullable=True)
+    durc_drive_url               = Column(String(500), nullable=True)
+    primo_soccorso_scadenza      = Column(Date, nullable=True)
+    primo_soccorso_drive_url     = Column(String(500), nullable=True)
+    visura_camerale_scadenza     = Column(Date, nullable=True)
+    visura_camerale_drive_url    = Column(String(500), nullable=True)
+    drive_folder_url             = Column(String(500), nullable=True)
+
     feedback    = relationship("FeedbackArtigiano", back_populates="artigiano", cascade="all, delete-orphan")
 
 

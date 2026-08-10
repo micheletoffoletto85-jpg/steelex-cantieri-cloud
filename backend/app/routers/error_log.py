@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from datetime import datetime
 from app.database import get_db
 from app.routers.auth import get_current_user
 from pydantic import BaseModel
@@ -54,6 +56,41 @@ def lista_errori(
     """), {"lim": limit, "off": offset}).mappings().all()
     totale = db.execute(text("SELECT COUNT(*) FROM error_log")).scalar()
     return {"totale": totale, "errori": [dict(r) for r in rows]}
+
+@router.get("/export")
+def esporta_errori_txt(db: Session = Depends(get_db), utente=Depends(get_current_user)):
+    if utente.ruolo != "admin":
+        raise HTTPException(403, "Solo admin")
+    rows = db.execute(text("""
+        SELECT el.id, el.creato_il, el.utente_id, u.nome, u.cognome, el.ruolo,
+               el.endpoint, el.metodo, el.status_code, el.messaggio, el.url_pagina, el.dettagli
+        FROM error_log el
+        LEFT JOIN utenti u ON u.id = el.utente_id
+        ORDER BY el.creato_il DESC
+    """)).mappings().all()
+
+    if not rows:
+        contenuto = "Nessun errore registrato.\n"
+    else:
+        blocchi = []
+        for r in rows:
+            utente_str = f"{r['nome'] or '?'} {r['cognome'] or ''} ({r['ruolo']})".strip()
+            blocco = (
+                f"[{r['creato_il']}] #{r['id']} — {r['status_code']} {r['metodo']} {r['endpoint']}\n"
+                f"  Utente: {utente_str}\n"
+                f"  Pagina: {r['url_pagina'] or '-'}\n"
+                f"  Messaggio: {r['messaggio'] or '-'}\n"
+            )
+            if r["dettagli"]:
+                blocco += f"  Dettagli: {r['dettagli']}\n"
+            blocchi.append(blocco)
+        contenuto = ("-" * 70 + "\n").join(blocchi)
+
+    nome_file = f"error-log-{datetime.now().strftime('%Y%m%d-%H%M')}.txt"
+    return PlainTextResponse(
+        contenuto,
+        headers={"Content-Disposition": f'attachment; filename="{nome_file}"'},
+    )
 
 @router.delete("/{eid}")
 def elimina_errore(eid: int, db: Session = Depends(get_db), utente=Depends(get_current_user)):
