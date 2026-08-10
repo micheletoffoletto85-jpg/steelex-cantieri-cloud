@@ -69,6 +69,7 @@ export default function AggiornnamentiTab({ cantiereId }) {
           </p>
         </div>
       )}
+      {fasi.length > 0 && <GanttClienteVisuale fasi={fasi} />}
       {fasi.length > 0 && (
         <div className="card space-y-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
@@ -159,6 +160,86 @@ export default function AggiornnamentiTab({ cantiereId }) {
         </div>
       )}
 
+    </div>
+  )
+}
+
+/* ─── Diagramma di Gantt grafico — sola lettura, solo fasi condivise ─── */
+function GanttClienteVisuale({ fasi }) {
+  const oggi = dayjs().startOf('day')
+  const fasiConData = fasi.filter(f => f.data_inizio)
+  if (fasiConData.length === 0) return null
+
+  const date = fasiConData.flatMap(f => [f.data_inizio, f.data_fine_prevista].filter(Boolean).map(d => dayjs(d)))
+  const minFasi = date.reduce((a, b) => a.isBefore(b) ? a : b).subtract(3, 'day').startOf('day')
+  const minData = minFasi.isBefore(oggi.subtract(7, 'day')) ? minFasi : oggi.subtract(7, 'day')
+  const maxData = date.reduce((a, b) => a.isAfter(b) ? a : b).add(7, 'day').startOf('day')
+  const totalDays = maxData.diff(minData, 'day') + 1
+
+  const toPct = d => Math.max(0, Math.min(100, (dayjs(d).diff(minData, 'day') / totalDays) * 100))
+  const todayPct = toPct(oggi)
+
+  const mesiLabels = []
+  let cur = minData.startOf('month')
+  while (cur.isBefore(maxData) || cur.isSame(maxData, 'month')) {
+    const startPct = Math.max(0, (cur.diff(minData, 'day') / totalDays) * 100)
+    const endPct = Math.min(100, (cur.add(1, 'month').diff(minData, 'day') / totalDays) * 100)
+    if (endPct > 0 && startPct < 100) mesiLabels.push({ label: cur.format('MMM YYYY'), pct: startPct, widthPct: endPct - startPct })
+    cur = cur.add(1, 'month')
+  }
+
+  const LABEL_W = 108
+  const minGanttPx = Math.max(totalDays * 8, 260)
+  const ROW_H = 32
+
+  return (
+    <div className="card space-y-2">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Diagramma di Gantt</p>
+      <div className="overflow-x-auto -mx-1 px-1">
+        <div style={{ minWidth: LABEL_W + minGanttPx }}>
+          {/* Header mesi */}
+          <div className="flex" style={{ height: 22 }}>
+            <div style={{ width: LABEL_W }} className="flex-shrink-0" />
+            <div className="relative flex-1 bg-steelex-dark rounded-t-lg overflow-hidden">
+              {mesiLabels.map((m, i) => (
+                <div key={i} className="absolute top-0 h-full flex items-center border-l border-white/10"
+                  style={{ left: `${m.pct}%`, width: `${m.widthPct}%` }}>
+                  <span className="text-[9px] font-bold text-white uppercase truncate px-1">{m.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Righe fasi */}
+          <div className="divide-y divide-gray-50">
+            {fasiConData.map(f => {
+              const xS = toPct(f.data_inizio)
+              const fine = f.data_fine_prevista || f.data_inizio
+              const xE = toPct(dayjs(fine).add(1, 'day'))
+              const w = Math.max(xE - xS, 1)
+              const col = f.colore || '#94a3b8'
+              return (
+                <div key={f.id} className="flex items-center" style={{ height: ROW_H }}>
+                  <div style={{ width: LABEL_W }} className="flex-shrink-0 pr-2 truncate text-[11px] font-medium text-gray-700">
+                    {f.nome}
+                  </div>
+                  <div className="relative flex-1 h-full bg-gray-50/60 border-l border-gray-100">
+                    {todayPct >= 0 && todayPct <= 100 && (
+                      <div className="absolute top-0 bottom-0 w-px bg-red-400" style={{ left: `${todayPct}%` }} />
+                    )}
+                    <div className="absolute rounded-full overflow-hidden" style={{ left: `${xS}%`, width: `${w}%`, top: 7, bottom: 7, backgroundColor: `${col}40` }}>
+                      <div className="h-full rounded-full" style={{ width: `${f.percentuale}%`, backgroundColor: col }} />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-300 flex items-center gap-1">
+        <span className="inline-block w-2.5 h-px bg-red-400" /> Oggi
+      </p>
     </div>
   )
 }
