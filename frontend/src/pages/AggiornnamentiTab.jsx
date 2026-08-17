@@ -41,6 +41,8 @@ export default function AggiornnamentiTab({ cantiereId }) {
     () => api.get(`/cantieri/${cantiereId}/aggiornamenti-cliente`).then(r => r.data),
     { staleTime: 0, retry: 1 }
   )
+  // Hook sempre chiamato (Rules of Hooks) — 0 finché i dati non sono pronti
+  const avanzamentoAnimato = useCountUp(data?.avanzamento_globale ?? 0)
 
   if (isLoading) return (
     <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
@@ -56,7 +58,6 @@ export default function AggiornnamentiTab({ cantiereId }) {
   )
 
   const { avanzamento_globale, fasi, note_condivise, appuntamenti, fasi_condivise, totale_fasi } = data
-  const avanzamentoAnimato = useCountUp(avanzamento_globale)
 
   return (
     <div className="space-y-5">
