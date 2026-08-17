@@ -2,7 +2,7 @@
  * Tab Aggiornamenti — visibile al cliente (e agli admin come preview)
  * Mix tra Gantt e Diario: avanzamento fasi + note condivise + prossimi appuntamenti
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import api from '../lib/api'
 import dayjs from 'dayjs'
@@ -15,6 +15,24 @@ dayjs.locale('it')
 dayjs.extend(relativeTime)
 
 const NOOP = () => {}
+
+// Conteggio animato da 0 al valore target (ease-out), per dare "vita" al numero in apertura
+function useCountUp(target, duration = 900) {
+  const [value, setValue] = useState(0)
+  useEffect(() => {
+    let raf, start = null
+    const tick = (ts) => {
+      if (start === null) start = ts
+      const t = Math.min((ts - start) / duration, 1)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setValue(Math.round(target * eased))
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return value
+}
 
 export default function AggiornnamentiTab({ cantiereId }) {
   const [tooltipFase, setTooltipFase] = useState(null)
@@ -38,6 +56,7 @@ export default function AggiornnamentiTab({ cantiereId }) {
   )
 
   const { avanzamento_globale, fasi, note_condivise, appuntamenti, fasi_condivise, totale_fasi } = data
+  const avanzamentoAnimato = useCountUp(avanzamento_globale)
 
   return (
     <div className="space-y-5">
@@ -46,13 +65,13 @@ export default function AggiornnamentiTab({ cantiereId }) {
       <div className="bg-steelex-dark rounded-2xl p-5 text-white">
         <p className="text-xs tracking-widest text-gray-400 uppercase mb-1">Avanzamento cantiere</p>
         <div className="flex items-end justify-between mb-3">
-          <p className="text-4xl font-bold text-steelex-orange">{avanzamento_globale}%</p>
+          <p className="text-4xl font-bold text-steelex-orange">{avanzamentoAnimato}%</p>
           <p className="text-xs text-gray-400 mb-1">completato</p>
         </div>
         <div className="w-full bg-white/10 rounded-full h-2.5">
           <div
-            className="bg-steelex-orange h-2.5 rounded-full transition-all duration-1000"
-            style={{ width: `${Math.min(100, avanzamento_globale)}%` }}
+            className={`bg-steelex-orange h-2.5 rounded-full transition-all duration-1000 ${avanzamento_globale < 100 ? 'shimmer-bar' : ''}`}
+            style={{ width: `${Math.min(100, avanzamentoAnimato)}%` }}
           />
         </div>
       </div>

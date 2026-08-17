@@ -1208,7 +1208,8 @@ export function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate
                   {/* Barra fase con drag & resize */}
                   {width !== null && startPct !== null && (
                     <div className={`absolute top-2.5 h-7 rounded-md flex items-center shadow-sm select-none
-                        ${isDragging ? 'ring-2 ring-white/60 opacity-90' : ''}`}
+                        ${isDragging ? 'ring-2 ring-white/60 opacity-90' : ''}
+                        ${f.stato === 'in_corso' ? 'shimmer-bar' : ''}`}
                       style={{
                         left:`${startPct}%`, width:`${width}%`,
                         background: f.colore||'#ccc',
