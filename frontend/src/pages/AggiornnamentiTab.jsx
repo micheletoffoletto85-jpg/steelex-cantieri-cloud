@@ -2,25 +2,22 @@
  * Tab Aggiornamenti — visibile al cliente (e agli admin come preview)
  * Mix tra Gantt e Diario: avanzamento fasi + note condivise + prossimi appuntamenti
  */
+import { useState } from 'react'
 import { useQuery } from 'react-query'
 import api from '../lib/api'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { Calendar, CheckCircle2, Clock, AlertTriangle, PauseCircle, Mic, ChevronRight } from 'lucide-react'
+import { Calendar, Mic, ChevronRight } from 'lucide-react'
+import { GanttChart } from './GanttTab'
 
 dayjs.locale('it')
 dayjs.extend(relativeTime)
 
-const STATO_LABEL = {
-  pianificata:  { label: 'Pianificata',  icon: Clock,         cls: 'text-gray-500' },
-  in_corso:     { label: 'In corso',     icon: Clock,         cls: 'text-blue-600' },
-  completata:   { label: 'Completata',   icon: CheckCircle2,  cls: 'text-green-600' },
-  in_ritardo:   { label: 'In ritardo',   icon: AlertTriangle, cls: 'text-red-500' },
-  sospesa:      { label: 'Sospesa',      icon: PauseCircle,   cls: 'text-amber-500' },
-}
+const NOOP = () => {}
 
 export default function AggiornnamentiTab({ cantiereId }) {
+  const [tooltipFase, setTooltipFase] = useState(null)
   const { data, isLoading, error } = useQuery(
     ['aggiornamenti-cliente', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/aggiornamenti-cliente`).then(r => r.data),
@@ -70,41 +67,22 @@ export default function AggiornnamentiTab({ cantiereId }) {
         </div>
       )}
       {fasi.length > 0 && (
-        <div className="card space-y-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">
             Cronoprogramma ({fasi_condivise} fase{fasi_condivise !== 1 ? 'i' : ''} condivisa{fasi_condivise !== 1 ? '' : ''})
           </p>
-          {fasi.map(f => {
-            const stato = STATO_LABEL[f.stato] || STATO_LABEL.pianificata
-            const Icona = stato.icon
-            return (
-              <div key={f.id} className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <Icona size={13} className={stato.cls + ' flex-shrink-0'} />
-                    <span className="text-sm font-medium text-gray-800 truncate">{f.nome}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`text-xs font-medium ${stato.cls}`}>{stato.label}</span>
-                    <span className="text-xs font-bold text-steelex-orange w-8 text-right">{f.percentuale}%</span>
-                  </div>
-                </div>
-                <div className="w-full bg-gray-100 rounded-full h-1.5">
-                  <div
-                    className="h-1.5 rounded-full transition-all duration-700"
-                    style={{ width: `${Math.min(100, f.percentuale)}%`, backgroundColor: f.colore || '#FF6B00' }}
-                  />
-                </div>
-                {(f.data_inizio || f.data_fine_prevista) && (
-                  <p className="text-[10px] text-gray-400">
-                    {f.data_inizio && dayjs(f.data_inizio).format('D MMM')}
-                    {f.data_inizio && f.data_fine_prevista && ' → '}
-                    {f.data_fine_prevista && dayjs(f.data_fine_prevista).format('D MMM YYYY')}
-                  </p>
-                )}
-              </div>
-            )
-          })}
+          <GanttChart
+            fasi={fasi}
+            salList={[]}
+            canWrite={false}
+            onEdit={NOOP}
+            onDelete={NOOP}
+            onUpdate={NOOP}
+            onReorder={NOOP}
+            onToggleCliente={NOOP}
+            tooltipFase={tooltipFase}
+            setTooltipFase={setTooltipFase}
+          />
         </div>
       )}
 

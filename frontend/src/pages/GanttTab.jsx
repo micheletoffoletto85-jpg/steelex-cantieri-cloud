@@ -775,7 +775,7 @@ export default function GanttTab({ cantiereId, cantiere }) {
 }
 
 /* ─── DIAGRAMMA DI GANTT ─── */
-function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReorder, onToggleCliente, tooltipFase, setTooltipFase }) {
+export function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate, onReorder, onToggleCliente, tooltipFase, setTooltipFase }) {
   const oggi = dayjs().startOf('day')
   const [zoom, setZoom] = useState('auto') // 'mesi' | 'settimane' | 'giorni' | 'auto'
 
