@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Link } from 'react-router-dom'
-import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, CheckCircle2, AlertTriangle, PauseCircle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown, Euro } from 'lucide-react'
+import { Link, Navigate } from 'react-router-dom'
+import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, AlertTriangle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown, Euro } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useState, useRef, useEffect } from 'react'
@@ -18,176 +18,80 @@ const STATO_LABEL = {
   annullato: { label: 'Annullato', color: 'bg-red-100 text-red-700' },
 }
 
-const STATO_FASE = {
-  pianificata:  { label: 'Pianificata',  icon: Clock,         cls: 'text-gray-500' },
-  in_corso:     { label: 'In corso',     icon: Clock,         cls: 'text-blue-600' },
-  completata:   { label: 'Completata',   icon: CheckCircle2,  cls: 'text-green-600' },
-  in_ritardo:   { label: 'In ritardo',   icon: AlertTriangle, cls: 'text-red-500' },
-  sospesa:      { label: 'Sospesa',      icon: PauseCircle,   cls: 'text-amber-500' },
-}
-
-function ClienteDashboard({ utente, cantieri }) {
-  const cantiere = cantieri.find(c => c.stato === 'in_corso') || cantieri[0]
-  const oggi = dayjs()
-
-  const { data, isLoading } = useQuery(
-    ['aggiornamenti-cliente', cantiere?.id],
-    () => api.get(`/cantieri/${cantiere.id}/aggiornamenti-cliente`).then(r => r.data),
-    { enabled: !!cantiere, staleTime: 0 }
-  )
-
-  // Fasi "calde": in corso, in ritardo, o che iniziano/finiscono entro 21 giorni
-  const fasiCalde = (data?.fasi || []).filter(f => {
-    if (['in_corso', 'in_ritardo'].includes(f.stato)) return true
-    if (f.data_inizio && dayjs(f.data_inizio).diff(oggi, 'day') <= 21 && dayjs(f.data_inizio).isAfter(oggi)) return true
-    if (f.data_fine_prevista && dayjs(f.data_fine_prevista).diff(oggi, 'day') <= 14 && f.percentuale < 100) return true
-    return false
-  })
-
-  // Prossimi appuntamenti: fasi future ordinate per data (mix Gantt + appuntamenti)
-  const prossimi = (data?.fasi || [])
-    .filter(f => f.data_inizio && dayjs(f.data_inizio).isAfter(oggi) && f.percentuale < 100)
-    .sort((a, b) => dayjs(a.data_inizio).diff(dayjs(b.data_inizio)))
-    .slice(0, 5)
-
-  // Aggiunge anche le appuntamenti dall'endpoint (fasi con data_fine vicina)
-  const scadenze = (data?.fasi || [])
-    .filter(f => f.data_fine_prevista && dayjs(f.data_fine_prevista).isAfter(oggi) && f.percentuale < 100)
-    .filter(f => !prossimi.find(p => p.id === f.id))
-    .sort((a, b) => dayjs(a.data_fine_prevista).diff(dayjs(b.data_fine_prevista)))
-    .slice(0, 3)
-
-  const eventiCalendario = [
-    ...prossimi.map(f => ({ id: `i-${f.id}`, nome: f.nome, data: f.data_inizio, colore: f.colore, tipo: 'inizio' })),
-    ...scadenze.map(f => ({ id: `f-${f.id}`, nome: `Fine: ${f.nome}`, data: f.data_fine_prevista, colore: f.colore, tipo: 'fine' })),
-  ].sort((a, b) => dayjs(a.data).diff(dayjs(b.data))).slice(0, 5)
-
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-fr-charcoal" />
-          <div className="absolute -bottom-12 -left-4 w-32 h-32 rounded-full bg-fr-charcoal" />
-        </div>
-        <div className="relative">
-          <img src="/logo-steelex.png" alt="Steelex" className="h-7 mb-4 opacity-80" />
-          <p className="text-sm tracking-widest text-gray-400 uppercase mb-1">Benvenuto</p>
-          <h1 className="text-2xl font-bold text-white">{utente?.nome}</h1>
-          <div className="mt-3 h-0.5 w-16 bg-fr-charcoal rounded" />
-          {cantiere && <p className="text-gray-400 text-sm mt-3">Stai seguendo: <span className="text-white font-medium">{cantiere.nome}</span></p>}
-        </div>
+// Il cliente segue di norma un solo cantiere: niente riassunto duplicato qui,
+// si va dritti alla scheda cantiere (che contiene già tutto: avanzamento,
+// cronoprogramma, note, planimetrie). Con più cantieri si mostra solo la scelta.
+function ClienteDashboard({ utente, cantieri, isLoading }) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-gray-400 gap-3">
+        <div className="w-6 h-6 border-2 border-steelex-orange border-t-transparent rounded-full animate-spin" />
+        <span className="text-sm">Caricamento...</span>
       </div>
+    )
+  }
 
-      {cantieri.length === 0 && (
+  if (cantieri.length === 0) {
+    return (
+      <div className="space-y-5">
+        <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
+          <div className="relative">
+            <img src="/logo-steelex.png" alt="Steelex" className="h-7 mb-4 opacity-80" />
+            <p className="text-sm tracking-widest text-gray-400 uppercase mb-1">Benvenuto</p>
+            <h1 className="text-2xl font-bold text-white">{utente?.nome}</h1>
+          </div>
+        </div>
         <div className="card text-center py-10 text-gray-400">
           <HardHat size={40} className="mx-auto mb-2 opacity-30" />
           <p>Non sei ancora assegnato a nessun cantiere.</p>
           <p className="text-xs mt-1">Contatta il responsabile per ricevere l'accesso.</p>
         </div>
-      )}
+      </div>
+    )
+  }
 
-      {cantiere && (
-        <>
-          {/* Avanzamento + fasi calde nella stessa card */}
-          {isLoading && (
-            <div className="flex items-center justify-center py-8 text-gray-400 gap-3">
-              <div className="w-6 h-6 border-2 border-fr-charcoal border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm">Caricamento aggiornamenti...</span>
+  // Un solo cantiere seguito → si entra direttamente nella sua scheda
+  if (cantieri.length === 1) {
+    return <Navigate to={`/cantieri/${cantieri[0].id}`} replace />
+  }
+
+  // Più cantieri → semplice selettore, i dettagli vivono solo nella scheda cantiere
+  return (
+    <div className="space-y-5">
+      <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
+          <div className="absolute -bottom-12 -left-4 w-32 h-32 rounded-full bg-steelex-orange" />
+        </div>
+        <div className="relative">
+          <img src="/logo-steelex.png" alt="Steelex" className="h-7 mb-4 opacity-80" />
+          <p className="text-sm tracking-widest text-gray-400 uppercase mb-1">Benvenuto</p>
+          <h1 className="text-2xl font-bold text-white">{utente?.nome}</h1>
+          <p className="text-gray-400 text-sm mt-3">Scegli il cantiere da seguire</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {cantieri.map(c => (
+          <Link key={c.id} to={`/cantieri/${c.id}`}
+            className="card flex items-center gap-3 hover:border-steelex-orange border-2 border-transparent transition-colors">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+              <HardHat size={18} className="text-steelex-orange" />
             </div>
-          )}
-
-          {data && (
-            <div className="card space-y-4">
-              {/* Barra avanzamento */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Avanzamento lavori</p>
-                  <span className="text-2xl font-bold text-fr-charcoal">{data.avanzamento_globale}%</span>
-                </div>
-                <div className="w-full bg-gray-100 rounded-full h-3">
-                  <div className="bg-fr-charcoal h-3 rounded-full transition-all duration-1000"
-                    style={{ width: `${Math.min(100, data.avanzamento_globale)}%` }} />
-                </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
+              {c.citta && <p className="text-sm text-gray-500 truncate">{c.citta}</p>}
+            </div>
+            <div className="text-right flex-shrink-0 w-14">
+              <div className="text-steelex-orange font-bold text-sm">{c.avanzamento}%</div>
+              <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                <div className="bg-steelex-orange h-1.5 rounded-full transition-all" style={{ width: `${c.avanzamento}%` }} />
               </div>
-
-              {/* Fasi in corso / prossime scadenze */}
-              {fasiCalde.length > 0 && (
-                <div className="space-y-2 pt-1 border-t border-gray-100">
-                  <p className="text-xs text-gray-400 font-medium">In questo momento</p>
-                  {fasiCalde.slice(0, 3).map(f => {
-                    const stato = STATO_FASE[f.stato] || STATO_FASE.pianificata
-                    const Icona = stato.icon
-                    return (
-                      <div key={f.id} className="flex items-center gap-2">
-                        <Icona size={13} className={stato.cls + ' flex-shrink-0'} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-sm font-medium text-gray-800 truncate">{f.nome}</span>
-                            <span className="text-xs font-bold text-fr-charcoal flex-shrink-0">{f.percentuale}%</span>
-                          </div>
-                          <div className="w-full bg-gray-100 rounded-full h-1 mt-0.5">
-                            <div className="h-1 rounded-full" style={{ width: `${f.percentuale}%`, backgroundColor: f.colore || '#FF6B00' }} />
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {fasiCalde.length === 0 && data.totale_fasi > 0 && (
-                <p className="text-xs text-gray-400 text-center py-2">Nessuna fase attiva al momento — il responsabile aggiornerà presto.</p>
-              )}
             </div>
-          )}
-
-          {/* Prossimi appuntamenti — mini calendario */}
-          {data && eventiCalendario.length > 0 && (
-            <div className="card space-y-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-2">
-                <Calendar size={13} /> Prossimi appuntamenti
-              </p>
-              {eventiCalendario.map(a => (
-                <div key={a.id} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
-                  <div className="flex-shrink-0 w-11 h-11 rounded-xl flex flex-col items-center justify-center text-center"
-                    style={{ backgroundColor: (a.colore || '#FF6B00') + '18', border: `1.5px solid ${(a.colore || '#FF6B00')}35` }}>
-                    <span className="text-sm font-bold leading-tight" style={{ color: a.colore || '#FF6B00' }}>{dayjs(a.data).format('D')}</span>
-                    <span className="text-[9px] uppercase font-medium" style={{ color: a.colore || '#FF6B00' }}>{dayjs(a.data).format('MMM')}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{a.nome}</p>
-                    <p className="text-xs text-gray-400">{dayjs(a.data).fromNow()}</p>
-                  </div>
-                  {a.tipo === 'fine' && <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0">scadenza</span>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Ultime note dal cantiere */}
-          {data && data.note_condivise?.length > 0 && (
-            <div className="card space-y-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Ultime note dal cantiere</p>
-              {data.note_condivise.slice(0, 3).map(n => (
-                <div key={n.id} className="border-l-2 border-fr-charcoal pl-3 py-1 space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-400">{dayjs(n.data).format('D MMMM YYYY')}{n.meteo && <span className="ml-1">{n.meteo}</span>}</p>
-                    {n.fonte === 'voce' && <Mic size={10} className="text-red-400" />}
-                  </div>
-                  <p className="text-sm text-gray-700 leading-relaxed">{n.testo}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* CTA cantiere */}
-          <Link to={`/cantieri/${cantiere.id}`}
-            className="block w-full text-center py-3 rounded-xl border-2 border-fr-charcoal text-fr-charcoal font-semibold text-sm hover:bg-orange-50 transition-colors">
-            Cronoprogramma completo →
+            <ChevronRight size={15} className="text-gray-400 flex-shrink-0" />
           </Link>
-        </>
-      )}
+        ))}
+      </div>
     </div>
   )
 }
@@ -772,7 +676,7 @@ export default function DashboardPage() {
   const { utente } = useAuth()
   const isCliente = utente?.ruolo === 'cliente'
   const isAdminOrAmm = ['admin', 'capo_cantiere', 'amministrazione'].includes(utente?.ruolo)
-  const { data: cantieri = [] } = useQuery('cantieri', () => api.get('/cantieri').then(r => r.data))
+  const { data: cantieri = [], isLoading: cantieriLoading } = useQuery('cantieri', () => api.get('/cantieri').then(r => r.data))
   const { data: fuoriCantiere = [] } = useQuery('rapp-fuori-dash',
     () => api.get('/rapportini/fuori-cantiere').then(r => r.data),
     { enabled: isAdminOrAmm, staleTime: 60000 }
@@ -805,7 +709,7 @@ export default function DashboardPage() {
   }
   const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
-  if (isCliente) return <ClienteDashboard utente={utente} cantieri={cantieri} />
+  if (isCliente) return <ClienteDashboard utente={utente} cantieri={cantieri} isLoading={cantieriLoading} />
   if (['artigiano', 'capo_cantiere', 'capo_cantiere_sub'].includes(utente?.ruolo)) return <ArtigianoDashboard utente={utente} cantieri={cantieri} />
 
   return (
