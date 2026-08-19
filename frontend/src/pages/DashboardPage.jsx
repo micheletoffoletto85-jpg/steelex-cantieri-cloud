@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Link, Navigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, AlertTriangle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown, Euro } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -18,9 +18,48 @@ const STATO_LABEL = {
   annullato: { label: 'Annullato', color: 'bg-red-100 text-red-700' },
 }
 
-// Il cliente segue di norma un solo cantiere: niente riassunto duplicato qui,
-// si va dritti alla scheda cantiere (che contiene già tutto: avanzamento,
-// cronoprogramma, note, planimetrie). Con più cantieri si mostra solo la scelta.
+// Slideshow delle foto condivise col cliente (diario, ultime 8 note) — dà alla
+// Dashboard un contenuto suo, diverso dai numeri della scheda cantiere.
+function SlideshowFotoCliente({ cantiereId }) {
+  const { data: agg } = useQuery(
+    ['aggiornamenti-cliente', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/aggiornamenti-cliente`).then(r => r.data),
+    { enabled: !!cantiereId, staleTime: 60000 }
+  )
+  const foto = (agg?.note_condivise || []).flatMap(n => (n.foto_urls || []).map(url => ({ url, data: n.data })))
+  const [idx, setIdx] = useState(0)
+
+  useEffect(() => {
+    if (foto.length < 2) return
+    const t = setInterval(() => setIdx(i => (i + 1) % foto.length), 4500)
+    return () => clearInterval(t)
+  }, [foto.length])
+
+  if (foto.length === 0) return null
+
+  return (
+    <div className="relative rounded-2xl overflow-hidden bg-gray-900 shadow-sm" style={{ aspectRatio: '4 / 3' }}>
+      {foto.map((f, i) => (
+        <img key={f.url + i} src={f.url} alt="" draggable={false}
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700"
+          style={{ opacity: i === idx ? 1 : 0 }} />
+      ))}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+      <div className="absolute bottom-0 left-0 right-0 p-3 flex items-center justify-between">
+        <p className="text-white text-xs font-medium drop-shadow">{dayjs(foto[idx].data).format('D MMMM YYYY')}</p>
+        <div className="flex gap-1">
+          {foto.map((_, i) => (
+            <span key={i} className={`h-1.5 rounded-full transition-all ${i === idx ? 'bg-white w-4' : 'bg-white/40 w-1.5'}`} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// La Dashboard cliente NON ripete i numeri della scheda cantiere (avanzamento,
+// note, appuntamenti vivono solo lì): qui c'è il benvenuto, lo slideshow delle
+// foto condivise e l'accesso rapido ai cantieri seguiti.
 function ClienteDashboard({ utente, cantieri, isLoading }) {
   if (isLoading) {
     return (
@@ -50,12 +89,8 @@ function ClienteDashboard({ utente, cantieri, isLoading }) {
     )
   }
 
-  // Un solo cantiere seguito → si entra direttamente nella sua scheda
-  if (cantieri.length === 1) {
-    return <Navigate to={`/cantieri/${cantieri[0].id}`} replace />
-  }
+  const primario = cantieri.find(c => c.stato === 'in_corso') || cantieri[0]
 
-  // Più cantieri → semplice selettore, i dettagli vivono solo nella scheda cantiere
   return (
     <div className="space-y-5">
       <div className="bg-steelex-dark rounded-2xl p-6 text-white relative overflow-hidden">
@@ -67,31 +102,47 @@ function ClienteDashboard({ utente, cantieri, isLoading }) {
           <img src="/logo-steelex.png" alt="Steelex" className="h-7 mb-4 opacity-80" />
           <p className="text-sm tracking-widest text-gray-400 uppercase mb-1">Benvenuto</p>
           <h1 className="text-2xl font-bold text-white">{utente?.nome}</h1>
-          <p className="text-gray-400 text-sm mt-3">Scegli il cantiere da seguire</p>
         </div>
       </div>
 
-      <div className="space-y-2">
-        {cantieri.map(c => (
-          <Link key={c.id} to={`/cantieri/${c.id}`}
-            className="card flex items-center gap-3 hover:border-steelex-orange border-2 border-transparent transition-colors">
-            <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
-              <HardHat size={18} className="text-steelex-orange" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
-              {c.citta && <p className="text-sm text-gray-500 truncate">{c.citta}</p>}
-            </div>
-            <div className="text-right flex-shrink-0 w-14">
-              <div className="text-steelex-orange font-bold text-sm">{c.avanzamento}%</div>
-              <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                <div className="bg-steelex-orange h-1.5 rounded-full transition-all" style={{ width: `${c.avanzamento}%` }} />
+      <SlideshowFotoCliente cantiereId={primario.id} />
+
+      {cantieri.length === 1 ? (
+        <Link to={`/cantieri/${primario.id}`}
+          className="card flex items-center gap-3 border-2 border-transparent hover:border-steelex-orange transition-colors">
+          <div className="w-11 h-11 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+            <HardHat size={20} className="text-steelex-orange" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-900 truncate">{primario.nome}</p>
+            {primario.citta && <p className="text-sm text-gray-500 truncate">{primario.citta}</p>}
+          </div>
+          <span className="text-sm font-medium text-steelex-orange flex-shrink-0 flex items-center gap-1">Apri <ChevronRight size={15} /></span>
+        </Link>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">I tuoi cantieri</p>
+          {cantieri.map(c => (
+            <Link key={c.id} to={`/cantieri/${c.id}`}
+              className="card flex items-center gap-3 hover:border-steelex-orange border-2 border-transparent transition-colors">
+              <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+                <HardHat size={18} className="text-steelex-orange" />
               </div>
-            </div>
-            <ChevronRight size={15} className="text-gray-400 flex-shrink-0" />
-          </Link>
-        ))}
-      </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
+                {c.citta && <p className="text-sm text-gray-500 truncate">{c.citta}</p>}
+              </div>
+              <div className="text-right flex-shrink-0 w-14">
+                <div className="text-steelex-orange font-bold text-sm">{c.avanzamento}%</div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                  <div className="bg-steelex-orange h-1.5 rounded-full transition-all" style={{ width: `${c.avanzamento}%` }} />
+                </div>
+              </div>
+              <ChevronRight size={15} className="text-gray-400 flex-shrink-0" />
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

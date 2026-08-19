@@ -140,47 +140,50 @@ export default function ClienteView({ cantiere }) {
     <div className="max-w-2xl mx-auto space-y-4">
 
       {/* ── Hero: cantiere + avanzamento (unica volta) ── */}
-      <div className="relative bg-steelex-dark rounded-2xl p-5 text-white overflow-hidden">
+      <div className="relative bg-steelex-dark rounded-2xl p-6 text-white overflow-hidden text-center">
         <div className="absolute inset-0 opacity-10 pointer-events-none">
           <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
           <div className="absolute -bottom-12 -left-4 w-32 h-32 rounded-full bg-steelex-orange" />
         </div>
-        <div className="relative flex items-center gap-4">
-          <div className="relative flex-shrink-0">
-            <AnelloProgresso value={avanzamentoAnimato} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-lg font-bold">{avanzamentoAnimato}%</span>
+        <div className="relative">
+          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${STATO_STYLE[cantiere.stato]}`}>
+            {STATO_LABEL[cantiere.stato]}
+          </span>
+          <h1 className="text-xl font-bold mt-2 truncate">{cantiere.nome}</h1>
+          {(cantiere.citta || cantiere.indirizzo) && (
+            <p className="text-xs text-gray-400 truncate mt-0.5">
+              {cantiere.indirizzo}{cantiere.indirizzo && cantiere.citta ? ' · ' : ''}{cantiere.citta}{cantiere.provincia ? ` (${cantiere.provincia})` : ''}
+            </p>
+          )}
+
+          {/* Anello di avanzamento — grande, al centro, sotto l'intestazione */}
+          <div className="flex justify-center my-5">
+            <div className="relative">
+              <AnelloProgresso value={avanzamentoAnimato} size={152} stroke={11} />
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold leading-none">{avanzamentoAnimato}%</span>
+                <span className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">completato</span>
+              </div>
             </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium mb-1.5 ${STATO_STYLE[cantiere.stato]}`}>
-              {STATO_LABEL[cantiere.stato]}
-            </span>
-            <h1 className="text-lg font-bold truncate">{cantiere.nome}</h1>
-            {(cantiere.citta || cantiere.indirizzo) && (
-              <p className="text-xs text-gray-400 truncate mt-0.5">
-                {cantiere.indirizzo}{cantiere.indirizzo && cantiere.citta ? ' · ' : ''}{cantiere.citta}{cantiere.provincia ? ` (${cantiere.provincia})` : ''}
-              </p>
-            )}
-          </div>
-        </div>
 
-        {(cantiere.data_inizio || cantiere.data_fine_prevista) && (
-          <div className="relative grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-white/10">
-            {cantiere.data_inizio && (
-              <div>
-                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Inizio lavori</p>
-                <p className="text-sm font-medium">{dayjs(cantiere.data_inizio).format('D MMMM YYYY')}</p>
-              </div>
-            )}
-            {cantiere.data_fine_prevista && (
-              <div>
-                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Fine prevista</p>
-                <p className="text-sm font-medium">{dayjs(cantiere.data_fine_prevista).format('D MMMM YYYY')}</p>
-              </div>
-            )}
-          </div>
-        )}
+          {(cantiere.data_inizio || cantiere.data_fine_prevista) && (
+            <div className="flex justify-center gap-8 pt-3 border-t border-white/10">
+              {cantiere.data_inizio && (
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Inizio lavori</p>
+                  <p className="text-sm font-medium">{dayjs(cantiere.data_inizio).format('D MMMM YYYY')}</p>
+                </div>
+              )}
+              {cantiere.data_fine_prevista && (
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Fine prevista</p>
+                  <p className="text-sm font-medium">{dayjs(cantiere.data_fine_prevista).format('D MMMM YYYY')}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {aggLoading && (
