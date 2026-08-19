@@ -606,7 +606,8 @@ def aggiornamenti_cliente(cantiere_id: int, db: Session = Depends(get_db), user:
         ],
         "note_condivise": [
             {"id": n.id, "data": str(n.data), "testo": n.attivita or "",
-             "meteo": n.meteo or "", "fonte": n.fonte or "manuale"}
+             "meteo": n.meteo or "", "fonte": n.fonte or "manuale",
+             "foto_urls": n.foto_urls or []}
             for n in note
         ],
         "appuntamenti": [
