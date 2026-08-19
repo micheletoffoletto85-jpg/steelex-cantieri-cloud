@@ -6,7 +6,6 @@ import EconomiaTab from './EconomiaTab'
 import MeteoMappa from '../components/MeteoMappa'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
-import AggiornnamentiTab from './AggiornnamentiTab'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -54,9 +53,7 @@ export default function CantierePage() {
       <div className="space-y-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/cantieri')} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft size={20} /></button>
-          <h1 className="text-xl font-bold truncate">{cantiere.nome}</h1>
         </div>
-        <AggiornnamentiTab cantiereId={id} />
         <ClienteView cantiere={cantiere} />
       </div>
     )
