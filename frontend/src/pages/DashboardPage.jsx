@@ -18,15 +18,16 @@ const STATO_LABEL = {
   annullato: { label: 'Annullato', color: 'bg-red-100 text-red-700' },
 }
 
-// Slideshow delle foto condivise col cliente (diario, ultime 8 note) — dà alla
-// Dashboard un contenuto suo, diverso dai numeri della scheda cantiere.
+// Slideshow delle foto della galleria cantiere marcate "mostra al cliente"
+// (tab Archivio Foto, occhio per foto) — dà alla Dashboard un contenuto suo,
+// diverso dai numeri della scheda cantiere. L'endpoint filtra già lato server:
+// un cliente vede solo le foto con visibile_cliente=true di quel cantiere.
 function SlideshowFotoCliente({ cantiereId }) {
-  const { data: agg } = useQuery(
-    ['aggiornamenti-cliente', cantiereId],
-    () => api.get(`/cantieri/${cantiereId}/aggiornamenti-cliente`).then(r => r.data),
+  const { data: foto = [] } = useQuery(
+    ['foto-cantiere', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/foto`).then(r => r.data),
     { enabled: !!cantiereId, staleTime: 60000 }
   )
-  const foto = (agg?.note_condivise || []).flatMap(n => (n.foto_urls || []).map(url => ({ url, data: n.data })))
   const [idx, setIdx] = useState(0)
 
   useEffect(() => {
@@ -40,13 +41,13 @@ function SlideshowFotoCliente({ cantiereId }) {
   return (
     <div className="relative rounded-2xl overflow-hidden bg-gray-900 shadow-sm" style={{ aspectRatio: '4 / 3' }}>
       {foto.map((f, i) => (
-        <img key={f.url + i} src={f.url} alt="" draggable={false}
+        <img key={f.id} src={f.url} alt="" draggable={false}
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700"
           style={{ opacity: i === idx ? 1 : 0 }} />
       ))}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
       <div className="absolute bottom-0 left-0 right-0 p-3 flex items-center justify-between">
-        <p className="text-white text-xs font-medium drop-shadow">{dayjs(foto[idx].data).format('D MMMM YYYY')}</p>
+        <p className="text-white text-xs font-medium drop-shadow">{foto[idx].data ? dayjs(foto[idx].data).format('D MMMM YYYY') : ''}</p>
         <div className="flex gap-1">
           {foto.map((_, i) => (
             <span key={i} className={`h-1.5 rounded-full transition-all ${i === idx ? 'bg-white w-4' : 'bg-white/40 w-1.5'}`} />
