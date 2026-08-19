@@ -2,7 +2,9 @@ import os, tempfile
 from datetime import date as date_today
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import func
+from typing import List, Optional
+from pydantic import BaseModel
 from app.database import get_db
 from app.models.diario import DiarioGiornaliero, OreExtra
 from app.models.cantiere import Cantiere
@@ -328,49 +330,37 @@ Testo trascritto:
         except: pass
 
 
-# ─── TAB FOTO CANTIERE ────────────────────────────────────────────────────────
+# ─── TAB FOTO CANTIERE — galleria curata (ordine/visibilità cliente/cancellazione) ─
+# Import di FotoCantiere sempre locale alle funzioni: vedi nota nel modello.
+
+_RUOLI_GALLERIA_CURA = {"admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"}
+_RUOLI_GALLERIA_UPLOAD = _RUOLI_GALLERIA_CURA | {"artigiano"}
+
+
+def _foto_out(f) -> dict:
+    return {
+        "id": f.id, "url": f.url, "ordine": f.ordine,
+        "visibile_cliente": f.visibile_cliente, "nota": f.nota,
+        "autore": f"{f.autore.nome} {f.autore.cognome}" if f.autore else None,
+        "data": f.creato_il.date().isoformat() if f.creato_il else None,
+    }
+
 
 @foto_router.get("/{cantiere_id}/foto")
 def lista_foto_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Aggrega tutte le foto del cantiere: dal diario e dai pin sui documenti."""
-    from app.models.documento import Documento
+    """Galleria foto curata del cantiere — ordine e visibilità cliente decisi dallo staff."""
+    from app.models.foto_cantiere import FotoCantiere
+    from app.routers.cantieri import _check_accesso
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
         raise HTTPException(404, "Cantiere non trovato")
+    _check_accesso(cantiere, user)
 
-    foto = []
-
-    # Foto dai diari giornalieri
-    diari = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.cantiere_id == cantiere_id).order_by(DiarioGiornaliero.data.desc()).all()
-    for d in diari:
-        for url in (d.foto_urls or []):
-            foto.append({
-                "url": url,
-                "fonte": "diario",
-                "fonte_id": d.id,
-                "fonte_label": f"Diario {d.data.strftime('%d/%m/%Y') if d.data else ''}",
-                "autore": f"{d.autore.nome} {d.autore.cognome}" if d.autore else None,
-                "data": str(d.data) if d.data else None,
-            })
-
-    # Foto dai pin sui documenti
-    docs = db.query(Documento).filter(Documento.cantiere_id == cantiere_id).all()
-    for doc in docs:
-        for pin in (doc.pin_dati or []):
-            for url in (pin.get("foto_urls") or []):
-                foto.append({
-                    "url": url,
-                    "fonte": "pin",
-                    "fonte_id": doc.id,
-                    "fonte_label": f"Pin su {doc.nome}",
-                    "autore": pin.get("autore"),
-                    "data": pin.get("creato_il", "")[:10] if pin.get("creato_il") else None,
-                    "nota": pin.get("nota"),
-                })
-
-    # Ordina per data decrescente
-    foto.sort(key=lambda f: f.get("data") or "", reverse=True)
-    return foto
+    q = db.query(FotoCantiere).filter(FotoCantiere.cantiere_id == cantiere_id)
+    if user.ruolo.value == "cliente":
+        q = q.filter(FotoCantiere.visibile_cliente == True)
+    foto = q.order_by(FotoCantiere.ordine.asc(), FotoCantiere.id.asc()).all()
+    return [_foto_out(f) for f in foto]
 
 
 @foto_router.post("/{cantiere_id}/foto")
@@ -380,42 +370,94 @@ async def upload_foto_cantiere(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    """Carica una foto direttamente nel cantiere — crea una nota diario per contenerla."""
+    """Carica una foto nella galleria curata del cantiere."""
+    from app.models.foto_cantiere import FotoCantiere
+    from app.routers.cantieri import _check_accesso
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
         raise HTTPException(404, "Cantiere non trovato")
+    _check_accesso(cantiere, user)
+    if user.ruolo.value not in _RUOLI_GALLERIA_UPLOAD:
+        raise HTTPException(403, "Non autorizzato a caricare foto")
 
     _ct_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic"}
     ext = os.path.splitext(file.filename or "")[1].lower() or _ct_map.get((file.content_type or "").split(";")[0].strip(), "") or ".jpg"
     url, _ = salva_file(await file.read(), f"foto/{cantiere_id}", ext)
 
-    # Inserisce in una nota diario di oggi (o ne crea una nuova dedicata)
-    oggi = date_today.today()
-    diario = db.query(DiarioGiornaliero).filter(
-        DiarioGiornaliero.cantiere_id == cantiere_id,
-        DiarioGiornaliero.data == oggi,
-        DiarioGiornaliero.autore_id == user.id,
-        DiarioGiornaliero.fonte == "foto_diretta",
-    ).first()
-    if not diario:
-        diario = DiarioGiornaliero(
-            cantiere_id=cantiere_id,
-            data=oggi,
-            autore_id=user.id,
-            attivita="Foto caricate dalla tab Foto",
-            fonte="foto_diretta",
-            stato_validazione="pubblicata",
-            foto_urls=[],
-        )
-        db.add(diario)
-        db.flush()
-
-    urls = list(diario.foto_urls or [])
-    urls.append(url)
-    diario.foto_urls = urls
+    ultimo = db.query(func.max(FotoCantiere.ordine)).filter(FotoCantiere.cantiere_id == cantiere_id).scalar()
+    foto = FotoCantiere(cantiere_id=cantiere_id, url=url, ordine=(ultimo or 0) + 1, autore_id=user.id)
+    db.add(foto)
     db.commit()
+    db.refresh(foto)
+    return _foto_out(foto)
 
-    return {"url": url, "diario_id": diario.id}
+
+@foto_router.delete("/{cantiere_id}/foto/{foto_id}")
+def elimina_foto_cantiere(cantiere_id: int, foto_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    from app.models.foto_cantiere import FotoCantiere
+    from app.routers.cantieri import _check_accesso
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+    _check_accesso(cantiere, user)
+    if user.ruolo.value not in _RUOLI_GALLERIA_CURA:
+        raise HTTPException(403, "Non autorizzato")
+    foto = db.query(FotoCantiere).filter(FotoCantiere.id == foto_id, FotoCantiere.cantiere_id == cantiere_id).first()
+    if not foto:
+        raise HTTPException(404, "Foto non trovata")
+    db.delete(foto)
+    db.commit()
+    return {"ok": True}
+
+
+class FotoCantiereUpdate(BaseModel):
+    visibile_cliente: Optional[bool] = None
+    nota: Optional[str] = None
+
+
+@foto_router.patch("/{cantiere_id}/foto/{foto_id}")
+def aggiorna_foto_cantiere(cantiere_id: int, foto_id: int, body: FotoCantiereUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    from app.models.foto_cantiere import FotoCantiere
+    from app.routers.cantieri import _check_accesso
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+    _check_accesso(cantiere, user)
+    if user.ruolo.value not in _RUOLI_GALLERIA_CURA:
+        raise HTTPException(403, "Non autorizzato")
+    foto = db.query(FotoCantiere).filter(FotoCantiere.id == foto_id, FotoCantiere.cantiere_id == cantiere_id).first()
+    if not foto:
+        raise HTTPException(404, "Foto non trovata")
+    if body.visibile_cliente is not None:
+        foto.visibile_cliente = body.visibile_cliente
+    if body.nota is not None:
+        foto.nota = body.nota
+    db.commit()
+    db.refresh(foto)
+    return _foto_out(foto)
+
+
+class FotoRiordinaBody(BaseModel):
+    ordine: List[int]  # id foto nel nuovo ordine
+
+
+@foto_router.put("/{cantiere_id}/foto/riordina")
+def riordina_foto_cantiere(cantiere_id: int, body: FotoRiordinaBody, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    from app.models.foto_cantiere import FotoCantiere
+    from app.routers.cantieri import _check_accesso
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+    _check_accesso(cantiere, user)
+    if user.ruolo.value not in _RUOLI_GALLERIA_CURA:
+        raise HTTPException(403, "Non autorizzato")
+    foto_map = {f.id: f for f in db.query(FotoCantiere).filter(FotoCantiere.cantiere_id == cantiere_id).all()}
+    for i, foto_id in enumerate(body.ordine):
+        f = foto_map.get(foto_id)
+        if f:
+            f.ordine = i
+    db.commit()
+    return {"ok": True}
 
 
 # ─── ORE EXTRA ────────────────────────────────────────────────────────────────

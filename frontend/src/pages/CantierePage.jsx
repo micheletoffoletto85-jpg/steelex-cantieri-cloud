@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import MeteoMappa from '../components/MeteoMappa'
 import ClienteView from './ClienteView'
@@ -2707,11 +2707,37 @@ function NCTab({ cantiereId, utente }) {
 }
 
 /* ─── TAB FOTO ─── */
+
+// Comprime lato client prima dell'upload — foto da smartphone a piena risoluzione
+// (spesso 3-8 MB l'una) rendevano la griglia pesante e scattosa da scorrere.
+async function comprimiImmagine(file, maxDim = 1920, quality = 0.82) {
+  if (!file.type?.startsWith('image/') || file.type === 'image/gif') return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height))
+    if (scale === 1 && file.size < 1.5 * 1024 * 1024) return file
+    const w = Math.round(bitmap.width * scale)
+    const h = Math.round(bitmap.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = w; canvas.height = h
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h)
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality))
+    if (!blob || blob.size >= file.size) return file
+    const nome = (file.name || 'foto').replace(/\.[^.]+$/, '') + '.jpg'
+    return new File([blob], nome, { type: 'image/jpeg' })
+  } catch {
+    return file // HEIC o formato non decodificabile dal browser — carica l'originale
+  }
+}
+
 function FotoTab({ cantiereId, utente }) {
   const qc = useQueryClient()
   const canWrite = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','artigiano'].includes(utente?.ruolo)
+  const canCura = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
   const [uploadingCount, setUploadingCount] = useState(0)
   const [selIdx, setSelIdx] = useState(null)
+  const [editMode, setEditMode] = useState(false)
+  const [confermaEliminaId, setConfermaEliminaId] = useState(null)
   const fileRef = useRef(null)
 
   const { data: foto = [], isLoading } = useQuery(
@@ -2723,12 +2749,46 @@ function FotoTab({ cantiereId, utente }) {
   const uploadFoto = async (file) => {
     setUploadingCount(n => n + 1)
     try {
-      const fd = new FormData(); fd.append('file', file)
+      const compressa = await comprimiImmagine(file)
+      const fd = new FormData(); fd.append('file', compressa)
       await api.post(`/cantieri/${cantiereId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       qc.invalidateQueries(['foto-cantiere', cantiereId])
-      qc.invalidateQueries(['diari', cantiereId])
     } catch { toast.error('Errore upload foto') }
     finally { setUploadingCount(n => n - 1) }
+  }
+
+  const eliminaFoto = async (id) => {
+    try {
+      await api.delete(`/cantieri/${cantiereId}/foto/${id}`)
+      qc.setQueryData(['foto-cantiere', cantiereId], old => (old || []).filter(f => f.id !== id))
+      setConfermaEliminaId(null)
+      toast.success('Foto eliminata')
+    } catch { toast.error('Errore eliminazione') }
+  }
+
+  const toggleVisibileCliente = async (f) => {
+    const nuovo = !f.visibile_cliente
+    qc.setQueryData(['foto-cantiere', cantiereId], old => (old || []).map(x => x.id === f.id ? { ...x, visibile_cliente: nuovo } : x))
+    try {
+      await api.patch(`/cantieri/${cantiereId}/foto/${f.id}`, { visibile_cliente: nuovo })
+    } catch {
+      toast.error('Errore aggiornamento')
+      qc.invalidateQueries(['foto-cantiere', cantiereId])
+    }
+  }
+
+  const sposta = async (idx, direzione) => {
+    const j = idx + direzione
+    if (j < 0 || j >= foto.length) return
+    const nuovoOrdine = [...foto]
+    ;[nuovoOrdine[idx], nuovoOrdine[j]] = [nuovoOrdine[j], nuovoOrdine[idx]]
+    qc.setQueryData(['foto-cantiere', cantiereId], nuovoOrdine)
+    try {
+      await api.put(`/cantieri/${cantiereId}/foto/riordina`, { ordine: nuovoOrdine.map(f => f.id) })
+    } catch {
+      toast.error('Errore riordino')
+      qc.invalidateQueries(['foto-cantiere', cantiereId])
+    }
   }
 
   if (isLoading) return <div className="text-center py-10 text-gray-400">Caricamento...</div>
@@ -2736,44 +2796,93 @@ function FotoTab({ cantiereId, utente }) {
   return (
     <div className="space-y-3">
       {/* Header con pulsante upload */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="font-semibold text-gray-900">Archivio Foto</h3>
-          <p className="text-xs text-gray-400">{foto.length} foto totali (diario + pin mappa)</p>
+          <p className="text-xs text-gray-400">{foto.length} foto</p>
         </div>
-        {canWrite && (
-          <label className={`btn-primary flex items-center gap-2 cursor-pointer ${uploadingCount > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
-            {uploadingCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
-            {uploadingCount > 0 ? `⏳ ${uploadingCount} in caricamento...` : 'Aggiungi foto'}
-            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
-              onChange={e => {
-                const files = Array.from(e.target.files)
-                if (!files.length) return
-                Promise.all(files.map(f => uploadFoto(f))).then(() => {
-                  toast.success(files.length > 1 ? `${files.length} foto caricate!` : 'Foto caricata!')
-                })
-                e.target.value = ''
-              }} />
-          </label>
-        )}
+        <div className="flex items-center gap-2">
+          {canCura && foto.length > 0 && (
+            <button onClick={() => { setEditMode(v => !v); setConfermaEliminaId(null) }}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${editMode ? 'bg-steelex-orange text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {editMode ? <><Check size={15} /> Fatto</> : <><Edit2 size={15} /> Modifica</>}
+            </button>
+          )}
+          {canWrite && (
+            <label className={`btn-primary flex items-center gap-2 cursor-pointer ${uploadingCount > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+              {uploadingCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+              {uploadingCount > 0 ? `⏳ ${uploadingCount} in caricamento...` : 'Aggiungi foto'}
+              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+                onChange={e => {
+                  const files = Array.from(e.target.files)
+                  if (!files.length) return
+                  Promise.all(files.map(f => uploadFoto(f))).then(() => {
+                    toast.success(files.length > 1 ? `${files.length} foto caricate!` : 'Foto caricata!')
+                  })
+                  e.target.value = ''
+                }} />
+            </label>
+          )}
+        </div>
       </div>
 
-      {/* Griglia foto */}
       {foto.length === 0 ? (
         <div className="card text-center py-12 text-gray-400">
           <Images size={40} className="mx-auto mb-3 opacity-30" />
           <p className="font-medium">Nessuna foto ancora</p>
-          <p className="text-xs mt-1">Le foto caricate nel diario e sui pin della mappa appariranno qui</p>
+          <p className="text-xs mt-1">Le foto caricate qui formano la galleria del cantiere</p>
+        </div>
+      ) : editMode ? (
+        /* ── Modalità modifica: riordino, visibilità cliente, eliminazione ── */
+        <div className="space-y-2">
+          {foto.map((f, i) => (
+            <div key={f.id} className="card flex items-center gap-3 py-2.5">
+              <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                <AuthImage url={f.url} className="w-full h-full object-cover" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-700 truncate">{f.autore || 'Foto'}</p>
+                {f.data && <p className="text-xs text-gray-400">{f.data}</p>}
+              </div>
+
+              {confermaEliminaId === f.id ? (
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className="text-xs text-gray-500">Eliminare?</span>
+                  <button onClick={() => eliminaFoto(f.id)} className="p-1.5 bg-red-500 text-white rounded-lg"><Check size={14} /></button>
+                  <button onClick={() => setConfermaEliminaId(null)} className="p-1.5 bg-gray-100 text-gray-500 rounded-lg"><X size={14} /></button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => sposta(i, -1)} disabled={i === 0}
+                    className="p-1.5 text-gray-400 hover:text-gray-700 disabled:opacity-20"><ChevronUp size={16} /></button>
+                  <button onClick={() => sposta(i, 1)} disabled={i === foto.length - 1}
+                    className="p-1.5 text-gray-400 hover:text-gray-700 disabled:opacity-20"><ChevronDown size={16} /></button>
+                  <button onClick={() => toggleVisibileCliente(f)}
+                    title={f.visibile_cliente ? 'Visibile al cliente — tocca per nascondere' : 'Nascosta al cliente — tocca per mostrare'}
+                    className={`p-1.5 rounded-lg ${f.visibile_cliente ? 'text-steelex-orange bg-orange-50' : 'text-gray-300 hover:text-gray-500'}`}>
+                    {f.visibile_cliente ? <Eye size={16} /> : <EyeOff size={16} />}
+                  </button>
+                  <button onClick={() => setConfermaEliminaId(f.id)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={16} /></button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       ) : (
+        /* ── Griglia di visualizzazione ── */
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {foto.map((f, i) => (
-            <div key={i} className="relative group cursor-pointer rounded-xl overflow-hidden bg-gray-100 aspect-square"
+            <div key={f.id} className="relative group cursor-pointer rounded-xl overflow-hidden bg-gray-100 aspect-square"
               onClick={() => setSelIdx(i)}>
               <AuthImage url={f.url} className="w-full h-full object-cover" />
+              {f.visibile_cliente && (
+                <div className="absolute top-1.5 left-1.5 bg-black/50 rounded-full p-1" title="Visibile al cliente">
+                  <Eye size={11} className="text-white" />
+                </div>
+              )}
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <p className="text-white text-xs font-medium truncate">{f.fonte_label}</p>
-                {f.autore && <p className="text-white/70 text-xs truncate">{f.autore}</p>}
+                {f.autore && <p className="text-white text-xs font-medium truncate">{f.autore}</p>}
+                {f.data && <p className="text-white/70 text-xs truncate">{f.data}</p>}
               </div>
             </div>
           ))}
@@ -2781,7 +2890,7 @@ function FotoTab({ cantiereId, utente }) {
       )}
 
       {/* Lightbox navigabile */}
-      {selIdx !== null && foto[selIdx] && (
+      {!editMode && selIdx !== null && foto[selIdx] && (
         <LightboxNav
           urls={foto.map(f => f.url)}
           idx={selIdx}
@@ -2794,8 +2903,7 @@ function FotoTab({ cantiereId, utente }) {
                 <AuthImage url={url} className="w-full rounded-xl max-h-[75vh] object-contain" />
                 {item && (
                   <div className="mt-3 text-white/80 text-sm space-y-0.5">
-                    <p className="font-medium">{item.fonte_label}</p>
-                    {item.autore && <p className="text-white/60 text-xs">{item.autore}</p>}
+                    {item.autore && <p className="font-medium">{item.autore}</p>}
                     {item.nota && <p className="text-white/60 text-xs italic">"{item.nota}"</p>}
                     {item.data && <p className="text-white/60 text-xs">{item.data}</p>}
                   </div>
