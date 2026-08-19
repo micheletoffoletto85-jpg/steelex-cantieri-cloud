@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Link } from 'react-router-dom'
-import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, AlertTriangle, Mic, MicOff, ChevronRight, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown, Euro } from 'lucide-react'
+import { HardHat, TrendingUp, Clock, CheckCircle, AlertCircle, AlertTriangle, Mic, MicOff, ChevronRight, ChevronLeft, Calendar, Bell, BellOff, ClipboardList, Send, Camera, X, ChevronDown, Euro } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useState, useRef, useEffect } from 'react'
@@ -22,6 +22,8 @@ const STATO_LABEL = {
 // (tab Archivio Foto, occhio per foto) — dà alla Dashboard un contenuto suo,
 // diverso dai numeri della scheda cantiere. L'endpoint filtra già lato server:
 // un cliente vede solo le foto con visibile_cliente=true di quel cantiere.
+const SLIDE_DURATION = 4500
+
 function SlideshowFotoCliente({ cantiereId }) {
   const { data: foto = [] } = useQuery(
     ['foto-cantiere', cantiereId],
@@ -29,32 +31,95 @@ function SlideshowFotoCliente({ cantiereId }) {
     { enabled: !!cantiereId, staleTime: 60000 }
   )
   const [idx, setIdx] = useState(0)
+  const [progresso, setProgresso] = useState(0) // 0-100, avanzamento della foto corrente
+  const [lightbox, setLightbox] = useState(false)
+  const startRef = useRef(null)
+  const rafRef = useRef(null)
 
+  // Avanzamento automatico — si ferma quando la foto è aperta a schermo intero
   useEffect(() => {
-    if (foto.length < 2) return
-    const t = setInterval(() => setIdx(i => (i + 1) % foto.length), 4500)
-    return () => clearInterval(t)
-  }, [foto.length])
+    if (foto.length < 2 || lightbox) return
+    startRef.current = performance.now()
+    const tick = (t) => {
+      const pct = Math.min(100, ((t - startRef.current) / SLIDE_DURATION) * 100)
+      setProgresso(pct)
+      if (pct >= 100) setIdx(i => (i + 1) % foto.length)
+      else rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [idx, foto.length, lightbox])
+
+  const vaiA = (i) => { setIdx((i + foto.length) % foto.length); setProgresso(0) }
 
   if (foto.length === 0) return null
 
   return (
-    <div className="relative rounded-2xl overflow-hidden bg-gray-900 shadow-sm" style={{ aspectRatio: '4 / 3' }}>
-      {foto.map((f, i) => (
-        <img key={f.id} src={f.url} alt="" draggable={false}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700"
-          style={{ opacity: i === idx ? 1 : 0 }} />
-      ))}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
-      <div className="absolute bottom-0 left-0 right-0 p-3 flex items-center justify-between">
-        <p className="text-white text-xs font-medium drop-shadow">{foto[idx].data ? dayjs(foto[idx].data).format('D MMMM YYYY') : ''}</p>
-        <div className="flex gap-1">
-          {foto.map((_, i) => (
-            <span key={i} className={`h-1.5 rounded-full transition-all ${i === idx ? 'bg-white w-4' : 'bg-white/40 w-1.5'}`} />
-          ))}
-        </div>
+    <>
+      <div className="relative rounded-2xl overflow-hidden bg-gray-900 shadow-sm" style={{ aspectRatio: '4 / 3' }}>
+        {foto.map((f, i) => (
+          <img key={f.id} src={f.url} alt="" draggable={false}
+            className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 cursor-pointer"
+            style={{ opacity: i === idx ? 1 : 0 }}
+            onClick={() => setLightbox(true)} />
+        ))}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+
+        {/* Barra di avanzamento stile stories — tocca un segmento per saltare alla foto */}
+        {foto.length > 1 && (
+          <div className="absolute top-2 left-2 right-2 flex gap-1 z-10">
+            {foto.map((_, i) => (
+              <button key={i} onClick={e => { e.stopPropagation(); vaiA(i) }}
+                className="flex-1 h-1.5 rounded-full bg-white/30 overflow-hidden">
+                <div className="h-full bg-white rounded-full"
+                  style={{ width: i < idx ? '100%' : i === idx ? `${progresso}%` : '0%' }} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Frecce prev/next */}
+        {foto.length > 1 && (
+          <>
+            <button onClick={e => { e.stopPropagation(); vaiA(idx - 1) }}
+              className="absolute left-1.5 top-1/2 -translate-y-1/2 p-1.5 text-white/80 hover:text-white z-10">
+              <ChevronLeft size={20} />
+            </button>
+            <button onClick={e => { e.stopPropagation(); vaiA(idx + 1) }}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 text-white/80 hover:text-white z-10">
+              <ChevronRight size={20} />
+            </button>
+          </>
+        )}
+
+        <p className="absolute bottom-3 left-3 right-3 text-white text-xs font-medium drop-shadow pointer-events-none">
+          {foto[idx].data ? dayjs(foto[idx].data).format('D MMMM YYYY') : ''}
+        </p>
       </div>
-    </div>
+
+      {/* Foto a schermo intero */}
+      {lightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95" onClick={() => setLightbox(false)}>
+          <button onClick={() => setLightbox(false)} className="absolute top-4 right-4 text-white bg-white/10 rounded-full p-2 z-10">
+            <X size={22} />
+          </button>
+          {foto.length > 1 && (
+            <>
+              <button onClick={e => { e.stopPropagation(); vaiA(idx - 1) }}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-white bg-white/10 rounded-full p-2 z-10">
+                <ChevronLeft size={24} />
+              </button>
+              <button onClick={e => { e.stopPropagation(); vaiA(idx + 1) }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white bg-white/10 rounded-full p-2 z-10">
+                <ChevronRight size={24} />
+              </button>
+            </>
+          )}
+          <img src={foto[idx].url} alt="" className="max-w-[95vw] max-h-[85vh] object-contain rounded-lg" onClick={e => e.stopPropagation()} />
+          {foto[idx].data && <p className="absolute bottom-5 text-white/70 text-sm">{dayjs(foto[idx].data).format('D MMMM YYYY')}</p>}
+        </div>
+      )}
+    </>
   )
 }
 
