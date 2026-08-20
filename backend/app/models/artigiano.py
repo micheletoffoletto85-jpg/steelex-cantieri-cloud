@@ -33,6 +33,7 @@ class Artigiano(Base):
     primo_soccorso_drive_url     = Column(String(500), nullable=True)
     visura_camerale_scadenza     = Column(Date, nullable=True)
     visura_camerale_drive_url    = Column(String(500), nullable=True)
+    visura_camerale_url          = Column(String(500), nullable=True)
     drive_folder_url             = Column(String(500), nullable=True)
 
     feedback    = relationship("FeedbackArtigiano", back_populates="artigiano", cascade="all, delete-orphan")

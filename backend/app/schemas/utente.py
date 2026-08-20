@@ -9,6 +9,7 @@ class UtenteBase(BaseModel):
     nome: str
     cognome: str
     email: str
+    telefono: Optional[str] = None
     ruolo: str = "capo_cantiere"
     tipo_professione: Optional[str] = None
 
@@ -36,6 +37,7 @@ class UtenteCreate(UtenteBase):
 class UtenteUpdate(BaseModel):
     nome: Optional[str] = None
     cognome: Optional[str] = None
+    telefono: Optional[str] = None
     ruolo: Optional[str] = None
     attivo: Optional[bool] = None
     password: Optional[str] = None

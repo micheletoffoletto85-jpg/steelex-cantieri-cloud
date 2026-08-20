@@ -2256,6 +2256,7 @@ const CATEGORIE_DOC = {
   relazioni_disegni: { label: '📐 Relazioni e Disegni', bg: 'bg-blue-100 text-blue-700' },
   amministrazione:   { label: '📋 Amministrazione',     bg: 'bg-green-100 text-green-700' },
   operativita:       { label: '⚙️ Operatività',         bg: 'bg-orange-100 text-orange-700' },
+  cliente:           { label: '👤 Documenti Cliente',   bg: 'bg-purple-100 text-purple-700' },
 }
 
 const TIPO_ICONA = { pdf: '📄', dwg: '📐', dxf: '📐', jpg: '🖼', jpeg: '🖼', png: '🖼', xlsx: '📊', xls: '📊', docx: '📝', doc: '📝', zip: '🗜' }

@@ -20,7 +20,7 @@ const RUOLO_LABEL = {
 }
 const RUOLO_DESC = {
   admin: 'Accesso completo a tutto',
-  capo_cantiere: 'Staff FONTANA RAFFAELE — accesso completo',
+  capo_cantiere: 'Staff STEELEX — accesso completo',
   capo_cantiere_sub: 'Subappaltato — no economia, può aggiungere lavori',
   direzione_lavori: 'DL esterno — no economia',
   architetto: 'Solo lettura — no economia',
@@ -68,7 +68,7 @@ const PROFESSIONI = [
 
 const RUOLI_CON_PROFESSIONE = ['fornitore', 'artigiano']
 
-const FORM_VUOTO = { nome: '', cognome: '', email: '', password: '', ruolo: 'capo_cantiere', tipo_professione: '' }
+const FORM_VUOTO = { nome: '', cognome: '', email: '', telefono: '', password: '', ruolo: 'capo_cantiere', tipo_professione: '' }
 
 export default function UtentiPage() {
   const { utente: me } = useAuth()
@@ -125,7 +125,7 @@ export default function UtentiPage() {
 
   const apriModifica = (u) => {
     setEditando(u)
-    setEditForm({ nome: u.nome, cognome: u.cognome, ruolo: u.ruolo, password: '', tipo_professione: u.tipo_professione || '' })
+    setEditForm({ nome: u.nome, cognome: u.cognome, telefono: u.telefono || '', ruolo: u.ruolo, password: '', tipo_professione: u.tipo_professione || '' })
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -165,11 +165,12 @@ export default function UtentiPage() {
             <input className="input-field" placeholder="Cognome *" value={form.cognome} onChange={e => set('cognome', e.target.value)} />
           </div>
           <input className="input-field" type="email" placeholder="Email *" value={form.email} onChange={e => set('email', e.target.value)} />
+          <input className="input-field" type="tel" placeholder="Telefono" value={form.telefono} onChange={e => set('telefono', e.target.value)} />
           <input className="input-field" type="password" placeholder="Password *" value={form.password} onChange={e => set('password', e.target.value)} />
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={form.ruolo} onChange={e => set('ruolo', e.target.value)}>
-              <option value="capo_cantiere">Capo Cantiere (interno FONTANA RAFFAELE)</option>
+              <option value="capo_cantiere">Capo Cantiere (interno STEELEX)</option>
               <option value="capo_cantiere_sub">Capo Cantiere Subappaltato</option>
               <option value="direzione_lavori">Direzione Lavori</option>
               <option value="architetto">Architetto</option>
@@ -212,11 +213,12 @@ export default function UtentiPage() {
             <input className="input-field" placeholder="Nome *" value={editForm.nome} onChange={e => setE('nome', e.target.value)} />
             <input className="input-field" placeholder="Cognome" value={editForm.cognome} onChange={e => setE('cognome', e.target.value)} />
           </div>
+          <input className="input-field" type="tel" placeholder="Telefono" value={editForm.telefono} onChange={e => setE('telefono', e.target.value)} />
           <input className="input-field" type="password" placeholder="Nuova password (lascia vuoto per non cambiare)" value={editForm.password} onChange={e => setE('password', e.target.value)} />
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={editForm.ruolo} onChange={e => setE('ruolo', e.target.value)}>
-              <option value="capo_cantiere">Capo Cantiere (interno FONTANA RAFFAELE)</option>
+              <option value="capo_cantiere">Capo Cantiere (interno STEELEX)</option>
               <option value="capo_cantiere_sub">Capo Cantiere Subappaltato</option>
               <option value="direzione_lavori">Direzione Lavori</option>
               <option value="architetto">Architetto</option>
@@ -282,7 +284,7 @@ export default function UtentiPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900">{u.nome} {u.cognome} {isSelf && <span className="text-xs text-gray-400">(tu)</span>}</p>
-                    <p className="text-sm text-gray-500">{u.email}</p>
+                    <p className="text-sm text-gray-500">{u.email}{u.telefono ? ` · ${u.telefono}` : ''}</p>
                     {u.tipo_professione && (
                       <p className="text-xs text-purple-600 font-medium mt-0.5">{u.tipo_professione}</p>
                     )}

@@ -78,6 +78,7 @@ class ArtigianoCreate(BaseModel):
     durc_scadenza: Optional[date] = None
     attestato_sicurezza_scadenza: Optional[date] = None
     attestato_primo_soccorso_scadenza: Optional[date] = None
+    visura_camerale_scadenza: Optional[date] = None
 
 class ArtigianoUpdate(BaseModel):
     nome: Optional[str] = None
@@ -92,6 +93,7 @@ class ArtigianoUpdate(BaseModel):
     durc_scadenza: Optional[date] = None
     attestato_sicurezza_scadenza: Optional[date] = None
     attestato_primo_soccorso_scadenza: Optional[date] = None
+    visura_camerale_scadenza: Optional[date] = None
 
 class FeedbackCreate(BaseModel):
     voto: str           # su | medio | giu
@@ -126,9 +128,11 @@ class ArtigianoOut(BaseModel):
     durc_scadenza: Optional[date] = None
     attestato_sicurezza_scadenza: Optional[date] = None
     attestato_primo_soccorso_scadenza: Optional[date] = None
+    visura_camerale_scadenza: Optional[date] = None
     durc_url: Optional[str] = None
     attestato_sicurezza_url: Optional[str] = None
     attestato_primo_soccorso_url: Optional[str] = None
+    visura_camerale_url: Optional[str] = None
     score: Optional[int] = None
     totale_feedback: int = 0
     su: int = 0
@@ -151,9 +155,11 @@ def _artigiano_out(a: Artigiano, db: Session) -> ArtigianoOut:
         durc_scadenza=a.durc_scadenza,
         attestato_sicurezza_scadenza=a.attestato_sicurezza_scadenza,
         attestato_primo_soccorso_scadenza=a.attestato_primo_soccorso_scadenza,
+        visura_camerale_scadenza=a.visura_camerale_scadenza,
         durc_url=a.durc_url,
         attestato_sicurezza_url=a.attestato_sicurezza_url,
         attestato_primo_soccorso_url=a.attestato_primo_soccorso_url,
+        visura_camerale_url=a.visura_camerale_url,
         score=stats["score"], totale_feedback=stats["totale"],
         su=stats["su"], medio=stats["medio"], giu=stats["giu"],
     )
@@ -326,12 +332,13 @@ _DOC_TIPI = {
     "durc": "durc_url",
     "sicurezza": "attestato_sicurezza_url",
     "primo_soccorso": "attestato_primo_soccorso_url",
+    "visura_camerale": "visura_camerale_url",
 }
 
 @router.post("/{artigiano_id}/upload-doc", response_model=ArtigianoOut)
 async def upload_documento(
     artigiano_id: int,
-    tipo: str = Query(..., description="durc | sicurezza | primo_soccorso"),
+    tipo: str = Query(..., description="durc | sicurezza | primo_soccorso | visura_camerale"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
@@ -351,6 +358,41 @@ async def upload_documento(
     setattr(a, _DOC_TIPI[tipo], url)
     db.commit(); db.refresh(a)
     return _artigiano_out(a, db)
+
+
+@router.get("/scadenze", response_model=List[dict])
+def documenti_in_scadenza(
+    giorni: int = Query(60, description="Documenti in scadenza entro N giorni"),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Tutti i documenti in scadenza o scaduti, su tutti gli artigiani attivi."""
+    from datetime import timedelta
+    oggi = date.today()
+    limite = oggi + timedelta(days=giorni)
+    artigiani = db.query(Artigiano).filter(Artigiano.attivo == True).all()
+    result = []
+    for a in artigiani:
+        docs = [
+            ("DURC", a.durc_scadenza, a.durc_url),
+            ("Attestato sicurezza", a.attestato_sicurezza_scadenza, a.attestato_sicurezza_url),
+            ("Primo soccorso", a.attestato_primo_soccorso_scadenza, a.attestato_primo_soccorso_url),
+            ("Visura camerale", a.visura_camerale_scadenza, a.visura_camerale_url),
+        ]
+        for nome_doc, scad, url in docs:
+            if scad and scad <= limite:
+                result.append({
+                    "artigiano_id": a.id,
+                    "artigiano_nome": f"{a.nome} {a.cognome}",
+                    "azienda": a.azienda,
+                    "documento": nome_doc,
+                    "scadenza": scad.isoformat(),
+                    "scaduto": scad < oggi,
+                    "giorni_mancanti": (scad - oggi).days,
+                    "url": url,
+                })
+    result.sort(key=lambda x: x["scadenza"])
+    return result
 
 
 @router.post("/{artigiano_id}/feedback", response_model=FeedbackOut, status_code=201)

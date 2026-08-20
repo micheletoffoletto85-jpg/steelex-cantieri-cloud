@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText, AlertTriangle, Clock, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -53,6 +53,7 @@ export default function ArtigianiPage() {
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(FORM_VUOTO)
+  const [tabAttivo, setTabAttivo] = useState('lista') // lista | scadenze
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const { data: artigiani = [], isLoading } = useQuery(
@@ -64,6 +65,12 @@ export default function ArtigianiPage() {
     'artigiani-categorie',
     () => api.get('/artigiani/categorie').then(r => r.data),
     { staleTime: Infinity }
+  )
+
+  const { data: scadenze = [] } = useQuery(
+    'artigiani-scadenze',
+    () => api.get('/artigiani/scadenze?giorni=60').then(r => r.data),
+    { enabled: tabAttivo === 'scadenze' }
   )
 
   const filtrati = artigiani.filter(a =>
@@ -115,6 +122,25 @@ export default function ArtigianiPage() {
         )}
       </div>
 
+      {/* Tab lista / scadenze */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button onClick={() => setTabAttivo('lista')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tabAttivo === 'lista' ? 'border-steelex-orange text-steelex-orange' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          Lista artigiani
+        </button>
+        <button onClick={() => setTabAttivo('scadenze')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tabAttivo === 'scadenze' ? 'border-steelex-orange text-steelex-orange' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <AlertTriangle size={14} /> Documenti in scadenza
+          {scadenze.filter(s => s.scaduto).length > 0 && (
+            <span className="bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{scadenze.filter(s => s.scaduto).length}</span>
+          )}
+        </button>
+      </div>
+
+      {tabAttivo === 'scadenze' ? (
+        <ScadenzePanel scadenze={scadenze} />
+      ) : (
+      <>
       {/* Form aggiunta/modifica */}
       {showForm && (
         <div className="card border-2 border-steelex-orange/30 space-y-3">
@@ -190,6 +216,66 @@ export default function ArtigianiPage() {
           ))}
         </div>
       )}
+      </>
+      )}
+    </div>
+  )
+}
+
+function ScadenzePanel({ scadenze }) {
+  const scaduti = scadenze.filter(s => s.scaduto)
+  const inScadenza = scadenze.filter(s => !s.scaduto)
+
+  if (scadenze.length === 0) {
+    return (
+      <div className="card text-center py-12 text-gray-400">
+        <p className="text-4xl mb-3">✅</p>
+        <p className="font-medium">Nessun documento in scadenza nei prossimi 60 giorni</p>
+      </div>
+    )
+  }
+
+  const Riga = ({ s }) => (
+    <div className={`flex items-center gap-3 p-3 rounded-xl border ${s.scaduto ? 'bg-red-50 border-red-200' : 'bg-gray-100 border-gray-300'}`}>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-gray-800">{s.artigiano_nome}</p>
+        {s.azienda && <p className="text-xs text-gray-500">{s.azienda}</p>}
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          <span className={`text-xs font-medium ${s.scaduto ? 'text-red-700' : 'text-gray-800'}`}>{s.documento}</span>
+          <span className="text-xs text-gray-500">·</span>
+          <span className={`text-xs font-semibold ${s.scaduto ? 'text-red-600' : 'text-orange-600'}`}>
+            {s.scaduto ? `Scaduto ${Math.abs(s.giorni_mancanti)}gg fa` : `Scade tra ${s.giorni_mancanti}gg`}
+          </span>
+          <span className="text-xs text-gray-400">({new Date(s.scadenza).toLocaleDateString('it-IT')})</span>
+        </div>
+      </div>
+      {s.url && (
+        <a href={s.url} target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-1 text-xs text-blue-600 hover:underline bg-white border border-blue-200 rounded-lg px-2 py-1 flex-shrink-0">
+          <ExternalLink size={11} /> Doc
+        </a>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      {scaduti.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-red-600 flex items-center gap-1.5">
+            <AlertTriangle size={14} /> Scaduti ({scaduti.length})
+          </p>
+          {scaduti.map((s, i) => <Riga key={i} s={s} />)}
+        </div>
+      )}
+      {inScadenza.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-orange-600 flex items-center gap-1.5">
+            <Clock size={14} /> In scadenza entro 60 giorni ({inScadenza.length})
+          </p>
+          {inScadenza.map((s, i) => <Riga key={i} s={s} />)}
+        </div>
+      )}
     </div>
   )
 }
@@ -215,6 +301,11 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
   const collegaUtenteMutation = useMutation(
     utenteId => api.put(`/artigiani/${a.id}`, { utente_id: utenteId || null }),
     { onSuccess: () => { qc.invalidateQueries('artigiani'); setShowCollegaUtente(false); toast.success('Account collegato!') },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore') }
+  )
+  const aggiorna = useMutation(
+    body => api.put(`/artigiani/${a.id}`, body),
+    { onSuccess: () => { qc.invalidateQueries('artigiani') },
       onError: e => toast.error(e.response?.data?.detail || 'Errore') }
   )
 
@@ -356,6 +447,7 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
               { label: 'DURC', val: a.durc_scadenza, key: 'durc_scadenza', urlKey: 'durc_url', tipo: 'durc', url: a.durc_url },
               { label: 'Attestato sicurezza', val: a.attestato_sicurezza_scadenza, key: 'attestato_sicurezza_scadenza', urlKey: 'attestato_sicurezza_url', tipo: 'sicurezza', url: a.attestato_sicurezza_url },
               { label: 'Primo soccorso', val: a.attestato_primo_soccorso_scadenza, key: 'attestato_primo_soccorso_scadenza', urlKey: 'attestato_primo_soccorso_url', tipo: 'primo_soccorso', url: a.attestato_primo_soccorso_url },
+              { label: 'Visura camerale', val: a.visura_camerale_scadenza, key: 'visura_camerale_scadenza', urlKey: 'visura_camerale_url', tipo: 'visura_camerale', url: a.visura_camerale_url },
             ]
             return (
               <div className="border border-gray-200 rounded-xl p-3 space-y-2">
