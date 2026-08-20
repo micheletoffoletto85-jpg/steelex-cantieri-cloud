@@ -107,7 +107,9 @@ class UtenteBase(BaseModel):
     nome: str
     cognome: str
     email: str
+    telefono: Optional[str] = None
     ruolo: str
+    tipo_professione: Optional[str] = None
     class Config:
         from_attributes = True
 

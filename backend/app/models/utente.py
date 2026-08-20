@@ -33,6 +33,7 @@ class Utente(Base):
     nome = Column(String, nullable=False)
     cognome = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
+    telefono = Column(String(30), nullable=True)
     password_hash = Column(String, nullable=False)
     ruolo = Column(Enum(RuoloUtente, native_enum=False), default=RuoloUtente.capo_cantiere)
     tipo_professione = Column(String, nullable=True)

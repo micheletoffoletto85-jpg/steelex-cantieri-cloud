@@ -15,7 +15,7 @@ foto_router = APIRouter(prefix="/cantieri", tags=["Foto Cantiere"])
 from app.auth import get_current_user
 from app.config import settings
 from app.storage import salva_file
-from app.routers.notifiche import notifica_cantiere
+from app.routers.notifiche import notifica_cantiere, invia_notifica
 
 router = APIRouter(prefix="/cantieri/{cantiere_id}/diari", tags=["Diario Giornaliero"])
 
@@ -97,6 +97,16 @@ def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_
                 escludi_id=user.id,
                 url=f"/cantieri/{cantiere_id}#diario",
             )
+        if getattr(data, 'condividi_cliente', False):
+            cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+            cliente_ids = [u.id for u in (cantiere.artigiani if cantiere else []) if u.ruolo.value == "cliente"]
+            if cliente_ids:
+                invia_notifica(db, cliente_ids,
+                    titolo="📋 Nuovo aggiornamento dal cantiere",
+                    corpo=(data.attivita or '')[:80],
+                    url=f"/cantieri/{cantiere_id}",
+                    tipo="info", cantiere_id=cantiere_id,
+                )
     except Exception: pass
     return _diario_out(diario)
 

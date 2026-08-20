@@ -12,6 +12,7 @@ from app.models.utente import Utente, RuoloUtente
 from app.auth import get_current_user
 from app.config import settings
 from app.storage import salva_file
+from app.routers.notifiche import invia_notifica
 
 # Modello inline — tabella creata dalla migrazione in main.py
 class ArchivioDocs(Base):
@@ -39,13 +40,14 @@ class DocCategoriaPermesso(Base):
 
 router = APIRouter(prefix="/cantieri", tags=["Archivio Documenti"])
 
-# 4 categorie ufficiali
-CATEGORIE = ["sicurezza", "relazioni_disegni", "amministrazione", "operativita"]
+# Categorie ufficiali
+CATEGORIE = ["sicurezza", "relazioni_disegni", "amministrazione", "operativita", "cliente"]
 CATEGORIE_LABEL = {
     "sicurezza": "Sicurezza",
     "relazioni_disegni": "Relazioni e Disegni",
     "amministrazione": "Amministrazione",
     "operativita": "Operatività",
+    "cliente": "Documenti Cliente",
 }
 
 # Ruoli che vedono SEMPRE tutte le categorie senza bisogno di permessi espliciti
@@ -67,16 +69,21 @@ def _check(cantiere_id, db, user):
 
 def _categorie_leggibili(cantiere_id: int, utente_id: int, ruolo: RuoloUtente, db: Session) -> set:
     """Default: tutti gli assegnati al cantiere leggono tutto.
-    I permessi espliciti negativi (can_read=False) revocano categorie specifiche."""
+    I permessi espliciti negativi (can_read=False) revocano categorie specifiche.
+    Il cliente fa eccezione: vede sempre e solo la cartella dedicata "cliente"
+    (più eventuali categorie extra assegnate esplicitamente da admin/capo cantiere)."""
     if ruolo in _RUOLI_FULL_ACCESS:
         return set(CATEGORIE)
     perms = db.query(DocCategoriaPermesso).filter(
         DocCategoriaPermesso.cantiere_id == cantiere_id,
         DocCategoriaPermesso.utente_id == utente_id,
     ).all()
+    esplicite = {p.categoria for p in perms if p.can_read}
+    if ruolo == RuoloUtente.cliente:
+        return esplicite | {"cliente"}
     if not perms:
         return set(CATEGORIE)  # nessun permesso esplicito → legge tutto
-    return {p.categoria for p in perms if p.can_read}
+    return esplicite
 
 
 def _can_write_categoria(cantiere_id: int, utente_id: int, ruolo: RuoloUtente, categoria: str, db: Session) -> bool:
@@ -196,6 +203,19 @@ async def upload(
     db.add(doc)
     db.commit()
     db.refresh(doc)
+    if categoria == "cliente":
+        try:
+            cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+            cliente_ids = [u.id for u in (cantiere.artigiani if cantiere else []) if u.ruolo == RuoloUtente.cliente]
+            if cliente_ids:
+                invia_notifica(db, cliente_ids,
+                    titolo="📄 Nuovo documento disponibile",
+                    corpo=doc.nome,
+                    url=f"/cantieri/{cantiere_id}",
+                    tipo="info", cantiere_id=cantiere_id,
+                )
+        except Exception:
+            pass
     out = DocOut.model_validate(doc)
     out.categoria_label = CATEGORIE_LABEL.get(doc.categoria, doc.categoria)
     return out

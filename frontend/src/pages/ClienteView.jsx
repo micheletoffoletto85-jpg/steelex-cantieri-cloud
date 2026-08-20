@@ -6,13 +6,14 @@
  */
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from 'react-query'
-import { MapPin, Map, FileText, Calendar, Mic, ChevronDown, ChevronRight, CheckCircle2, Clock, AlertTriangle, PauseCircle } from 'lucide-react'
+import { MapPin, Map, FileText, Calendar, Mic, ChevronDown, ChevronRight, CheckCircle2, Clock, AlertTriangle, PauseCircle, Users, Phone, Mail, Download } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { GanttChart } from './GanttTab'
+import MeteoMappa from '../components/MeteoMappa'
 
 dayjs.locale('it')
 dayjs.extend(relativeTime)
@@ -116,6 +117,20 @@ export default function ClienteView({ cantiere }) {
     { enabled: !!utente }
   )
 
+  const { data: team = [] } = useQuery(
+    ['team', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/team`).then(r => r.data),
+    { enabled: !!utente }
+  )
+
+  const { data: archivio = [] } = useQuery(
+    ['archivio-cliente', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/archivio`).then(r => r.data),
+    { enabled: !!utente }
+  )
+
+  const apiUrl = import.meta.env.VITE_API_URL || ''
+
   const avanzamento = agg?.avanzamento_globale ?? cantiere.avanzamento ?? 0
   const avanzamentoAnimato = useCountUp(avanzamento)
 
@@ -185,6 +200,9 @@ export default function ClienteView({ cantiere }) {
           )}
         </div>
       </div>
+
+      {/* ── Meteo e posizione ── */}
+      <MeteoMappa cantiere={cantiere} />
 
       {aggLoading && (
         <div className="flex items-center justify-center py-6 text-gray-400 gap-3">
@@ -375,8 +393,76 @@ export default function ClienteView({ cantiere }) {
           ))}
         </div>
       )}
+
+      {/* ── Contatti utili del cantiere ── */}
+      {team.filter(m => m.ruolo !== 'cliente').length > 0 && (
+        <div className="card space-y-3">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-2">
+            <Users size={13} /> Contatti utili
+          </p>
+          <div className="space-y-2">
+            {team.filter(m => m.ruolo !== 'cliente').map((m, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">{m.nome} {m.cognome}</p>
+                  <p className="text-xs text-gray-400">{RUOLO_LABEL_CONTATTO[m.ruolo] || m.tipo_professione || m.ruolo}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {m.telefono && (
+                    <a href={`tel:${m.telefono}`} className="p-2 rounded-full bg-green-50 text-green-600" title={m.telefono}>
+                      <Phone size={14} />
+                    </a>
+                  )}
+                  {m.email && (
+                    <a href={`mailto:${m.email}`} className="p-2 rounded-full bg-blue-50 text-blue-600" title={m.email}>
+                      <Mail size={14} />
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Documenti condivisi dall'amministrazione ── */}
+      {archivio.length > 0 && (
+        <div className="card space-y-3">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-2">
+            <FileText size={13} /> Documenti
+          </p>
+          <div className="space-y-1.5">
+            {archivio.map(doc => {
+              const fileUrl = doc.file_url?.startsWith('http') ? doc.file_url : `${apiUrl}${doc.file_url}`
+              return (
+                <a key={doc.id} href={fileUrl} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-steelex-orange/40 transition-colors">
+                  <FileText size={18} className="text-steelex-orange flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800 text-sm truncate">{doc.nome}</p>
+                    {doc.descrizione && <p className="text-xs text-gray-400 truncate">{doc.descrizione}</p>}
+                  </div>
+                  <Download size={15} className="text-gray-400 flex-shrink-0" />
+                </a>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+const RUOLO_LABEL_CONTATTO = {
+  admin: 'Admin',
+  capo_cantiere: 'Capo Cantiere',
+  capo_cantiere_sub: 'Capo Cantiere',
+  direzione_lavori: 'Direzione Lavori',
+  architetto: 'Architetto',
+  responsabile_sicurezza: 'Resp. Sicurezza',
+  amministrazione: 'Amministrazione',
+  artigiano: 'Artigiano',
+  fornitore: 'Fornitore',
 }
 
 function MappaClienteViewer({ url, pins, pinSel, onClickPin }) {

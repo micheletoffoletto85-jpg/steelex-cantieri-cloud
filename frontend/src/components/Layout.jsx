@@ -40,7 +40,7 @@ export default function Layout() {
 
   useEffect(() => {
     if (!supportaNotifiche()) return
-    if (!['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)) return
+    if (!['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore','cliente'].includes(utente?.ruolo)) return
     navigator.serviceWorker.getRegistration('/sw.js').then(reg => {
       if (reg) reg.pushManager.getSubscription().then(sub => setNotifiche(!!sub))
     })
@@ -59,7 +59,7 @@ export default function Layout() {
   }
 
   const handleLogout = () => { logout(); navigate('/login') }
-  const mostraNotificheBell = supportaNotifiche() && ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore'].includes(utente?.ruolo)
+  const mostraNotificheBell = supportaNotifiche() && ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore','cliente'].includes(utente?.ruolo)
 
   // Badge notifiche non lette
   const { data: notificheInApp = [] } = useQuery(
