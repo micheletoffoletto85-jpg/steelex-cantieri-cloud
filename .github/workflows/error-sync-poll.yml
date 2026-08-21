@@ -1,0 +1,63 @@
+name: Poll error-log STEELEX/FR
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch di stato
+        run: |
+          git config --global user.email "automazione@steelex-cantieri.local"
+          git config --global user.name "Automazione error-sync"
+          git clone --branch automation/error-sync-state --single-branch "https://github.com/${{ github.repository }}" state-repo 2>/dev/null || {
+            git clone "https://github.com/${{ github.repository }}" state-repo
+            cd state-repo
+            git checkout -b automation/error-sync-state
+            cd ..
+          }
+
+      - name: Poll e aggiorna coda errori pendenti
+        env:
+          STEELEX_SYNC_KEY: ${{ secrets.STEELEX_SYNC_KEY }}
+          FR_SYNC_KEY: ${{ secrets.FR_SYNC_KEY }}
+        run: |
+          cd state-repo
+          FILE=automation/error-sync-state.json
+          mkdir -p automation
+          if [ ! -f "$FILE" ]; then
+            echo '{"since_id_steelex":0,"since_id_fr":0,"pending":{"steelex":[],"fr":[]}}' > "$FILE"
+          fi
+
+          SID_STX=$(jq -r '.since_id_steelex // 0' "$FILE")
+          SID_FR=$(jq -r '.since_id_fr // 0' "$FILE")
+
+          STX_NEW=$(curl -sS -H "X-Api-Key: $STEELEX_SYNC_KEY" "https://steelex-cantieri-cloud-production.up.railway.app/api/v1/error-log/sync?since_id=$SID_STX" || echo '{"errori":[]}')
+          FR_NEW=$(curl -sS -H "X-Api-Key: $FR_SYNC_KEY" "https://fontana-raffaele-cantieri-production.up.railway.app/api/v1/error-log/sync?since_id=$SID_FR" || echo '{"errori":[]}')
+
+          echo "STEELEX nuovi: $(echo "$STX_NEW" | jq '.errori | length')"
+          echo "FR nuovi: $(echo "$FR_NEW" | jq '.errori | length')"
+
+          jq -n \
+            --argjson cur "$(cat "$FILE")" \
+            --argjson stx "$STX_NEW" \
+            --argjson fr "$FR_NEW" \
+            '{
+              since_id_steelex: ([$cur.since_id_steelex] + [$stx.errori[].id]) | max,
+              since_id_fr: ([$cur.since_id_fr] + [$fr.errori[].id]) | max,
+              pending: {
+                steelex: ($cur.pending.steelex + $stx.errori),
+                fr: ($cur.pending.fr + $fr.errori)
+              }
+            }' > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+
+          if ! git diff --quiet -- "$FILE"; then
+            git add "$FILE"
+            git commit -m "chore(error-sync): nuovi errori rilevati"
+            git push origin automation/error-sync-state
+          else
+            echo "Nessun nuovo errore, nessun commit."
+          fi
