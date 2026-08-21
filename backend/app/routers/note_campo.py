@@ -24,9 +24,7 @@ def _check_accesso(cantiere_id: int, db: Session, user: Utente) -> Cantiere:
     c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not c:
         raise HTTPException(404, "Cantiere non trovato")
-    if user.ruolo == RuoloUtente.admin:
-        return c
-    if user.ruolo == RuoloUtente.capo_cantiere and c.responsabile_id == user.id:
+    if user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione):
         return c
     if user.id in [u.id for u in c.artigiani]:
         return c
