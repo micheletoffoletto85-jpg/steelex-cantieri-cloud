@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+import os
+from fastapi import APIRouter, Depends, Query, HTTPException, Header
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -9,6 +10,13 @@ from pydantic import BaseModel
 from typing import Optional
 
 router = APIRouter(prefix="/error-log", tags=["error-log"])
+
+
+def _verifica_api_key(x_api_key: str = Header(...)):
+    """Auth alternativa (no JWT) per l'automazione di sync incrociata STEELEX/FR."""
+    chiave_attesa = os.environ.get("DASHBOARD_API_KEY", "")
+    if not chiave_attesa or x_api_key != chiave_attesa:
+        raise HTTPException(status_code=401, detail="API key non valida")
 
 class ErrorIn(BaseModel):
     endpoint: Optional[str] = None
@@ -56,6 +64,19 @@ def lista_errori(
     """), {"lim": limit, "off": offset}).mappings().all()
     totale = db.execute(text("SELECT COUNT(*) FROM error_log")).scalar()
     return {"totale": totale, "errori": [dict(r) for r in rows]}
+
+@router.get("/sync", dependencies=[Depends(_verifica_api_key)])
+def sync_errori(db: Session = Depends(get_db), since_id: int = Query(0), limit: int = Query(200, le=500)):
+    """Errori nuovi (id > since_id) per l'automazione di correzione incrociata STEELEX/FR."""
+    rows = db.execute(text("""
+        SELECT el.id, el.creato_il, el.ruolo, el.endpoint, el.metodo, el.status_code, el.messaggio, el.url_pagina, el.dettagli
+        FROM error_log el
+        WHERE el.id > :sid
+        ORDER BY el.id ASC
+        LIMIT :lim
+    """), {"sid": since_id, "lim": limit}).mappings().all()
+    return {"errori": [dict(r) for r in rows]}
+
 
 @router.get("/export")
 def esporta_errori_txt(db: Session = Depends(get_db), utente=Depends(get_current_user)):
