@@ -53,6 +53,12 @@ CATEGORIE_LABEL = {
 }
 
 
+def _tags_to_list(tags_str: Optional[str]) -> List[str]:
+    if not tags_str:
+        return []
+    return [t.strip() for t in tags_str.split(",") if t.strip()]
+
+
 def _calcola_score(feedbacks: list) -> dict:
     """Restituisce score 0-100 e contatori."""
     totale = len(feedbacks)
@@ -72,28 +78,40 @@ class ArtigianoCreate(BaseModel):
     cognome: str
     azienda: Optional[str] = None
     categoria: str = "altro"
+    tags: Optional[List[str]] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
     note: Optional[str] = None
     durc_scadenza: Optional[date] = None
+    durc_drive_url: Optional[str] = None
     attestato_sicurezza_scadenza: Optional[date] = None
     attestato_primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_drive_url: Optional[str] = None
     visura_camerale_scadenza: Optional[date] = None
+    visura_camerale_drive_url: Optional[str] = None
+    drive_folder_url: Optional[str] = None
 
 class ArtigianoUpdate(BaseModel):
     nome: Optional[str] = None
     cognome: Optional[str] = None
     azienda: Optional[str] = None
     categoria: Optional[str] = None
+    tags: Optional[List[str]] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
     note: Optional[str] = None
     attivo: Optional[bool] = None
     utente_id: Optional[int] = None
     durc_scadenza: Optional[date] = None
+    durc_drive_url: Optional[str] = None
     attestato_sicurezza_scadenza: Optional[date] = None
     attestato_primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_drive_url: Optional[str] = None
     visura_camerale_scadenza: Optional[date] = None
+    visura_camerale_drive_url: Optional[str] = None
+    drive_folder_url: Optional[str] = None
 
 class FeedbackCreate(BaseModel):
     voto: str           # su | medio | giu
@@ -119,6 +137,7 @@ class ArtigianoOut(BaseModel):
     azienda: Optional[str] = None
     categoria: str
     categoria_label: Optional[str] = None
+    tags: List[str] = []
     telefono: Optional[str] = None
     email: Optional[str] = None
     note: Optional[str] = None
@@ -126,9 +145,14 @@ class ArtigianoOut(BaseModel):
     utente_id: Optional[int] = None
     utente_nome: Optional[str] = None
     durc_scadenza: Optional[date] = None
+    durc_drive_url: Optional[str] = None
     attestato_sicurezza_scadenza: Optional[date] = None
     attestato_primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_scadenza: Optional[date] = None
+    primo_soccorso_drive_url: Optional[str] = None
     visura_camerale_scadenza: Optional[date] = None
+    visura_camerale_drive_url: Optional[str] = None
+    drive_folder_url: Optional[str] = None
     durc_url: Optional[str] = None
     attestato_sicurezza_url: Optional[str] = None
     attestato_primo_soccorso_url: Optional[str] = None
@@ -150,12 +174,17 @@ def _artigiano_out(a: Artigiano, db: Session) -> ArtigianoOut:
     return ArtigianoOut(
         id=a.id, nome=a.nome, cognome=a.cognome, azienda=a.azienda,
         categoria=a.categoria, categoria_label=CATEGORIE_LABEL.get(a.categoria, a.categoria),
+        tags=_tags_to_list(a.tags),
         telefono=a.telefono, email=a.email, note=a.note, attivo=a.attivo,
         utente_id=a.utente_id, utente_nome=utente_nome,
-        durc_scadenza=a.durc_scadenza,
+        durc_scadenza=a.durc_scadenza, durc_drive_url=a.durc_drive_url,
         attestato_sicurezza_scadenza=a.attestato_sicurezza_scadenza,
         attestato_primo_soccorso_scadenza=a.attestato_primo_soccorso_scadenza,
+        primo_soccorso_scadenza=a.primo_soccorso_scadenza,
+        primo_soccorso_drive_url=a.primo_soccorso_drive_url,
         visura_camerale_scadenza=a.visura_camerale_scadenza,
+        visura_camerale_drive_url=a.visura_camerale_drive_url,
+        drive_folder_url=a.drive_folder_url,
         durc_url=a.durc_url,
         attestato_sicurezza_url=a.attestato_sicurezza_url,
         attestato_primo_soccorso_url=a.attestato_primo_soccorso_url,
@@ -293,7 +322,10 @@ def crea_artigiano(
         raise HTTPException(403, "Non autorizzato")
     if body.categoria not in CATEGORIE:
         raise HTTPException(400, f"Categoria non valida")
-    a = Artigiano(**body.model_dump(), creato_da=user.id)
+    data = body.model_dump()
+    tags_list = data.pop("tags", None) or []
+    data["tags"] = ",".join(tags_list) if tags_list else None
+    a = Artigiano(**data, creato_da=user.id)
     db.add(a); db.commit(); db.refresh(a)
     return _artigiano_out(a, db)
 
@@ -309,7 +341,10 @@ def aggiorna_artigiano(
         raise HTTPException(403, "Non autorizzato")
     a = db.query(Artigiano).filter(Artigiano.id == artigiano_id).first()
     if not a: raise HTTPException(404, "Non trovato")
-    for k, v in body.model_dump(exclude_none=True).items():
+    data = body.model_dump(exclude_none=True)
+    if "tags" in data:
+        data["tags"] = ",".join(data["tags"]) if data["tags"] else None
+    for k, v in data.items():
         setattr(a, k, v)
     db.commit(); db.refresh(a)
     return _artigiano_out(a, db)
@@ -374,10 +409,10 @@ def documenti_in_scadenza(
     result = []
     for a in artigiani:
         docs = [
-            ("DURC", a.durc_scadenza, a.durc_url),
+            ("DURC", a.durc_scadenza, a.durc_drive_url or a.durc_url),
             ("Attestato sicurezza", a.attestato_sicurezza_scadenza, a.attestato_sicurezza_url),
-            ("Primo soccorso", a.attestato_primo_soccorso_scadenza, a.attestato_primo_soccorso_url),
-            ("Visura camerale", a.visura_camerale_scadenza, a.visura_camerale_url),
+            ("Primo soccorso", a.primo_soccorso_scadenza, a.primo_soccorso_drive_url or a.attestato_primo_soccorso_url),
+            ("Visura camerale", a.visura_camerale_scadenza, a.visura_camerale_drive_url or a.visura_camerale_url),
         ]
         for nome_doc, scad, url in docs:
             if scad and scad <= limite:
