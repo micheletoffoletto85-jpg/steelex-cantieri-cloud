@@ -8,6 +8,8 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // Upload file (foto, PDF, DXF): sulla rete di cantiere 12s spesso non bastano
+  if (config.headers['Content-Type'] === 'multipart/form-data') config.timeout = 60000
   return config
 })
 
