@@ -10,12 +10,16 @@ def _r2_client():
     if not all([settings.R2_ACCOUNT_ID, settings.R2_ACCESS_KEY_ID, settings.R2_SECRET_ACCESS_KEY]):
         return None
     import boto3
+    from botocore.config import Config
     return boto3.client(
         "s3",
         endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
         aws_access_key_id=settings.R2_ACCESS_KEY_ID,
         aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
         region_name="auto",
+        # timeout esplicito: senza, il default botocore (~60s) blocca a lungo
+        # l'event loop se salva_file() viene chiamata da un handler async
+        config=Config(connect_timeout=5, read_timeout=8, retries={"max_attempts": 1}),
     )
 
 
