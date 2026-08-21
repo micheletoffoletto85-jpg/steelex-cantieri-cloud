@@ -5,16 +5,21 @@ on:
     - cron: "0 * * * *"
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   poll:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch di stato
+        env:
+          REPO_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
         run: |
           git config --global user.email "automazione@steelex-cantieri.local"
           git config --global user.name "Automazione error-sync"
-          git clone --branch automation/error-sync-state --single-branch "https://github.com/${{ github.repository }}" state-repo 2>/dev/null || {
-            git clone "https://github.com/${{ github.repository }}" state-repo
+          git clone --branch automation/error-sync-state --single-branch "$REPO_URL" state-repo 2>/dev/null || {
+            git clone "$REPO_URL" state-repo
             cd state-repo
             git checkout -b automation/error-sync-state
             cd ..
