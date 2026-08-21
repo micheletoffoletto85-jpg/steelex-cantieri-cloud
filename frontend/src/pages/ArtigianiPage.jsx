@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText, AlertTriangle, Clock, ExternalLink } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText, AlertTriangle, Clock, ExternalLink, Tag, FolderOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -39,7 +39,65 @@ function ScoreBadge({ score, totale, su, medio, giu, size = 'md' }) {
   )
 }
 
-const FORM_VUOTO = { nome: '', cognome: '', azienda: '', categoria: 'altro', telefono: '', email: '', note: '' }
+function TagChips({ tags, small = false }) {
+  if (!tags || tags.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {tags.map(t => (
+        <span key={t} className={`inline-flex items-center gap-0.5 bg-gray-100 text-gray-800 border border-gray-300 rounded-full font-medium ${small ? 'text-[10px] px-1.5 py-0' : 'text-xs px-2 py-0.5'}`}>
+          <Tag size={small ? 9 : 10} />{t}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function TagInput({ value, onChange }) {
+  const [input, setInput] = useState('')
+  const aggiungi = () => {
+    const t = input.trim().toLowerCase()
+    if (!t || value.includes(t)) { setInput(''); return }
+    onChange([...value, t])
+    setInput('')
+  }
+  const rimuovi = (t) => onChange(value.filter(x => x !== t))
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-1">
+        <input
+          className="input-field text-sm flex-1"
+          placeholder="Aggiungi tag (es. porte, verniciatura...)"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); aggiungi() } }}
+        />
+        <button type="button" onClick={aggiungi}
+          className="px-3 py-1.5 bg-gray-200 text-gray-800 rounded-lg text-sm font-medium hover:bg-orange-200">
+          +
+        </button>
+      </div>
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {value.map(t => (
+            <span key={t} className="inline-flex items-center gap-1 bg-gray-100 text-gray-800 border border-gray-300 rounded-full text-xs px-2 py-0.5">
+              {t}
+              <button onClick={() => rimuovi(t)} className="hover:text-red-500 ml-0.5"><X size={10} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const FORM_VUOTO = {
+  nome: '', cognome: '', azienda: '', categoria: 'altro',
+  tags: [], telefono: '', email: '', note: '',
+  durc_scadenza: '', durc_drive_url: '',
+  primo_soccorso_scadenza: '', primo_soccorso_drive_url: '',
+  visura_camerale_scadenza: '', visura_camerale_drive_url: '',
+  drive_folder_url: '',
+}
 
 export default function ArtigianiPage() {
   const { utente } = useAuth()
@@ -96,12 +154,34 @@ export default function ArtigianiPage() {
 
   const apriModifica = (a) => {
     setEditId(a.id)
-    setForm({ nome: a.nome, cognome: a.cognome, azienda: a.azienda || '', categoria: a.categoria, telefono: a.telefono || '', email: a.email || '', note: a.note || '' })
+    setForm({
+      nome: a.nome, cognome: a.cognome, azienda: a.azienda || '', categoria: a.categoria,
+      tags: a.tags || [], telefono: a.telefono || '', email: a.email || '', note: a.note || '',
+      durc_scadenza: a.durc_scadenza || '', durc_drive_url: a.durc_drive_url || '',
+      primo_soccorso_scadenza: a.primo_soccorso_scadenza || '',
+      primo_soccorso_drive_url: a.primo_soccorso_drive_url || '',
+      visura_camerale_scadenza: a.visura_camerale_scadenza || '',
+      visura_camerale_drive_url: a.visura_camerale_drive_url || '',
+      drive_folder_url: a.drive_folder_url || '',
+    })
     setShowForm(true)
   }
 
   const salva = () => {
-    const payload = { ...form, azienda: form.azienda || null, telefono: form.telefono || null, email: form.email || null, note: form.note || null }
+    const payload = {
+      ...form,
+      azienda: form.azienda || null,
+      telefono: form.telefono || null,
+      email: form.email || null,
+      note: form.note || null,
+      durc_scadenza: form.durc_scadenza || null,
+      durc_drive_url: form.durc_drive_url || null,
+      primo_soccorso_scadenza: form.primo_soccorso_scadenza || null,
+      primo_soccorso_drive_url: form.primo_soccorso_drive_url || null,
+      visura_camerale_scadenza: form.visura_camerale_scadenza || null,
+      visura_camerale_drive_url: form.visura_camerale_drive_url || null,
+      drive_folder_url: form.drive_folder_url || null,
+    }
     if (editId) updateMutation.mutate({ id: editId, data: payload })
     else createMutation.mutate(payload)
   }
@@ -156,12 +236,45 @@ export default function ArtigianiPage() {
           <select className="input-field text-sm" value={form.categoria} onChange={e => setF('categoria', e.target.value)}>
             {categorie.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
+          <div>
+            <label className="text-xs text-gray-500 font-medium mb-1 block">Tag lavorazioni aggiuntive</label>
+            <TagInput value={form.tags} onChange={v => setF('tags', v)} />
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <input className="input-field text-sm" placeholder="Telefono" value={form.telefono} onChange={e => setF('telefono', e.target.value)} />
             <input className="input-field text-sm" placeholder="Email" value={form.email} onChange={e => setF('email', e.target.value)} />
           </div>
           <textarea className="input-field text-sm h-16 resize-none" placeholder="Note interne..."
             value={form.note} onChange={e => setF('note', e.target.value)} />
+
+          {/* Cartella Drive */}
+          <div>
+            <label className="text-xs text-gray-500 font-medium mb-1 block flex items-center gap-1">
+              <FolderOpen size={12} /> Link cartella Google Drive (tutti i documenti)
+            </label>
+            <input className="input-field text-sm" placeholder="https://drive.google.com/drive/folders/..."
+              value={form.drive_folder_url} onChange={e => setF('drive_folder_url', e.target.value)} />
+          </div>
+
+          {/* 3 doc principali */}
+          <div className="border border-gray-200 rounded-xl p-3 space-y-3">
+            <p className="text-xs font-semibold text-gray-600">📋 Documenti principali</p>
+            {[
+              { label: 'DURC', scad: 'durc_scadenza', url: 'durc_drive_url' },
+              { label: 'Primo Soccorso', scad: 'primo_soccorso_scadenza', url: 'primo_soccorso_drive_url' },
+              { label: 'Visura Camerale', scad: 'visura_camerale_scadenza', url: 'visura_camerale_drive_url' },
+            ].map(({ label, scad, url }) => (
+              <div key={scad} className="space-y-1">
+                <p className="text-xs text-gray-500 font-medium">{label}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" className="input-field text-sm" value={form[scad]} onChange={e => setF(scad, e.target.value)}
+                    title={`Scadenza ${label}`} />
+                  <input className="input-field text-sm" placeholder="Link Drive" value={form[url]} onChange={e => setF(url, e.target.value)} />
+                </div>
+              </div>
+            ))}
+          </div>
+
           <button onClick={salva}
             disabled={!form.nome || !form.cognome || createMutation.isLoading || updateMutation.isLoading}
             className="btn-primary w-full py-2.5">
@@ -360,6 +473,16 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
 
   const catLabel = a.categoria_label || a.categoria
 
+  // Alert scadenze — stessa logica di FR, sui 3 doc principali
+  const oggiCard = new Date()
+  const tra30Card = new Date(); tra30Card.setDate(oggiCard.getDate() + 30)
+  const docPrincipali = [
+    { label: 'DURC', scad: a.durc_scadenza, driveUrl: a.durc_drive_url, url: a.durc_url, tipo: 'durc' },
+    { label: 'Primo Soccorso', scad: a.primo_soccorso_scadenza, driveUrl: a.primo_soccorso_drive_url, url: a.attestato_primo_soccorso_url, tipo: 'primo_soccorso' },
+    { label: 'Visura Camerale', scad: a.visura_camerale_scadenza, driveUrl: a.visura_camerale_drive_url, url: a.visura_camerale_url, tipo: 'visura_camerale' },
+  ]
+  const alertDocs = docPrincipali.filter(d => d.scad && new Date(d.scad) < tra30Card)
+
   return (
     <div className={`card transition-all ${!a.attivo ? 'opacity-50' : ''}`}>
       <div className="flex items-start gap-3">
@@ -376,10 +499,20 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
               <p className="font-semibold text-gray-900">{a.nome} {a.cognome}</p>
               {a.azienda && <p className="text-xs text-gray-500">{a.azienda}</p>}
             </div>
-            <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full whitespace-nowrap flex-shrink-0">
-              {catLabel}
-            </span>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {alertDocs.length > 0 && (
+                <span title={`Doc in scadenza: ${alertDocs.map(d => d.label).join(', ')}`}
+                  className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+                  <AlertTriangle size={10} className="text-white" />
+                </span>
+              )}
+              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full whitespace-nowrap">
+                {catLabel}
+              </span>
+            </div>
           </div>
+
+          <TagChips tags={a.tags} small />
 
           {/* Contatti rapidi */}
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
@@ -439,63 +572,120 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
             <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-2.5 italic">📝 {a.note}</p>
           )}
 
-          {/* Scadenze documenti */}
+          {/* Tag estesi */}
+          {a.tags && a.tags.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5">Lavorazioni</p>
+              <TagChips tags={a.tags} />
+            </div>
+          )}
+
+          {/* Documenti principali (DURC, Primo Soccorso, Visura Camerale) — link Drive + upload file */}
+          <div className="border border-gray-200 rounded-xl p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+                📋 Documenti principali
+              </p>
+              {a.drive_folder_url && (
+                <a href={a.drive_folder_url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded-lg">
+                  <FolderOpen size={11} /> Apri cartella Drive
+                </a>
+              )}
+            </div>
+            {docPrincipali.map(({ label, scad, driveUrl, url, tipo }) => {
+              const d = scad ? new Date(scad) : null
+              const scaduto = d && d < oggiCard
+              const inScadenza = d && !scaduto && d < tra30Card
+              return (
+                <div key={tipo} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {driveUrl && (
+                      <a href={driveUrl} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:underline truncate">
+                        <ExternalLink size={11} />{label}
+                      </a>
+                    )}
+                    {!driveUrl && <span className="text-xs text-gray-600">{label}</span>}
+                    {url && (
+                      <a href={url} target="_blank" rel="noopener noreferrer" title="File caricato"
+                        className="text-gray-400 hover:text-steelex-orange flex-shrink-0">
+                        <FileText size={12} />
+                      </a>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {d ? (
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                        {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{d.toLocaleDateString('it-IT')}
+                      </span>
+                    ) : <span className="text-xs text-gray-400">—</span>}
+                    {puoScrivere && (
+                      <label className="cursor-pointer p-1 text-gray-400 hover:text-steelex-orange transition-colors" title="Carica file">
+                        <Upload size={13}/>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                          onChange={async e => {
+                            const f = e.target.files?.[0]; if (!f) return
+                            const fd = new FormData(); fd.append('file', f)
+                            try {
+                              await api.post(`/artigiani/${a.id}/upload-doc?tipo=${tipo}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+                              qc.invalidateQueries(['artigiani']); toast.success('Documento caricato')
+                            } catch { toast.error('Errore upload') }
+                            e.target.value = ''
+                          }} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            <p className="text-[10px] text-gray-400 pt-1 border-t border-gray-100">Data e link Drive si modificano dalla scheda "Modifica" — qui puoi solo caricare un file.</p>
+          </div>
+
+          {/* Attestato sicurezza — campo aggiuntivo STEELEX, non presente su FR */}
           {(() => {
-            const oggi = new Date()
-            const tra30 = new Date(); tra30.setDate(tra30.getDate() + 30)
-            const docs = [
-              { label: 'DURC', val: a.durc_scadenza, key: 'durc_scadenza', urlKey: 'durc_url', tipo: 'durc', url: a.durc_url },
-              { label: 'Attestato sicurezza', val: a.attestato_sicurezza_scadenza, key: 'attestato_sicurezza_scadenza', urlKey: 'attestato_sicurezza_url', tipo: 'sicurezza', url: a.attestato_sicurezza_url },
-              { label: 'Primo soccorso', val: a.attestato_primo_soccorso_scadenza, key: 'attestato_primo_soccorso_scadenza', urlKey: 'attestato_primo_soccorso_url', tipo: 'primo_soccorso', url: a.attestato_primo_soccorso_url },
-              { label: 'Visura camerale', val: a.visura_camerale_scadenza, key: 'visura_camerale_scadenza', urlKey: 'visura_camerale_url', tipo: 'visura_camerale', url: a.visura_camerale_url },
-            ]
+            const val = a.attestato_sicurezza_scadenza
+            const url = a.attestato_sicurezza_url
+            const d = val ? new Date(val) : null
+            const scaduto = d && d < oggiCard
+            const inScadenza = d && !scaduto && d < tra30Card
             return (
               <div className="border border-gray-200 rounded-xl p-3 space-y-2">
-                <div className="text-xs font-semibold text-gray-600 flex items-center gap-1.5 mb-2">
-                  <span>📋</span> Documenti & scadenze
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {url ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline truncate">
+                        <FileText size={11}/><span>Attestato sicurezza</span>
+                      </a>
+                    ) : <span className="text-xs text-gray-600">Attestato sicurezza</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {puoScrivere ? (
+                      <>
+                        <input type="date" value={val || ''}
+                          onChange={e => aggiorna.mutate({ attestato_sicurezza_scadenza: e.target.value || null })}
+                          className={`text-xs border rounded px-2 py-1 ${scaduto ? 'border-red-400 bg-red-50 text-red-700' : inScadenza ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`} />
+                        <label className="cursor-pointer p-1 text-gray-400 hover:text-steelex-orange transition-colors" title="Carica documento">
+                          <Upload size={13}/>
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                            onChange={async e => {
+                              const f = e.target.files?.[0]; if (!f) return
+                              const fd = new FormData(); fd.append('file', f)
+                              try {
+                                await api.post(`/artigiani/${a.id}/upload-doc?tipo=sicurezza`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+                                qc.invalidateQueries(['artigiani']); toast.success('Documento caricato')
+                              } catch { toast.error('Errore upload') }
+                              e.target.value = ''
+                            }} />
+                        </label>
+                      </>
+                    ) : val ? (
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                        {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{new Date(val).toLocaleDateString('it-IT')}
+                      </span>
+                    ) : <span className="text-xs text-gray-400">non inserita</span>}
+                  </div>
                 </div>
-                {docs.map(({ label, val, key, tipo, url }) => {
-                  const d = val ? new Date(val) : null
-                  const scaduto = d && d < oggi
-                  const inScadenza = d && !scaduto && d < tra30
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {url ? (
-                          <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline truncate">
-                            <FileText size={11}/><span>{label}</span>
-                          </a>
-                        ) : <span className="text-xs text-gray-600">{label}</span>}
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        {puoScrivere ? (
-                          <>
-                            <input type="date" value={val || ''}
-                              onChange={e => aggiorna.mutate({ [key]: e.target.value || null })}
-                              className={`text-xs border rounded px-2 py-1 ${scaduto ? 'border-red-400 bg-red-50 text-red-700' : inScadenza ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`} />
-                            <label className="cursor-pointer p-1 text-gray-400 hover:text-steelex-orange transition-colors" title="Carica documento">
-                              <Upload size={13}/>
-                              <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
-                                onChange={async e => {
-                                  const f = e.target.files?.[0]; if (!f) return
-                                  const fd = new FormData(); fd.append('file', f)
-                                  try {
-                                    await api.post(`/artigiani/${a.id}/upload-doc?tipo=${tipo}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-                                    qc.invalidateQueries(['artigiani']); toast.success('Documento caricato')
-                                  } catch { toast.error('Errore upload') }
-                                  e.target.value = ''
-                                }} />
-                            </label>
-                          </>
-                        ) : val ? (
-                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${scaduto ? 'bg-red-100 text-red-700' : inScadenza ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                            {scaduto ? '⚠ ' : inScadenza ? '⏰ ' : '✓ '}{new Date(val).toLocaleDateString('it-IT')}
-                          </span>
-                        ) : <span className="text-xs text-gray-400">non inserita</span>}
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
             )
           })()}
