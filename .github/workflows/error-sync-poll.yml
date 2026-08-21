@@ -54,8 +54,8 @@ jobs:
               }
             }' > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
 
-          if ! git diff --quiet -- "$FILE"; then
-            git add "$FILE"
+          git add "$FILE"
+          if ! git diff --cached --quiet -- "$FILE"; then
             git commit -m "chore(error-sync): nuovi errori rilevati"
             git push origin automation/error-sync-state
           else
