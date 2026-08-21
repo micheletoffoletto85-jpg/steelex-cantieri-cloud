@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 39,
-  "since_id_fr": 92,
+  "since_id_fr": 93,
   "pending": {
     "steelex": [
       {
@@ -503,6 +503,17 @@
       {
         "id": 92,
         "creato_il": "2026-08-20T19:29:03.121001+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
+        "url_pagina": "/",
+        "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
+      },
+      {
+        "id": 93,
+        "creato_il": "2026-08-21T19:12:22.969917+00:00",
         "ruolo": "artigiano",
         "endpoint": "/rapportini/trascrivi",
         "metodo": "POST",
