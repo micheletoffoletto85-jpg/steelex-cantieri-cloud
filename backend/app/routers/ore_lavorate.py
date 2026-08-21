@@ -28,8 +28,8 @@ def lista_utenti(db: Session = Depends(get_db), utente=Depends(get_current_user)
     if utente.ruolo not in RUOLI_VEDONO_TUTTI:
         raise HTTPException(403, "Accesso riservato ad admin e amministrazione")
     rows = db.execute(text("""
-        SELECT id, nome, cognome, ruolo FROM utenti
-        WHERE ruolo IN ('admin', 'amministrazione', 'artigiano', 'operativo', 'capo_cantiere', 'capo_cantiere_sub') AND attivo = TRUE
+        SELECT id, nome, cognome, ruolo::text AS ruolo FROM utenti
+        WHERE ruolo::text IN ('admin', 'amministrazione', 'artigiano', 'operativo', 'capo_cantiere', 'capo_cantiere_sub') AND attivo = TRUE
         ORDER BY cognome, nome
     """)).mappings().all()
     return [dict(r) for r in rows]
