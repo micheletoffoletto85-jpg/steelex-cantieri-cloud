@@ -44,8 +44,8 @@ def _get_cantiere_con_accesso(cantiere_id: int, db: Session, user: Utente) -> Ca
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
     if user.ruolo == RuoloUtente.admin:
         return cantiere
-    if user.ruolo == RuoloUtente.capo_cantiere and cantiere.responsabile_id == user.id:
-        return cantiere
+    if user.ruolo in (RuoloUtente.capo_cantiere, RuoloUtente.amministrazione):
+        return cantiere  # vedono tutti i cantieri, come in cantieri.py
     # capo_cantiere_sub, direzione_lavori, artigiano, fornitore, cliente: solo se assegnati
     if user.id in [u.id for u in cantiere.artigiani]:
         return cantiere
