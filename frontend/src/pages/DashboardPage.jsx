@@ -371,14 +371,18 @@ function ArtigianoDashboard({ utente, cantieri }) {
       const mimeType = ['audio/webm', 'audio/mp4', 'audio/ogg', ''].find(
         m => m === '' || MediaRecorder.isTypeSupported(m)
       )
-      const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
       chunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = async () => {
         clearTimeout(autoStopRef.current)
         stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' })
+        // mr.mimeType riflette il codec reale scelto dal browser quando mimeType
+        // era '' (fallback): usarlo invece della stima pre-registrazione evita
+        // di taggare come .webm un file che in realtà non lo è
+        const tipoReale = mr.mimeType || mimeType || 'audio/webm'
+        const ext = tipoReale.includes('mp4') ? 'mp4' : tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('webm') ? 'webm' : 'm4a'
+        const blob = new Blob(chunksRef.current, { type: tipoReale })
         // Blob vuoto/minuscolo = registrazione corrotta o troppo breve: inutile inviarla
         if (blob.size < 2048) {
           setErrore('Registrazione vuota o troppo breve — tieni premuto qualche secondo e riprova')

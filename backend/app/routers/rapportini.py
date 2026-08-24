@@ -19,6 +19,22 @@ from app.routers.notifiche import notifica_cantiere
 
 router = APIRouter(prefix="/rapportini", tags=["Rapportini Operativi"])
 
+_MIME_EXT_AUDIO = {
+    "audio/webm": ".webm", "audio/mp4": ".mp4", "audio/m4a": ".m4a", "audio/x-m4a": ".m4a",
+    "audio/ogg": ".ogg", "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/mpeg": ".mp3",
+}
+
+
+def _suffix_audio(upload_file) -> str:
+    """Estensione per il file temporaneo: preferisce quella del filename, altrimenti
+    la deriva dal content_type reale — un filename con estensione errata (es. mobile
+    che tagga sempre .webm anche col codec di fallback del browser) mandava in
+    errore Whisper con 'formato non supportato'."""
+    suffix = os.path.splitext(upload_file.filename or "")[1]
+    if suffix:
+        return suffix
+    return _MIME_EXT_AUDIO.get((upload_file.content_type or "").split(";")[0].strip(), ".webm")
+
 RUOLI_OPERATIVO = {RuoloUtente.artigiano}
 RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
 
@@ -149,7 +165,7 @@ async def trascrivi_audio(
     if not settings.OPENAI_API_KEY:
         raise HTTPException(503, "OpenAI API key non configurata")
 
-    suffix = os.path.splitext(audio.filename or "audio.webm")[1] or ".webm"
+    suffix = _suffix_audio(audio)
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(await audio.read()); tmp_path = tmp.name
 
@@ -255,7 +271,7 @@ async def invia_rapportino(
         # ── Audio: Whisper + Claude 2-step ────────────────────────────────────
         if not settings.OPENAI_API_KEY:
             raise HTTPException(503, "OpenAI API key non configurata")
-        suffix = os.path.splitext(file.filename or "audio.webm")[1] or ".webm"
+        suffix = _suffix_audio(file)
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(await file.read()); tmp_path = tmp.name
         if os.path.getsize(tmp_path) < 1024:
