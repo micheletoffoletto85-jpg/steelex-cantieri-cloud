@@ -698,6 +698,80 @@ def modifica_rapportino(
     return _rap_dict(r)
 
 
+@router.put("/{rapportino_id}/rianalizza")
+def rianalizza_rapportino(
+    rapportino_id: int,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Admin: rilancia il testo già registrato nell'estrazione IA aggiornata (matching cantiere
+    migliorato, rilevamento multi-cantiere con testo diviso per segmento) — per sistemare i
+    rapportini vecchi (estratti col prompt precedente) senza doverli ricorreggere a mano."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
+    if not r: raise HTTPException(404)
+    if not r.testo_italiano:
+        raise HTTPException(400, "Nessun testo da rianalizzare")
+    if r.stato == "diviso":
+        raise HTTPException(400, "Rapportino già diviso")
+
+    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso", "preventivo", "sospeso"])).all()
+    cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
+    dati = _estrai_dati(r.testo_italiano, cantieri_nomi)
+
+    r.cantiere_rilevato = dati.get("cantiere")
+    r.ore_lavorate = dati.get("ore")
+    r.lavorazioni = dati.get("lavorazioni") or []
+    r.materiali = dati.get("materiali") or []
+    r.criticita = dati.get("criticita")
+    r.spese_extra = dati.get("spese_extra") or []
+    r.riassunto = dati.get("riassunto") or r.riassunto
+
+    altri = dati.get("altri_cantieri") or []
+    if altri:
+        cantiere_id_primario = r.cantiere_id or _match_cantiere(dati.get("cantiere"), cantieri_attivi)
+        r.multi_cantiere = True
+        segmenti = [{
+            "cantiere": dati.get("cantiere"), "cantiere_id": cantiere_id_primario,
+            "ore": dati.get("ore"), "testo": dati.get("testo"),
+            "lavorazioni": dati.get("lavorazioni") or [], "riassunto": dati.get("riassunto"),
+        }]
+        for alt in altri:
+            nome_alt = alt.get("cantiere")
+            segmenti.append({
+                "cantiere": nome_alt, "cantiere_id": _match_cantiere(nome_alt, cantieri_attivi),
+                "ore": alt.get("ore"), "testo": alt.get("testo"),
+                "lavorazioni": alt.get("lavorazioni") or [], "riassunto": alt.get("riassunto"),
+            })
+        r.segmenti_cantieri = segmenti
+    else:
+        r.multi_cantiere = False
+        r.segmenti_cantieri = None
+
+    # Se non aveva ancora un cantiere assegnato, prova il match migliorato — non tocca invece
+    # un cantiere già assegnato (validazione manuale o precedente), per non disfare correzioni fatte
+    if r.fuori_cantiere or not r.cantiere_id:
+        match = _match_cantiere(dati.get("cantiere"), cantieri_attivi)
+        if match:
+            r.cantiere_id = match
+            r.fuori_cantiere = False
+
+    # Se le ore sono cambiate e c'era già una registrazione automatica, aggiornala
+    if r.ore_extra_id:
+        ore_extra = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
+        if ore_extra:
+            if r.ore_lavorate and r.ore_lavorate > 0:
+                ore_extra.ore = float(r.ore_lavorate)
+                ore_extra.totale = round(ore_extra.ore * (ore_extra.tariffa_oraria or 0), 2)
+            else:
+                db.delete(ore_extra)
+                r.ore_extra_id = None
+
+    db.commit()
+    return _rap_dict(r)
+
+
 class SegmentoDividi(BaseModel):
     cantiere_id: int
     testo: Optional[str] = None
