@@ -1,4 +1,4 @@
-import os, tempfile, json as _json, logging
+import os, re, tempfile, unicodedata, json as _json, logging
 logger = logging.getLogger(__name__)
 from datetime import datetime, date as date_today
 from typing import List, Optional
@@ -47,6 +47,8 @@ Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON, nessun altro 
   "cantiere": "nome del cantiere o indirizzo menzionato (stringa), null se non specificato",
   "data_lavoro": "data nel formato YYYY-MM-DD se menzionata, null altrimenti",
   "ore": numero_decimale_ore_lavorate oppure null,
+  "testo": "la porzione di racconto relativa SOLO a questo primo cantiere, riscritta in modo che si
+    legga da sola senza il resto — se il rapportino parla di UN SOLO cantiere, qui va l'intero racconto",
   "lavorazioni": ["lista sintetica delle lavorazioni eseguite, max 5-6 parole ciascuna"],
   "materiali": ["lista dei materiali usati, es: 'Cartongesso 12.5mm', 'Viti 25mm'"],
   "criticita": "descrizione del problema emerso in una frase, null se nessuna criticità",
@@ -54,6 +56,7 @@ Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON, nessun altro 
   "riassunto": "frase di max 2 righe che riassume la giornata di lavoro",
   "altri_cantieri": [
     {{"cantiere": "nome del secondo cantiere menzionato", "ore": numero_decimale_o_null,
+      "testo": "porzione di racconto relativa SOLO a questo cantiere, riscritta in modo che si legga da sola",
       "lavorazioni": ["lavorazioni fatte in QUEL cantiere"], "riassunto": "frase breve su quel cantiere"}}
   ]
 }}
@@ -62,13 +65,22 @@ Regole:
 - Se l'operaio cita un numero di ore (es. "otto ore", "7 ore e mezza"), estrailo come numero
 - Se cita materiali specifici, inseriscili nella lista materiali
 - Se cita un costo aggiuntivo o una spesa non prevista, inseriscila in spese_extra
-- Non inventare dati non presenti nel testo
+- Non inventare dati non presenti nel testo — se un cantiere non è chiaramente riconoscibile lascialo null
+  piuttosto che indovinare
 - I campi lavorazioni e materiali devono essere liste di stringhe brevi
-- Se l'operaio racconta lavori svolti in PIÙ cantieri diversi nella stessa giornata (es. "stamattina ero
-  al cantiere Rossi, poi nel pomeriggio sono andato al cantiere Bianchi"), metti il primo cantiere nei
-  campi principali (cantiere, ore, lavorazioni, riassunto = solo quella parte) e OGNI cantiere successivo
-  come voce separata in altri_cantieri, con le proprie ore e lavorazioni. Lascia altri_cantieri: [] se
-  parla di un solo cantiere (caso normale)
+- ATTENZIONE ai cantieri multipli: rileggi sempre il racconto cercando cambi di luogo — parole come
+  "poi sono andato a/al/da", "dopo pranzo mi sono spostato", "nel pomeriggio ero a", "stamattina invece",
+  "prima... poi...", o due nomi di cantiere diversi citati in punti diversi del racconto, sono il segnale
+  che si tratta di PIÙ cantieri nella stessa giornata, non uno solo con più fasi di lavoro
+- In quel caso: metti il primo cantiere nei campi principali (cantiere, ore, testo, lavorazioni,
+  riassunto = SOLO quella parte, non tutto il racconto) e OGNI cantiere successivo come voce separata
+  in altri_cantieri, ciascuno con il proprio testo/ore/lavorazioni — il campo "testo" di ogni voce deve
+  coprire, insieme agli altri, l'intero racconto originale senza perdere né duplicare frasi
+- Esempio: "Stamattina ero al cantiere Rossi, ho fatto la posa del cartongesso per 4 ore. Poi nel
+  pomeriggio sono passato dal cantiere Bianchi per la rasatura, altre 3 ore" → cantiere: "Rossi", ore: 4,
+  testo: "Stamattina ho fatto la posa del cartongesso.", altri_cantieri: [{{"cantiere": "Bianchi", "ore": 3,
+  "testo": "Nel pomeriggio ho fatto la rasatura."}}]
+- Lascia altri_cantieri: [] se parla di un solo cantiere (caso normale, la maggioranza dei rapportini)
 
 Rapportino:
 {testo}
@@ -80,13 +92,13 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
     if not settings.ANTHROPIC_API_KEY:
         return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
                 "criticita": None, "spese_extra": [], "riassunto": testo[:200], "data_lavoro": None,
-                "altri_cantieri": []}
+                "altri_cantieri": [], "testo": testo}
     import anthropic
     claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     hint_cantieri = ""
     if cantieri_nomi:
-        hint_cantieri = f"\nCantieri attivi conosciuti (cerca la corrispondenza migliore): {', '.join(cantieri_nomi[:20])}\n"
+        hint_cantieri = f"\nCantieri attivi conosciuti (cerca la corrispondenza migliore, anche parziale o con nomi simili): {', '.join(cantieri_nomi[:20])}\n"
 
     prompt = PROMPT_ESTRAI.format(testo=testo) + hint_cantieri
     msg = claude.messages.create(
@@ -99,24 +111,50 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
         raw = raw.split("```")[1]
         if raw.startswith("json"): raw = raw[4:]
     try:
-        return _json.loads(raw)
+        dati = _json.loads(raw)
+        if not dati.get("testo"):
+            dati["testo"] = testo
+        return dati
     except Exception:
         return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
                 "criticita": None, "spese_extra": [], "riassunto": testo[:200], "data_lavoro": None,
-                "altri_cantieri": []}
+                "altri_cantieri": [], "testo": testo}
+
+
+_PAROLE_NOISE = {"cantiere", "cliente", "via", "presso", "sig", "signor", "signora", "ditta", "azienda"}
+
+
+def _normalizza_nome(s: Optional[str]) -> str:
+    """Minuscolo, senza accenti, senza punteggiatura, senza parole generiche — così
+    'Cantiere Rossi' e 'rossi' (o 'Rossì' trascritto male) combaciano lo stesso."""
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii").lower()
+    s = re.sub(r"[^\w\s]", " ", s)
+    parole = [p for p in s.split() if p not in _PAROLE_NOISE]
+    return " ".join(parole)
 
 
 def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[int]:
-    """Match fuzzy del nome cantiere rilevato con i cantieri nel DB."""
-    if not nome_rilevato:
+    """Match fuzzy del nome cantiere rilevato (dalla voce, quindi impreciso) con i cantieri
+    nel DB: prima sottostringa sul nome/indirizzo normalizzati, poi — se non trova nulla —
+    una parola significativa in comune (es. il cognome del cliente), per essere tollerante
+    a piccoli errori di trascrizione invece di lasciare il rapportino sempre fuori cantiere."""
+    nome_norm = _normalizza_nome(nome_rilevato)
+    if not nome_norm:
         return None
-    nome_lower = nome_rilevato.lower()
     for c in cantieri:
-        if nome_lower in (c.nome or "").lower() or (c.nome or "").lower() in nome_lower:
+        nome_c = _normalizza_nome(c.nome)
+        if nome_c and (nome_norm in nome_c or nome_c in nome_norm):
             return c.id
-        indirizzo = (c.indirizzo or "").lower()
-        if indirizzo and (nome_lower in indirizzo or indirizzo in nome_lower):
+        indirizzo_c = _normalizza_nome(c.indirizzo)
+        if indirizzo_c and (nome_norm in indirizzo_c or indirizzo_c in nome_norm):
             return c.id
+    parole_rilevate = {p for p in nome_norm.split() if len(p) >= 4}
+    if parole_rilevate:
+        for c in cantieri:
+            if parole_rilevate & set(_normalizza_nome(c.nome).split()):
+                return c.id
     return None
 
 
@@ -167,6 +205,19 @@ WHISPER_PROMPT = (
     "Azienda: STEELEX, Fontana Raffaele, GeoColors, Geo Buildings."
 )
 
+
+def _whisper_prompt(db: Session) -> str:
+    """WHISPER_PROMPT + nomi dei cantieri attivi, in coda — Whisper usa solo l'ultima parte
+    del prompt come contesto, mettere qui i nomi propri aiuta a trascriverli giusti invece
+    di sentirli male (es. 'Rossi' capito 'Rosi'), che è la causa più comune di mancato
+    abbinamento automatico del cantiere."""
+    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso", "preventivo", "sospeso"])).all()
+    nomi = [c.nome for c in cantieri_attivi if c.nome]
+    if not nomi:
+        return WHISPER_PROMPT
+    return WHISPER_PROMPT + f" Cantieri attivi: {', '.join(nomi[:15])}."
+
+
 @router.post("/trascrivi")
 async def trascrivi_audio(
     audio: UploadFile = File(...),
@@ -191,7 +242,7 @@ async def trascrivi_audio(
     try:
         from openai import OpenAI
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": WHISPER_PROMPT}
+        whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": _whisper_prompt(db)}
         if lingua_hint and lingua_hint != "auto":
             whisper_kwargs["language"] = lingua_hint
         with open(tmp_path, "rb") as af:
@@ -294,7 +345,7 @@ async def invia_rapportino(
         try:
             from openai import OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": WHISPER_PROMPT}
+            whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": _whisper_prompt(db)}
             if lingua_hint and lingua_hint != "auto":
                 whisper_kwargs["language"] = lingua_hint
             with open(tmp_path, "rb") as af:
@@ -388,6 +439,7 @@ async def invia_rapportino(
                 "cantiere": dati.get("cantiere"),
                 "cantiere_id": cantiere_id,
                 "ore": dati.get("ore"),
+                "testo": dati.get("testo"),
                 "lavorazioni": dati.get("lavorazioni") or [],
                 "riassunto": dati.get("riassunto"),
             }]
@@ -397,6 +449,7 @@ async def invia_rapportino(
                     "cantiere": nome_alt,
                     "cantiere_id": _match_cantiere(nome_alt, cantieri_attivi),
                     "ore": alt.get("ore"),
+                    "testo": alt.get("testo"),
                     "lavorazioni": alt.get("lavorazioni") or [],
                     "riassunto": alt.get("riassunto"),
                 })
