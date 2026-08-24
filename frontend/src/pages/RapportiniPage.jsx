@@ -89,19 +89,22 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     setSegmenti(s => s.map((seg, i) => i === idx ? { ...seg, [campo]: val } : seg))
 
   const aggiungiSegmento = () =>
-    setSegmenti(s => [...s, { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '' }])
+    setSegmenti(s => [...s, { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '', testo: '' }])
 
   const rimuoviSegmento = (idx) =>
     setSegmenti(s => s.length > 1 ? s.filter((_, i) => i !== idx) : s)
 
   // Apre il pannello di divisione: se l'IA aveva già rilevato dei segmenti li riusa,
-  // altrimenti parte da due righe vuote (una pre-compilata col cantiere attuale) —
-  // così si può dividere manualmente anche se l'IA non l'ha segnalato come multi-cantiere
+  // altrimenti parte da due righe (la prima col testo completo da tagliare/dividere a mano,
+  // la seconda vuota) — così si può dividere manualmente anche se l'IA non l'ha segnalato
+  // come multi-cantiere. Il testo NON va duplicato per intero su tutti i cantieri: va
+  // spostato/riscritto tra le caselle in modo che ogni rapportino risultante racconti solo
+  // la sua parte
   const apriDivisione = () => {
     if (segmenti.length < 2) {
       setSegmenti([
-        { cantiere: r.cantiere_rilevato || '', cantiere_id: r.cantiere_id ? String(r.cantiere_id) : '', ore: r.ore_lavorate ?? '', lavorazioni: r.lavorazioni || [], riassunto: r.riassunto || '' },
-        { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '' },
+        { cantiere: r.cantiere_rilevato || '', cantiere_id: r.cantiere_id ? String(r.cantiere_id) : '', ore: r.ore_lavorate ?? '', lavorazioni: r.lavorazioni || [], riassunto: '', testo: r.testo_italiano || '' },
+        { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '', testo: '' },
       ])
     }
     setDividendo(true)
@@ -111,7 +114,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     if (segmenti.some(s => !s.cantiere_id)) return
     onDividi(r.id, segmenti.map(s => ({
       cantiere_id: parseInt(s.cantiere_id), ore: s.ore ? parseFloat(s.ore) : null,
-      lavorazioni: s.lavorazioni || [], riassunto: s.riassunto || null,
+      lavorazioni: s.lavorazioni || [], riassunto: s.riassunto || null, testo: s.testo || null,
     })))
     setDividendo(false)
   }
@@ -370,6 +373,13 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                         <option key={c.id} value={c.id}>{c.nome}</option>
                       ))}
                     </select>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Testo per questo cantiere</label>
+                      <textarea value={s.testo ?? ''} rows={4}
+                        placeholder="Sposta/riscrivi qui solo la parte di racconto relativa a questo cantiere..."
+                        onChange={e => aggiornaSegmento(i, 'testo', e.target.value)}
+                        className="w-full text-xs leading-relaxed border border-purple-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                    </div>
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-gray-500 shrink-0">Ore</label>
                       <input type="number" step="0.5" min="0" max="24" value={s.ore ?? ''}
