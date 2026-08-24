@@ -647,6 +647,7 @@ def modifica_rapportino(
 
 class SegmentoDividi(BaseModel):
     cantiere_id: int
+    testo: Optional[str] = None
     ore: Optional[float] = None
     lavorazioni: Optional[List[str]] = []
     materiali: Optional[List[str]] = []
@@ -696,13 +697,22 @@ def dividi_rapportino(
         cantiere = db.query(Cantiere).filter(Cantiere.id == seg.cantiere_id).first()
         if not cantiere:
             raise HTTPException(404, f"Cantiere non trovato (segmento {i + 1})")
+
+        # Testo specifico per questo cantiere: se l'admin l'ha scritto/incollato nel pannello
+        # di divisione si usa quello, altrimenti il testo completo va solo sul primo segmento
+        # (di default) e gli altri restano vuoti — così il rapportino NON viene duplicato
+        # per intero su ogni cantiere, va effettivamente diviso
+        testo_seg = (seg.testo or "").strip()
+        if not testo_seg and i == 0:
+            testo_seg = r.testo_italiano or ""
+
         nuovo = RapportinoOperativo(
             operativo_id      = r.operativo_id,
             cantiere_id       = cantiere.id,
             data_lavoro       = r.data_lavoro,
             testo_originale   = r.testo_originale,
-            testo_elaborato   = r.testo_elaborato,
-            testo_italiano    = r.testo_italiano,
+            testo_elaborato   = testo_seg,
+            testo_italiano    = testo_seg,
             lingua_originale  = r.lingua_originale,
             cantiere_rilevato = cantiere.nome,
             ore_lavorate      = seg.ore,
@@ -710,7 +720,7 @@ def dividi_rapportino(
             materiali         = seg.materiali or [],
             criticita         = r.criticita if i == 0 else None,
             spese_extra       = r.spese_extra if i == 0 else [],
-            riassunto         = seg.riassunto or r.riassunto,
+            riassunto         = seg.riassunto or (testo_seg[:200] if testo_seg else r.riassunto),
             stato             = "inviato",
             fuori_cantiere    = False,
             foto_urls         = r.foto_urls or [],
