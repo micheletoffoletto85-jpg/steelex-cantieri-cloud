@@ -88,6 +88,25 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const aggiornaSegmento = (idx, campo, val) =>
     setSegmenti(s => s.map((seg, i) => i === idx ? { ...seg, [campo]: val } : seg))
 
+  const aggiungiSegmento = () =>
+    setSegmenti(s => [...s, { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '' }])
+
+  const rimuoviSegmento = (idx) =>
+    setSegmenti(s => s.length > 1 ? s.filter((_, i) => i !== idx) : s)
+
+  // Apre il pannello di divisione: se l'IA aveva già rilevato dei segmenti li riusa,
+  // altrimenti parte da due righe vuote (una pre-compilata col cantiere attuale) —
+  // così si può dividere manualmente anche se l'IA non l'ha segnalato come multi-cantiere
+  const apriDivisione = () => {
+    if (segmenti.length < 2) {
+      setSegmenti([
+        { cantiere: r.cantiere_rilevato || '', cantiere_id: r.cantiere_id ? String(r.cantiere_id) : '', ore: r.ore_lavorate ?? '', lavorazioni: r.lavorazioni || [], riassunto: r.riassunto || '' },
+        { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '' },
+      ])
+    }
+    setDividendo(true)
+  }
+
   const confermaDivisione = () => {
     if (segmenti.some(s => !s.cantiere_id)) return
     onDividi(r.id, segmenti.map(s => ({
@@ -299,38 +318,46 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
           </div>
         )}
 
-        {/* Multi-cantiere rilevato — dividi in un rapportino per cantiere. Disponibile anche
-            dopo la validazione: in quel caso ripulisce prima diario e ore già registrate sul
-            cantiere sbagliato (quello unico rilevato) */}
-        {isAdmin && r.multi_cantiere && segmenti.length > 1 && (r.stato === 'inviato' || r.stato === 'validato') && (
-          <div className="mt-3 bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2">
-            <div className="flex items-center gap-1.5">
-              <GitBranch size={13} className="text-purple-600"/>
-              <p className="text-xs font-semibold text-purple-800">
-                Rilevati {segmenti.length} cantieri diversi in questo rapportino
-              </p>
-            </div>
-            {r.stato === 'validato' && (
+        {/* Divide il rapportino tra più cantieri — sempre disponibile (non solo quando l'IA
+            lo segnala in automatico). Disponibile anche dopo la validazione: in quel caso
+            ripulisce prima diario e ore già registrate sul cantiere sbagliato */}
+        {isAdmin && (r.stato === 'inviato' || r.stato === 'validato') && (
+          <div className={`mt-3 rounded-xl p-3 space-y-2 ${dividendo || r.multi_cantiere ? 'bg-purple-50 border border-purple-200' : ''}`}>
+            {r.multi_cantiere && (
+              <div className="flex items-center gap-1.5">
+                <GitBranch size={13} className="text-purple-600"/>
+                <p className="text-xs font-semibold text-purple-800">
+                  L'IA ha rilevato {segmenti.length || 2} cantieri diversi in questo rapportino
+                </p>
+              </div>
+            )}
+            {r.stato === 'validato' && dividendo && (
               <p className="text-xs text-purple-700">
                 ⚠️ Già validato su <strong>{r.cantiere_nome}</strong> — dividendo verranno cancellate la nota diario
                 e le ore già registrate lì, e ricreate correttamente sui cantieri scelti sotto.
               </p>
             )}
             {!dividendo ? (
-              <button onClick={() => setDividendo(true)}
-                className="text-xs text-purple-700 underline">
-                Dividi in {segmenti.length} rapportini
+              <button onClick={apriDivisione}
+                className="text-xs text-purple-700 underline flex items-center gap-1">
+                <GitBranch size={12} /> Dividi per cantiere
               </button>
             ) : (
               <div className="space-y-2">
                 {segmenti.map((s, i) => (
                   <div key={i} className="bg-white border border-purple-100 rounded-lg p-2 space-y-1.5">
-                    <p className="text-xs text-gray-600">
-                      {s.cantiere
-                        ? <>Citato: <strong>"{s.cantiere}"</strong></>
-                        : <span className="text-gray-400">Cantiere non specificato</span>}
-                      {s.ore ? ` — ${s.ore}h` : ''}
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-600">
+                        {s.cantiere
+                          ? <>Citato: <strong>"{s.cantiere}"</strong></>
+                          : <span className="text-gray-400">Segmento {i + 1}</span>}
+                      </p>
+                      {segmenti.length > 2 && (
+                        <button onClick={() => rimuoviSegmento(i)} className="text-gray-300 hover:text-red-500">
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
                     {!s.cantiere_id && s.cantiere && (
                       <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — seleziona a mano</p>
                     )}
@@ -343,8 +370,16 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                         <option key={c.id} value={c.id}>{c.nome}</option>
                       ))}
                     </select>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500 shrink-0">Ore</label>
+                      <input type="number" step="0.5" min="0" max="24" value={s.ore ?? ''}
+                        onChange={e => aggiornaSegmento(i, 'ore', e.target.value)}
+                        className="w-20 border border-purple-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                    </div>
                   </div>
                 ))}
+                <button onClick={aggiungiSegmento}
+                  className="text-xs text-purple-700 underline">+ Aggiungi cantiere</button>
                 <div className="flex gap-2">
                   <button
                     disabled={segmenti.some(s => !s.cantiere_id)}
