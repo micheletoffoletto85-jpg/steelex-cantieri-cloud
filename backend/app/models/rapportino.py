@@ -50,6 +50,11 @@ class RapportinoOperativo(Base):
     # se il rapportino viene poi riassegnato o modificato)
     ore_extra_id      = Column(Integer, ForeignKey("ore_extra.id"), nullable=True)
 
+    # Riga nel registro ore personale dell'operativo, creata automaticamente alla
+    # validazione a partire da ore_lavorate (per aggiornarla se il rapportino viene
+    # poi modificato o diviso)
+    ore_lavorate_id   = Column(Integer, ForeignKey("ore_lavorate.id"), nullable=True)
+
     operativo    = relationship("Utente", foreign_keys=[operativo_id])
     validato_da  = relationship("Utente", foreign_keys=[validato_da_id])
     cantiere     = relationship("Cantiere", foreign_keys=[cantiere_id])

@@ -12,6 +12,7 @@ from app.models.rapportino import RapportinoOperativo
 from app.models.utente import Utente, RuoloUtente
 from app.models.cantiere import Cantiere
 from app.models.diario import DiarioGiornaliero, OreExtra
+from app.models.ore_lavorate import OreLavorate
 from app.auth import get_current_user
 from app.config import settings
 from app.storage import salva_file
@@ -602,6 +603,18 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
         db.add(ore_extra); db.flush()
         r.ore_extra_id = ore_extra.id
 
+        # Aggiorna anche il registro ore personale dell'operativo — così non deve
+        # inserirle a mano una seconda volta nella sezione "Ore lavorate"
+        ore_personali = OreLavorate(
+            utente_id   = r.operativo_id,
+            data        = data_obj,
+            ore         = float(r.ore_lavorate),
+            descrizione = r.riassunto or "Rapportino di cantiere",
+            rapportino_id = r.id,
+        )
+        db.add(ore_personali); db.flush()
+        r.ore_lavorate_id = ore_personali.id
+
 
 class AssegnaBody(BaseModel):
     cantiere_id: int
@@ -694,6 +707,16 @@ def modifica_rapportino(
                 db.delete(ore_extra)
                 r.ore_extra_id = None
 
+    if "ore_lavorate" in dati and r.ore_lavorate_id:
+        ore_personali = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
+        if ore_personali:
+            if r.ore_lavorate and r.ore_lavorate > 0:
+                ore_personali.ore = float(r.ore_lavorate)
+                ore_personali.aggiornato_il = datetime.utcnow()
+            else:
+                db.delete(ore_personali)
+                r.ore_lavorate_id = None
+
     db.commit()
     return _rap_dict(r)
 
@@ -768,6 +791,16 @@ def rianalizza_rapportino(
                 db.delete(ore_extra)
                 r.ore_extra_id = None
 
+    if r.ore_lavorate_id:
+        ore_personali = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
+        if ore_personali:
+            if r.ore_lavorate and r.ore_lavorate > 0:
+                ore_personali.ore = float(r.ore_lavorate)
+                ore_personali.aggiornato_il = datetime.utcnow()
+            else:
+                db.delete(ore_personali)
+                r.ore_lavorate_id = None
+
     db.commit()
     return _rap_dict(r)
 
@@ -805,14 +838,20 @@ def dividi_rapportino(
     # prima si azzerano i riferimenti sul rapportino (flush), poi si cancellano le righe,
     # per non violare i vincoli di chiave esterna
     vecchio_ore_extra_id = r.ore_extra_id
+    vecchio_ore_lavorate_id = r.ore_lavorate_id
     vecchio_diario_id = r.diario_id
     r.ore_extra_id = None
+    r.ore_lavorate_id = None
     r.diario_id = None
     db.flush()
     if vecchio_ore_extra_id:
         vecchie_ore = db.query(OreExtra).filter(OreExtra.id == vecchio_ore_extra_id).first()
         if vecchie_ore:
             db.delete(vecchie_ore)
+    if vecchio_ore_lavorate_id:
+        vecchie_ore_pers = db.query(OreLavorate).filter(OreLavorate.id == vecchio_ore_lavorate_id).first()
+        if vecchie_ore_pers:
+            db.delete(vecchie_ore_pers)
     if vecchio_diario_id:
         vecchio_diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == vecchio_diario_id).first()
         if vecchio_diario:
