@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MapPin, Trash2, Pencil, X, Edit3, Save, GitBranch } from 'lucide-react'
+import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MapPin, Trash2, Pencil, X, Edit3, Save, GitBranch, Sparkles } from 'lucide-react'
+import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -61,7 +62,7 @@ function FotoGalleria({ urls }) {
   )
 }
 
-function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica, onDividi, cantieri = [] }) {
+function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica, onDividi, onRianalizza, cantieri = [] }) {
   const [aperto, setAperto] = useState(false)
   const [noteAdmin, setNoteAdmin] = useState('')
   const [cantiereAssegnato, setCantiereAssegnato] = useState('')
@@ -75,6 +76,12 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const [segmenti, setSegmenti] = useState(() =>
     (r.segmenti_cantieri || []).map(s => ({ ...s, cantiere_id: s.cantiere_id ? String(s.cantiere_id) : '' }))
   )
+  const [rianalizzando, setRianalizzando] = useState(false)
+
+  const rianalizza = async () => {
+    setRianalizzando(true)
+    try { await onRianalizza(r.id) } finally { setRianalizzando(false) }
+  }
 
   const suggerito = cantieri.find(c =>
     r.cantiere_rilevato && c.nome?.toLowerCase().includes(r.cantiere_rilevato.toLowerCase())
@@ -187,11 +194,18 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
           <div className="mt-2.5">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-semibold text-gray-500">Testo</p>
-              {isAdmin && !modificaTesto && (
-                <button onClick={() => { setTestoEdit(r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? ''); setModificaTesto(true) }}
-                  className="text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica testo">
-                  <Edit3 size={13} />
-                </button>
+              {isAdmin && !modificaTesto && r.stato !== 'diviso' && (
+                <div className="flex items-center gap-2">
+                  <button onClick={rianalizza} disabled={rianalizzando}
+                    className="text-gray-300 hover:text-purple-600 transition-colors disabled:opacity-40"
+                    title="Ri-analizza con IA (matching cantiere e rilevamento multi-cantiere aggiornati)">
+                    <Sparkles size={13} className={rianalizzando ? 'animate-pulse' : ''} />
+                  </button>
+                  <button onClick={() => { setTestoEdit(r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? ''); setModificaTesto(true) }}
+                    className="text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica testo">
+                    <Edit3 size={13} />
+                  </button>
+                </div>
               )}
             </div>
             {modificaTesto ? (
@@ -594,6 +608,18 @@ function VistaAdmin() {
     }
   )
 
+  const rianalizzaMutation = useMutation(
+    (id) => api.put(`/rapportini/${id}/rianalizza`),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries('rapp-da-validare')
+        qc.invalidateQueries('rapp-tutti')
+        qc.invalidateQueries('rapp-fuori')
+      },
+      onError: (err) => toast.error(err.response?.data?.detail || 'Errore ri-analisi')
+    }
+  )
+
   const lista = tab === 'da-validare' ? daValidare : tab === 'fuori' ? fuoriCantiere : tutti
   const fuoriCount = fuoriCantiere.filter(r => r.stato === 'inviato').length
 
@@ -647,7 +673,8 @@ function VistaAdmin() {
               onElimina={(id) => eliminaMutation.mutate(id)}
               onAssegna={(id, cantiere_id) => assegnaMutation.mutate({ id, cantiere_id })}
               onModifica={(id, dati) => modificaMutation.mutate({ id, ...dati })}
-              onDividi={(id, segmenti) => dividiMutation.mutate({ id, segmenti })} />
+              onDividi={(id, segmenti) => dividiMutation.mutate({ id, segmenti })}
+              onRianalizza={(id) => rianalizzaMutation.mutateAsync(id)} />
           ))}
         </div>
       )}
