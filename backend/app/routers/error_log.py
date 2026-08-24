@@ -78,6 +78,17 @@ def sync_errori(db: Session = Depends(get_db), since_id: int = Query(0), limit: 
     return {"errori": [dict(r) for r in rows]}
 
 
+@router.delete("/sync", dependencies=[Depends(_verifica_api_key)])
+def elimina_sincronizzati(db: Session = Depends(get_db), min_id: int = Query(0), max_id: int = Query(...)):
+    """Elimina gli errori già sincronizzati e processati dall'automazione di correzione
+    incrociata (min_id < id <= max_id) — evita che l'error log cresca all'infinito con
+    errori già corretti, senza intaccare quelli non ancora processati."""
+    db.execute(text("DELETE FROM error_log WHERE id > :min_id AND id <= :max_id"),
+               {"min_id": min_id, "max_id": max_id})
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/export")
 def esporta_errori_txt(db: Session = Depends(get_db), utente=Depends(get_current_user)):
     if utente.ruolo != "admin":

@@ -34,11 +34,31 @@ jobs:
           FILE=automation/error-sync-state.json
           mkdir -p automation
           if [ ! -f "$FILE" ]; then
-            echo '{"since_id_steelex":0,"since_id_fr":0,"pending":{"steelex":[],"fr":[]}}' > "$FILE"
+            echo '{"since_id_steelex":0,"since_id_fr":0,"deleted_id_steelex":0,"deleted_id_fr":0,"pending":{"steelex":[],"fr":[]}}' > "$FILE"
           fi
 
           SID_STX=$(jq -r '.since_id_steelex // 0' "$FILE")
           SID_FR=$(jq -r '.since_id_fr // 0' "$FILE")
+          DEL_STX=$(jq -r '.deleted_id_steelex // 0' "$FILE")
+          DEL_FR=$(jq -r '.deleted_id_fr // 0' "$FILE")
+          PENDING_STX_VUOTA=$(jq -r '(.pending.steelex // []) | length == 0' "$FILE")
+          PENDING_FR_VUOTA=$(jq -r '(.pending.fr // []) | length == 0' "$FILE")
+
+          # La routine di correzione ha già svuotato pending: gli errori fino a since_id
+          # sono stati processati (corretti o revisionati) — puliamo l'error log sorgente
+          # per non rileggerli mai più e non far crescere la tabella all'infinito.
+          if [ "$PENDING_STX_VUOTA" = "true" ] && [ "$SID_STX" -gt "$DEL_STX" ]; then
+            echo "Pulizia error_log STEELEX: id $DEL_STX -> $SID_STX"
+            curl -sS -X DELETE -H "X-Api-Key: $STEELEX_SYNC_KEY" \
+              "https://steelex-cantieri-cloud-production.up.railway.app/api/v1/error-log/sync?min_id=$DEL_STX&max_id=$SID_STX" || true
+            DEL_STX=$SID_STX
+          fi
+          if [ "$PENDING_FR_VUOTA" = "true" ] && [ "$SID_FR" -gt "$DEL_FR" ]; then
+            echo "Pulizia error_log FR: id $DEL_FR -> $SID_FR"
+            curl -sS -X DELETE -H "X-Api-Key: $FR_SYNC_KEY" \
+              "https://fontana-raffaele-cantieri-production.up.railway.app/api/v1/error-log/sync?min_id=$DEL_FR&max_id=$SID_FR" || true
+            DEL_FR=$SID_FR
+          fi
 
           STX_NEW=$(curl -sS -H "X-Api-Key: $STEELEX_SYNC_KEY" "https://steelex-cantieri-cloud-production.up.railway.app/api/v1/error-log/sync?since_id=$SID_STX" || echo '{"errori":[]}')
           FR_NEW=$(curl -sS -H "X-Api-Key: $FR_SYNC_KEY" "https://fontana-raffaele-cantieri-production.up.railway.app/api/v1/error-log/sync?since_id=$SID_FR" || echo '{"errori":[]}')
@@ -50,9 +70,13 @@ jobs:
             --argjson cur "$(cat "$FILE")" \
             --argjson stx "$STX_NEW" \
             --argjson fr "$FR_NEW" \
+            --argjson del_stx "$DEL_STX" \
+            --argjson del_fr "$DEL_FR" \
             '{
               since_id_steelex: ([$cur.since_id_steelex] + [$stx.errori[].id]) | max,
               since_id_fr: ([$cur.since_id_fr] + [$fr.errori[].id]) | max,
+              deleted_id_steelex: $del_stx,
+              deleted_id_fr: $del_fr,
               pending: {
                 steelex: ($cur.pending.steelex + $stx.errori),
                 fr: ($cur.pending.fr + $fr.errori)
@@ -61,8 +85,8 @@ jobs:
 
           git add "$FILE"
           if ! git diff --cached --quiet -- "$FILE"; then
-            git commit -m "chore(error-sync): nuovi errori rilevati"
+            git commit -m "chore(error-sync): aggiorna coda (nuovi errori e/o pulizia post-correzione)"
             git push origin automation/error-sync-state
           else
-            echo "Nessun nuovo errore, nessun commit."
+            echo "Nessuna modifica, nessun commit."
           fi
