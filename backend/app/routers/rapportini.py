@@ -780,7 +780,15 @@ def rianalizza_rapportino(
             r.cantiere_id = match
             r.fuori_cantiere = False
 
-    # Se le ore sono cambiate e c'era già una registrazione automatica, aggiornala
+    # Se le ore sono cambiate e c'era già una registrazione automatica, aggiornala; se il
+    # rapportino era già validato ma non aveva ancora ore registrate (dati vecchi, da prima
+    # che questa automazione esistesse) e ora ne emergono, le crea ora invece di lasciarle perse
+    nome_op = f"{r.operativo.nome} {r.operativo.cognome}".strip() if r.operativo else "Operativo"
+    try:
+        data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
+    except Exception:
+        data_obj = date_today.today()
+
     if r.ore_extra_id:
         ore_extra = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
         if ore_extra:
@@ -790,6 +798,14 @@ def rianalizza_rapportino(
             else:
                 db.delete(ore_extra)
                 r.ore_extra_id = None
+    elif r.diario_id and r.cantiere_id and r.ore_lavorate and r.ore_lavorate > 0:
+        ore_extra = OreExtra(
+            cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
+            ore=float(r.ore_lavorate), attivita=r.riassunto or "", tariffa_oraria=0.0,
+            totale=0.0, data=data_obj, approvato=True, creato_da=r.operativo_id,
+        )
+        db.add(ore_extra); db.flush()
+        r.ore_extra_id = ore_extra.id
 
     if r.ore_lavorate_id:
         ore_personali = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
@@ -800,6 +816,13 @@ def rianalizza_rapportino(
             else:
                 db.delete(ore_personali)
                 r.ore_lavorate_id = None
+    elif r.diario_id and r.ore_lavorate and r.ore_lavorate > 0:
+        ore_personali = OreLavorate(
+            utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
+            descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id,
+        )
+        db.add(ore_personali); db.flush()
+        r.ore_lavorate_id = ore_personali.id
 
     db.commit()
     return _rap_dict(r)
