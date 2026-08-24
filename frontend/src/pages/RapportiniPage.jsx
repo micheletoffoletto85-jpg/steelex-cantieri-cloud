@@ -620,6 +620,29 @@ function VistaAdmin() {
     }
   )
 
+  const [batchProgress, setBatchProgress] = useState(null)
+
+  const rianalizzaTutti = async () => {
+    const eleggibili = tutti.filter(r => r.stato !== 'diviso' && r.testo_italiano)
+    if (!eleggibili.length) return
+    setBatchProgress({ fatti: 0, totale: eleggibili.length, errori: 0 })
+    let errori = 0
+    for (let i = 0; i < eleggibili.length; i++) {
+      try {
+        await api.put(`/rapportini/${eleggibili[i].id}/rianalizza`, null, { timeout: 30000 })
+      } catch {
+        errori++
+      }
+      setBatchProgress({ fatti: i + 1, totale: eleggibili.length, errori })
+    }
+    qc.invalidateQueries('rapp-da-validare')
+    qc.invalidateQueries('rapp-tutti')
+    qc.invalidateQueries('rapp-fuori')
+    toast.success(`Ri-analizzati ${eleggibili.length - errori}/${eleggibili.length} rapportini`
+      + (errori ? ` (${errori} errori)` : ''))
+    setBatchProgress(null)
+  }
+
   const lista = tab === 'da-validare' ? daValidare : tab === 'fuori' ? fuoriCantiere : tutti
   const fuoriCount = fuoriCantiere.filter(r => r.stato === 'inviato').length
 
@@ -658,6 +681,29 @@ function VistaAdmin() {
       </div>
 
       {tab === 'fuori' && <BannerCostiNonAssegnati lista={fuoriCantiere} />}
+
+      {tab === 'tutti' && tutti.length > 0 && (
+        batchProgress ? (
+          <div className="bg-purple-50 border border-purple-200 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-purple-700">
+            <Sparkles size={13} className="animate-pulse shrink-0" />
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span>Ri-analisi in corso… {batchProgress.fatti}/{batchProgress.totale}</span>
+                {batchProgress.errori > 0 && <span className="text-red-500">{batchProgress.errori} errori</span>}
+              </div>
+              <div className="h-1.5 bg-purple-100 rounded-full overflow-hidden">
+                <div className="h-full bg-purple-500 transition-all"
+                  style={{ width: `${(batchProgress.fatti / batchProgress.totale) * 100}%` }} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button onClick={rianalizzaTutti}
+            className="text-xs text-purple-700 underline flex items-center gap-1">
+            <Sparkles size={12} /> Ri-analizza tutti con IA (pregresso)
+          </button>
+        )
+      )}
 
       {lista.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
