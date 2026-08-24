@@ -34,11 +34,21 @@ class RapportinoOperativo(Base):
     foto_urls         = Column(JSON, default=list)
 
     # Stato validazione
-    stato             = Column(String(20), default="inviato")  # inviato | validato | rifiutato
+    stato             = Column(String(20), default="inviato")  # inviato | validato | rifiutato | diviso
     fuori_cantiere    = Column(Boolean, default=False)
     validato_da_id    = Column(Integer, ForeignKey("utenti.id"), nullable=True)
     validato_il       = Column(DateTime, nullable=True)
     note_admin        = Column(Text, nullable=True)
+
+    # Multi-cantiere: quando il rapportino parla di piu' cantieri, Claude elenca qui
+    # i segmenti rilevati ({cantiere, cantiere_id, ore, lavorazioni, riassunto}) cosi'
+    # l'admin puo' dividerlo in piu' rapportini con l'endpoint /dividi
+    multi_cantiere    = Column(Boolean, default=False)
+    segmenti_cantieri = Column(JSON, nullable=True)
+
+    # Riga ore_extra creata automaticamente alla validazione (per spostarla/aggiornarla
+    # se il rapportino viene poi riassegnato o modificato)
+    ore_extra_id      = Column(Integer, ForeignKey("ore_extra.id"), nullable=True)
 
     operativo    = relationship("Utente", foreign_keys=[operativo_id])
     validato_da  = relationship("Utente", foreign_keys=[validato_da_id])

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MapPin, Trash2, Pencil, X } from 'lucide-react'
+import { Clock, Package, AlertTriangle, Euro, CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MapPin, Trash2, Pencil, X, Edit3, Save, GitBranch } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -61,22 +61,47 @@ function FotoGalleria({ urls }) {
   )
 }
 
-function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri = [] }) {
+function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica, onDividi, cantieri = [] }) {
   const [aperto, setAperto] = useState(false)
   const [noteAdmin, setNoteAdmin] = useState('')
   const [cantiereAssegnato, setCantiereAssegnato] = useState('')
   const [confermaElimina, setConfermaElimina] = useState(false)
   const [modificaCantiere, setModificaCantiere] = useState(false)
   const [nuovoCantiere, setNuovoCantiere] = useState('')
+  const [modificaTesto, setModificaTesto] = useState(false)
+  const [testoEdit, setTestoEdit] = useState(r.testo_italiano || '')
+  const [oreEdit, setOreEdit] = useState(r.ore_lavorate ?? '')
+  const [dividendo, setDividendo] = useState(false)
+  const [segmenti, setSegmenti] = useState(() =>
+    (r.segmenti_cantieri || []).map(s => ({ ...s, cantiere_id: s.cantiere_id ? String(s.cantiere_id) : '' }))
+  )
 
   const suggerito = cantieri.find(c =>
     r.cantiere_rilevato && c.nome?.toLowerCase().includes(r.cantiere_rilevato.toLowerCase())
   )
 
+  const salvaTesto = () => {
+    onModifica(r.id, { testo_italiano: testoEdit, ore_lavorate: oreEdit === '' ? null : parseFloat(oreEdit) })
+    setModificaTesto(false)
+  }
+
+  const aggiornaSegmento = (idx, campo, val) =>
+    setSegmenti(s => s.map((seg, i) => i === idx ? { ...seg, [campo]: val } : seg))
+
+  const confermaDivisione = () => {
+    if (segmenti.some(s => !s.cantiere_id)) return
+    onDividi(r.id, segmenti.map(s => ({
+      cantiere_id: parseInt(s.cantiere_id), ore: s.ore ? parseFloat(s.ore) : null,
+      lavorazioni: s.lavorazioni || [], riassunto: s.riassunto || null,
+    })))
+    setDividendo(false)
+  }
+
   const statoColor = {
     inviato: 'bg-yellow-100 text-yellow-700',
     validato: 'bg-green-100 text-green-700',
     rifiutato: 'bg-red-100 text-red-700',
+    diviso: 'bg-purple-100 text-purple-700',
   }[r.stato] || 'bg-gray-100 text-gray-600'
 
   return (
@@ -95,10 +120,15 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri =
             ) : null}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {r.multi_cantiere && r.stato !== 'diviso' && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 flex items-center gap-1">
+                <GitBranch size={10} /> multi-cantiere
+              </span>
+            )}
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statoColor}`}>
               {r.stato}
             </span>
-            {isAdmin && r.stato !== 'inviato' && (
+            {isAdmin && r.stato !== 'inviato' && r.stato !== 'diviso' && (
               <button onClick={() => setModificaCantiere(v => !v)}
                 className={`transition-colors ${modificaCantiere ? 'text-steelex-orange' : 'text-gray-300 hover:text-steelex-orange'}`}
                 title="Assegna / cambia cantiere">
@@ -130,6 +160,43 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri =
 
         <Chips rapportino={r} />
 
+        {/* Testo completo — sempre visibile in anteprima, non più nascosto in "dettagli" */}
+        {r.testo_italiano && (
+          <div className="mt-2.5">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-semibold text-gray-500">Testo</p>
+              {isAdmin && !modificaTesto && (
+                <button onClick={() => { setTestoEdit(r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? ''); setModificaTesto(true) }}
+                  className="text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica testo">
+                  <Edit3 size={13} />
+                </button>
+              )}
+            </div>
+            {modificaTesto ? (
+              <div className="space-y-2">
+                <textarea value={testoEdit} onChange={e => setTestoEdit(e.target.value)} rows={5}
+                  className="w-full text-xs leading-relaxed border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-500 shrink-0">Ore lavorate</label>
+                  <input type="number" step="0.5" min="0" max="24" value={oreEdit}
+                    onChange={e => setOreEdit(e.target.value)}
+                    className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={salvaTesto}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-steelex-orange text-white rounded-lg text-xs font-semibold hover:opacity-90">
+                    <Save size={13} /> Salva
+                  </button>
+                  <button onClick={() => setModificaTesto(false)}
+                    className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">Annulla</button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs leading-relaxed bg-gray-50 p-2 rounded whitespace-pre-wrap text-gray-700">{r.testo_italiano}</p>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-between mt-3">
           <span className="text-xs text-gray-400">
             {r.data_lavoro ? new Date(r.data_lavoro).toLocaleDateString('it-IT') : '—'}
@@ -139,18 +206,12 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri =
           </span>
           <button onClick={() => setAperto(v => !v)}
             className="text-xs text-gray-500 flex items-center gap-1 hover:text-gray-700">
-            {aperto ? <><ChevronUp size={12} /> meno</> : <><ChevronDown size={12} /> dettagli</>}
+            {aperto ? <><ChevronUp size={12} /> meno</> : <><ChevronDown size={12} /> altri dettagli</>}
           </button>
         </div>
 
         {aperto && (
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-2 text-sm text-gray-700">
-            {r.testo_italiano && (
-              <div>
-                <p className="text-xs font-semibold text-gray-500 mb-1">Testo completo</p>
-                <p className="text-xs leading-relaxed bg-gray-50 p-2 rounded whitespace-pre-wrap">{r.testo_italiano}</p>
-              </div>
-            )}
             {r.testo_originale && r.lingua_originale && r.lingua_originale !== 'it' && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-1">Testo originale ({r.lingua_originale.toUpperCase()})</p>
@@ -242,6 +303,58 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, cantieri =
       {/* Azioni admin */}
       {isAdmin && r.stato === 'inviato' && (
         <div className="px-4 pb-4 space-y-2">
+          {/* Multi-cantiere rilevato — dividi in un rapportino per cantiere */}
+          {r.multi_cantiere && segmenti.length > 1 && (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <GitBranch size={13} className="text-purple-600"/>
+                <p className="text-xs font-semibold text-purple-800">
+                  Rilevati {segmenti.length} cantieri diversi in questo rapportino
+                </p>
+              </div>
+              {!dividendo ? (
+                <button onClick={() => setDividendo(true)}
+                  className="text-xs text-purple-700 underline">
+                  Dividi in {segmenti.length} rapportini
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  {segmenti.map((s, i) => (
+                    <div key={i} className="bg-white border border-purple-100 rounded-lg p-2 space-y-1.5">
+                      <p className="text-xs text-gray-600">
+                        {s.cantiere
+                          ? <>Citato: <strong>"{s.cantiere}"</strong></>
+                          : <span className="text-gray-400">Cantiere non specificato</span>}
+                        {s.ore ? ` — ${s.ore}h` : ''}
+                      </p>
+                      {!s.cantiere_id && s.cantiere && (
+                        <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — seleziona a mano</p>
+                      )}
+                      <select
+                        value={s.cantiere_id}
+                        onChange={e => aggiornaSegmento(i, 'cantiere_id', e.target.value)}
+                        className="w-full border border-purple-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
+                        <option value="">— scegli cantiere —</option>
+                        {cantieri.map(c => (
+                          <option key={c.id} value={c.id}>{c.nome}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <button
+                      disabled={segmenti.some(s => !s.cantiere_id)}
+                      onClick={confermaDivisione}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition-colors disabled:opacity-40">
+                      <GitBranch size={15} /> Conferma divisione
+                    </button>
+                    <button onClick={() => setDividendo(false)}
+                      className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">Annulla</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {/* Assegnazione cantiere — se fuori cantiere */}
           {r.fuori_cantiere && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
@@ -405,6 +518,28 @@ function VistaAdmin() {
     }
   )
 
+  const modificaMutation = useMutation(
+    ({ id, ...dati }) => api.put(`/rapportini/${id}`, dati),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries('rapp-da-validare')
+        qc.invalidateQueries('rapp-tutti')
+        qc.invalidateQueries('rapp-fuori')
+      }
+    }
+  )
+
+  const dividiMutation = useMutation(
+    ({ id, segmenti }) => api.put(`/rapportini/${id}/dividi`, segmenti),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries('rapp-da-validare')
+        qc.invalidateQueries('rapp-tutti')
+        qc.invalidateQueries('rapp-fuori')
+      }
+    }
+  )
+
   const lista = tab === 'da-validare' ? daValidare : tab === 'fuori' ? fuoriCantiere : tutti
   const fuoriCount = fuoriCantiere.filter(r => r.stato === 'inviato').length
 
@@ -456,7 +591,9 @@ function VistaAdmin() {
               onValida={(id, rifiuta, note_admin, cantiere_id) =>
                 validaMutation.mutate({ id, rifiuta, note_admin, cantiere_id })}
               onElimina={(id) => eliminaMutation.mutate(id)}
-              onAssegna={(id, cantiere_id) => assegnaMutation.mutate({ id, cantiere_id })} />
+              onAssegna={(id, cantiere_id) => assegnaMutation.mutate({ id, cantiere_id })}
+              onModifica={(id, dati) => modificaMutation.mutate({ id, ...dati })}
+              onDividi={(id, segmenti) => dividiMutation.mutate({ id, segmenti })} />
           ))}
         </div>
       )}
