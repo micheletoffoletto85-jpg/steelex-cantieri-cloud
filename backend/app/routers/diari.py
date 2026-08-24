@@ -392,7 +392,10 @@ async def upload_foto_cantiere(
 
     _ct_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic"}
     ext = os.path.splitext(file.filename or "")[1].lower() or _ct_map.get((file.content_type or "").split(";")[0].strip(), "") or ".jpg"
-    url, _ = salva_file(await file.read(), f"foto/{cantiere_id}", ext)
+    # salva_file() e' I/O bloccante (rete verso R2 o scrittura disco): va eseguita
+    # in threadpool per non bloccare l'event loop e causare timeout a cascata
+    from starlette.concurrency import run_in_threadpool
+    url, _ = await run_in_threadpool(salva_file, await file.read(), f"foto/{cantiere_id}", ext)
 
     ultimo = db.query(func.max(FotoCantiere.ordine)).filter(FotoCantiere.cantiere_id == cantiere_id).scalar()
     foto = FotoCantiere(cantiere_id=cantiere_id, url=url, ordine=(ultimo or 0) + 1, autore_id=user.id)
