@@ -298,63 +298,72 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
             </div>
           </div>
         )}
+
+        {/* Multi-cantiere rilevato — dividi in un rapportino per cantiere. Disponibile anche
+            dopo la validazione: in quel caso ripulisce prima diario e ore già registrate sul
+            cantiere sbagliato (quello unico rilevato) */}
+        {isAdmin && r.multi_cantiere && segmenti.length > 1 && (r.stato === 'inviato' || r.stato === 'validato') && (
+          <div className="mt-3 bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <GitBranch size={13} className="text-purple-600"/>
+              <p className="text-xs font-semibold text-purple-800">
+                Rilevati {segmenti.length} cantieri diversi in questo rapportino
+              </p>
+            </div>
+            {r.stato === 'validato' && (
+              <p className="text-xs text-purple-700">
+                ⚠️ Già validato su <strong>{r.cantiere_nome}</strong> — dividendo verranno cancellate la nota diario
+                e le ore già registrate lì, e ricreate correttamente sui cantieri scelti sotto.
+              </p>
+            )}
+            {!dividendo ? (
+              <button onClick={() => setDividendo(true)}
+                className="text-xs text-purple-700 underline">
+                Dividi in {segmenti.length} rapportini
+              </button>
+            ) : (
+              <div className="space-y-2">
+                {segmenti.map((s, i) => (
+                  <div key={i} className="bg-white border border-purple-100 rounded-lg p-2 space-y-1.5">
+                    <p className="text-xs text-gray-600">
+                      {s.cantiere
+                        ? <>Citato: <strong>"{s.cantiere}"</strong></>
+                        : <span className="text-gray-400">Cantiere non specificato</span>}
+                      {s.ore ? ` — ${s.ore}h` : ''}
+                    </p>
+                    {!s.cantiere_id && s.cantiere && (
+                      <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — seleziona a mano</p>
+                    )}
+                    <select
+                      value={s.cantiere_id}
+                      onChange={e => aggiornaSegmento(i, 'cantiere_id', e.target.value)}
+                      className="w-full border border-purple-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
+                      <option value="">— scegli cantiere —</option>
+                      {cantieri.map(c => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <button
+                    disabled={segmenti.some(s => !s.cantiere_id)}
+                    onClick={confermaDivisione}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition-colors disabled:opacity-40">
+                    <GitBranch size={15} /> Conferma divisione
+                  </button>
+                  <button onClick={() => setDividendo(false)}
+                    className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">Annulla</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Azioni admin */}
       {isAdmin && r.stato === 'inviato' && (
         <div className="px-4 pb-4 space-y-2">
-          {/* Multi-cantiere rilevato — dividi in un rapportino per cantiere */}
-          {r.multi_cantiere && segmenti.length > 1 && (
-            <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2">
-              <div className="flex items-center gap-1.5">
-                <GitBranch size={13} className="text-purple-600"/>
-                <p className="text-xs font-semibold text-purple-800">
-                  Rilevati {segmenti.length} cantieri diversi in questo rapportino
-                </p>
-              </div>
-              {!dividendo ? (
-                <button onClick={() => setDividendo(true)}
-                  className="text-xs text-purple-700 underline">
-                  Dividi in {segmenti.length} rapportini
-                </button>
-              ) : (
-                <div className="space-y-2">
-                  {segmenti.map((s, i) => (
-                    <div key={i} className="bg-white border border-purple-100 rounded-lg p-2 space-y-1.5">
-                      <p className="text-xs text-gray-600">
-                        {s.cantiere
-                          ? <>Citato: <strong>"{s.cantiere}"</strong></>
-                          : <span className="text-gray-400">Cantiere non specificato</span>}
-                        {s.ore ? ` — ${s.ore}h` : ''}
-                      </p>
-                      {!s.cantiere_id && s.cantiere && (
-                        <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — seleziona a mano</p>
-                      )}
-                      <select
-                        value={s.cantiere_id}
-                        onChange={e => aggiornaSegmento(i, 'cantiere_id', e.target.value)}
-                        className="w-full border border-purple-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
-                        <option value="">— scegli cantiere —</option>
-                        {cantieri.map(c => (
-                          <option key={c.id} value={c.id}>{c.nome}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
-                  <div className="flex gap-2">
-                    <button
-                      disabled={segmenti.some(s => !s.cantiere_id)}
-                      onClick={confermaDivisione}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition-colors disabled:opacity-40">
-                      <GitBranch size={15} /> Conferma divisione
-                    </button>
-                    <button onClick={() => setDividendo(false)}
-                      className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">Annulla</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
           {/* Assegnazione cantiere — se fuori cantiere */}
           {r.fuori_cantiere && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">

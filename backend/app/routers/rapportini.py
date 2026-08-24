@@ -661,7 +661,9 @@ def dividi_rapportino(
     user: Utente = Depends(get_current_user),
 ):
     """Admin: divide un rapportino multi-cantiere in un rapportino distinto per ciascun
-    cantiere indicato — ognuno segue poi il normale flusso di validazione (diario + ore)."""
+    cantiere indicato — ognuno segue poi il normale flusso di validazione (diario + ore).
+    Se il rapportino era già validato, elimina prima la nota diario e le ore registrate
+    sotto il cantiere sbagliato (quello unico rilevato), per non contarle due volte."""
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
     if not segmenti:
@@ -670,6 +672,24 @@ def dividi_rapportino(
     if not r: raise HTTPException(404)
     if r.stato == "diviso":
         raise HTTPException(400, "Rapportino già diviso")
+
+    # Ripulisce diario/ore create in automatico dalla validazione precedente (se c'era) —
+    # prima si azzerano i riferimenti sul rapportino (flush), poi si cancellano le righe,
+    # per non violare i vincoli di chiave esterna
+    vecchio_ore_extra_id = r.ore_extra_id
+    vecchio_diario_id = r.diario_id
+    r.ore_extra_id = None
+    r.diario_id = None
+    db.flush()
+    if vecchio_ore_extra_id:
+        vecchie_ore = db.query(OreExtra).filter(OreExtra.id == vecchio_ore_extra_id).first()
+        if vecchie_ore:
+            db.delete(vecchie_ore)
+    if vecchio_diario_id:
+        vecchio_diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == vecchio_diario_id).first()
+        if vecchio_diario:
+            db.delete(vecchio_diario)
+    db.flush()
 
     creati = []
     for i, seg in enumerate(segmenti):
