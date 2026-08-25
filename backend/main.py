@@ -9,8 +9,8 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, checklist, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp, rapportino, programmazione, assegnazione  # importa tutti i modelli
-from app.routers import auth, utenti, cantieri, diari, checklist as checklist_router, trascrizioni, documenti, economico as economico_router, notifiche
+from app.models import utente, cantiere, diario, documento, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp, rapportino, programmazione, assegnazione  # importa tutti i modelli
+from app.routers import auth, utenti, cantieri, diari, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
 from app.routers import files as files_router
@@ -126,8 +126,9 @@ def _migra():
             can_write   BOOLEAN DEFAULT FALSE,
             UNIQUE (cantiere_id, utente_id, categoria)
         )""",
-        # Migra categoria archivio_docs verso le 4 categorie ufficiali
-        "UPDATE archivio_docs SET categoria = 'operativita' WHERE categoria NOT IN ('sicurezza','relazioni_disegni','amministrazione','operativita')",
+        # Migra categoria archivio_docs verso le categorie ufficiali
+        # ('cliente' inclusa — prima non c'era e ogni deploy declassava i documenti condivisi col cliente)
+        "UPDATE archivio_docs SET categoria = 'operativita' WHERE categoria NOT IN ('sicurezza','relazioni_disegni','amministrazione','operativita','cliente')",
         # Validazione diario: artigiani inseriscono bozze, capocantiere pubblica
         "ALTER TABLE diari_giornalieri ADD COLUMN IF NOT EXISTS stato_validazione VARCHAR(20) DEFAULT 'pubblicata'",
         # Rubrica artigiani standalone (senza account app)
@@ -369,7 +370,6 @@ app.include_router(cantieri.router, prefix="/api/v1")
 app.include_router(diari.router, prefix="/api/v1")
 app.include_router(diari.ore_router, prefix="/api/v1")
 app.include_router(diari.foto_router, prefix="/api/v1")
-app.include_router(checklist_router.router, prefix="/api/v1")
 app.include_router(trascrizioni.router, prefix="/api/v1")
 app.include_router(documenti.router, prefix="/api/v1")
 app.include_router(economico_router.router, prefix="/api/v1")

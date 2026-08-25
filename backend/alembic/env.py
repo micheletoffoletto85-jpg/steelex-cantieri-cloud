@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from alembic import context
 from app.database import engine, Base
 from app.models import (  # noqa: F401 — registra tutti i modelli sul metadata
-    utente, cantiere, diario, documento, checklist, economico, notifica,
+    utente, cantiere, diario, documento, economico, notifica,
     raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita,
     notifica_inapp, rapportino, programmazione, assegnazione,
 )

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, CheckSquare, BookOpen, Plus, Trash2, Camera, CheckCircle2, Circle, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import MeteoMappa from '../components/MeteoMappa'
 import ClienteView from './ClienteView'
@@ -93,11 +93,9 @@ export default function CantierePage() {
 
         const tabs = [
           ['info','Info',null],
-          ['aggiornamenti','Aggiornamenti',Calendar],
           ...(isStaffInterno || isStaffExt ? [['team','Team',Users]] : []),
           ...(!['cliente','fornitore'].includes(ruolo) ? [
             ['gantt','Gantt',BarChart2],
-            ['checklist','Checklist',CheckSquare],
             ['diario','Diario',BookOpen],
             ['mappe','Mappe',Map],
             ['foto','Foto',Images],
@@ -119,10 +117,8 @@ export default function CantierePage() {
       })()}
 
       {tab === 'info'          && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
-      {tab === 'aggiornamenti' && <AggiornnamentiTab cantiereId={id} />}
       {tab === 'team'          && <TeamTab cantiereId={id} utente={utente} />}
       {tab === 'gantt'         && <GanttTab cantiereId={id} cantiere={cantiere} />}
-      {tab === 'checklist'     && <ChecklistTab cantiereId={id} />}
       {tab === 'diario'        && <DiarioTab cantiereId={id} utente={utente} />}
       {tab === 'mappe'         && <MappeTab cantiereId={id} />}
       {tab === 'foto'          && <FotoTab cantiereId={id} utente={utente} />}
@@ -241,66 +237,6 @@ function InfoField({ icon, label, value, editing, onChange, type = 'text', displ
       {editing
         ? <input className="input-field py-2 text-sm" type={type} value={value} onChange={e => onChange(e.target.value)} />
         : <p className="text-sm font-medium text-gray-900">{display || value || '—'}</p>}
-    </div>
-  )
-}
-
-/* ─── TAB CHECKLIST ─── */
-function ChecklistTab({ cantiereId }) {
-  const qc = useQueryClient()
-  const [nuovoTesto, setNuovoTesto] = useState('')
-
-  const { data: items = [] } = useQuery(['checklist', cantiereId], () => api.get(`/cantieri/${cantiereId}/checklist`).then(r => r.data))
-
-  const addMutation = useMutation(
-    () => api.post(`/cantieri/${cantiereId}/checklist`, { testo: nuovoTesto }),
-    { onSuccess: () => { qc.invalidateQueries(['checklist', cantiereId]); setNuovoTesto('') } }
-  )
-  const toggleMutation = useMutation(
-    ({ id, completato }) => api.put(`/cantieri/${cantiereId}/checklist/${id}`, { completato }),
-    { onSuccess: () => qc.invalidateQueries(['checklist', cantiereId]) }
-  )
-  const deleteMutation = useMutation(
-    id => api.delete(`/cantieri/${cantiereId}/checklist/${id}`),
-    { onSuccess: () => qc.invalidateQueries(['checklist', cantiereId]) }
-  )
-
-  const completati = items.filter(i => i.completato).length
-
-  return (
-    <div className="space-y-3">
-      {items.length > 0 && (
-        <div className="card flex items-center gap-3">
-          <div className="flex-1 bg-gray-200 rounded-full h-2">
-            <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${(completati / items.length) * 100}%` }} />
-          </div>
-          <span className="text-sm font-medium text-gray-600">{completati}/{items.length}</span>
-        </div>
-      )}
-
-      {/* Aggiungi item */}
-      <div className="flex gap-2">
-        <input className="input-field" placeholder="Nuova attività..." value={nuovoTesto}
-          onChange={e => setNuovoTesto(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && nuovoTesto && addMutation.mutate()} />
-        <button onClick={() => nuovoTesto && addMutation.mutate()} className="btn-primary px-3 py-3"><Plus size={20} /></button>
-      </div>
-
-      {items.length === 0
-        ? <div className="card text-center py-8 text-gray-400"><CheckSquare size={32} className="mx-auto mb-2 opacity-30" /><p>Nessuna attività</p></div>
-        : <div className="space-y-2">
-            {items.map(item => (
-              <div key={item.id} className={`card flex items-center gap-3 ${item.completato ? 'opacity-60' : ''}`}>
-                <button onClick={() => toggleMutation.mutate({ id: item.id, completato: !item.completato })}>
-                  {item.completato
-                    ? <CheckCircle2 size={24} className="text-green-500 flex-shrink-0" />
-                    : <Circle size={24} className="text-gray-300 flex-shrink-0" />}
-                </button>
-                <span className={`flex-1 text-sm ${item.completato ? 'line-through text-gray-400' : 'text-gray-800'}`}>{item.testo}</span>
-                <button onClick={() => deleteMutation.mutate(item.id)} className="p-1 hover:text-red-500 text-gray-300 transition-colors"><Trash2 size={16} /></button>
-              </div>
-            ))}
-          </div>}
     </div>
   )
 }

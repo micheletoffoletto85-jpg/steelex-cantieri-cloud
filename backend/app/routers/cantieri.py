@@ -186,7 +186,6 @@ def export_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utent
     c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not c: raise HTTPException(404, "Cantiere non trovato")
 
-    from app.models.checklist import ChecklistItem
     from app.models.economico import (FaseLavoro, OrdineAcquisto, FatturaFornitore,
                                        SAL, Spesa, PreventivoCantiere, BollaConsegna)
     from app.models.artigiano import Artigiano, FeedbackArtigiano
@@ -194,7 +193,6 @@ def export_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utent
     def _d(v): return str(v) if v else None
 
     fasi = db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).order_by(nullslast(FaseLavoro.data_inizio.asc()), FaseLavoro.ordine).all()
-    checklist = db.query(ChecklistItem).filter(ChecklistItem.cantiere_id == cantiere_id).all()
     ordini = db.query(OrdineAcquisto).filter(OrdineAcquisto.cantiere_id == cantiere_id).all()
     fatture = db.query(FatturaFornitore).filter(FatturaFornitore.cantiere_id == cantiere_id).all()
     sals = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).all()
@@ -236,7 +234,6 @@ def export_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utent
                   "data_inizio": _d(f.data_inizio), "data_fine_prevista": _d(f.data_fine_prevista),
                   "percentuale": f.percentuale, "stato": f.stato, "note": f.note, "ordine": f.ordine}
                  for f in fasi],
-        "checklist": [{"testo": i.testo, "completato": i.completato} for i in checklist],
         "ordini": [{"fornitore_nome": o.fornitore_nome, "descrizione": o.descrizione,
                     "categoria": o.categoria.value if o.categoria else "materiali",
                     "importo": o.importo, "iva_perc": o.iva_perc, "importo_totale": o.importo_totale,
@@ -277,7 +274,6 @@ def import_cantiere(body: dict, db: Session = Depends(get_db), user: Utente = De
                                        SAL, Spesa, PreventivoCantiere, BollaConsegna,
                                        StatoOrdine, StatoFattura, StatoSAL, CategoriaOrdine,
                                        CategoriaSpesa, StatoPreventivo, StatoBolla)
-    from app.models.checklist import ChecklistItem
     from app.models.artigiano import Artigiano, FeedbackArtigiano
 
     cd = body.get("cantiere", {})
@@ -299,9 +295,6 @@ def import_cantiere(body: dict, db: Session = Depends(get_db), user: Utente = De
             data_fine_prevista=f.get("data_fine_prevista") or None,
             percentuale=f.get("percentuale", 0), stato=f.get("stato", "pianificata"),
             note=f.get("note"), ordine=f.get("ordine", 0)))
-
-    for i in body.get("checklist", []):
-        db.add(ChecklistItem(cantiere_id=c.id, testo=i["testo"], completato=i.get("completato", False)))
 
     for o in body.get("ordini", []):
         try: cat = CategoriaOrdine(o.get("categoria", "materiali"))

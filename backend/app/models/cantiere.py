@@ -43,7 +43,6 @@ class Cantiere(Base):
     artigiani = relationship("Utente", secondary=cantiere_artigiani, backref="cantieri_assegnati")
     diari = relationship("DiarioGiornaliero", back_populates="cantiere", cascade="all, delete-orphan")
     documenti = relationship("Documento", back_populates="cantiere", cascade="all, delete-orphan")
-    checklist = relationship("ChecklistItem", back_populates="cantiere", cascade="all, delete-orphan")
     ordini = relationship("OrdineAcquisto", back_populates="cantiere", cascade="all, delete-orphan")
     fatture = relationship("FatturaFornitore", back_populates="cantiere", cascade="all, delete-orphan")
     sal = relationship("SAL", back_populates="cantiere", cascade="all, delete-orphan")
