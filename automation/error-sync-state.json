@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 39,
-  "since_id_fr": 100,
+  "since_id_fr": 101,
   "deleted_id_steelex": 39,
   "deleted_id_fr": 99,
   "pending": {
@@ -16,6 +16,17 @@
         "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
         "url_pagina": "/",
         "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
+      },
+      {
+        "id": 101,
+        "creato_il": "2026-08-25T17:27:45.386774+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=74",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/cantieri/18",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
       }
     ]
   }
