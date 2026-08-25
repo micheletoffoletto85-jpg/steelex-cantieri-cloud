@@ -237,26 +237,31 @@ def genera_relazione_pdf(
     tot_foto = 0
 
     for d in diari:
-        sezione = [Paragraph(_data_it(d.data), style_giorno)]
+        # Solo l'intestazione (data + meta + separatore) va tenuta insieme — è sempre
+        # piccola. Il resto (testo, tabella ore, foto) può essere lungo quanto vuole e
+        # deve poter scorrere su più pagine: un KeepTogether su tutto il blocco andava
+        # in errore (o troncava il contenuto) su note con testo lungo.
+        header = [Paragraph(_data_it(d.data), style_giorno)]
         meta_parts = []
         if d.meteo:
             meta_parts.append(d.meteo)
         if d.operai_presenti:
             meta_parts.append(f"{d.operai_presenti} operai presenti")
         if meta_parts:
-            sezione.append(Paragraph(" · ".join(meta_parts), style_meta))
-        sezione.append(HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey, spaceAfter=4))
+            header.append(Paragraph(" · ".join(meta_parts), style_meta))
+        header.append(HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey, spaceAfter=4))
+        story.append(KeepTogether(header))
 
         if d.extra_preventivo:
             nota_extra = f" — {escape(d.extra_preventivo_nota)}" if d.extra_preventivo_nota else ""
-            sezione.append(Paragraph(f"⚠ LAVORAZIONE EXTRA PREVENTIVO{nota_extra}", style_extra))
+            story.append(Paragraph(f"⚠ LAVORAZIONE EXTRA PREVENTIVO{nota_extra}", style_extra))
 
         testo = (d.attivita or "").strip()
         for para in testo.split("\n"):
             if para.strip():
-                sezione.append(Paragraph(escape(para), style_testo))
+                story.append(Paragraph(escape(para), style_testo))
         if d.problemi:
-            sezione.append(Paragraph(f"<b>Criticità:</b> {escape(d.problemi)}", style_testo))
+            story.append(Paragraph(f"<b>Criticità:</b> {escape(d.problemi)}", style_testo))
 
         # Ore lavorate registrate per questa nota
         ore_rows = db.query(OreExtra).filter(OreExtra.diario_id == d.id).all()
@@ -275,10 +280,9 @@ def genera_relazione_pdf(
                 ("TOPPADDING", (0, 0), (-1, -1), 3),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]))
-            sezione.append(Spacer(1, 2*mm))
-            sezione.append(t)
+            story.append(Spacer(1, 2*mm))
+            story.append(t)
 
-        story.append(KeepTogether(sezione))
         story.append(Spacer(1, 3*mm))
 
         # Report fotografico — griglia 3 per riga

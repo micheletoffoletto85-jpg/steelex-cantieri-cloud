@@ -55,10 +55,18 @@ async function esportaGanttPDF(fasi, salList, cantiere) {
   // ── Range date ──
   const oggi = dayjs().startOf('day')
   const dateFlat = fasi.flatMap(f => [f.data_inizio, f.data_fine_prevista, f.data_fine_reale].filter(Boolean).map(d => dayjs(d).startOf('day')))
+    .filter(d => d.isValid())
   const minFasiD = dateFlat.length ? dateFlat.reduce((a,b) => a.isBefore(b)?a:b).subtract(3,'day') : oggi
   const minD = minFasiD.isBefore(oggi) ? minFasiD : oggi
   const maxD = dateFlat.length ? dateFlat.reduce((a,b) => a.isAfter(b)?a:b).add(7,'day') : oggi.add(60,'day')
   const totalDays = maxD.diff(minD,'day') + 1
+  // Una data sbagliata su una fase (es. anno digitato male) può far esplodere il range
+  // a decine di migliaia di giorni: il PDF impiegherebbe minuti o si pianterebbe il tab.
+  // Meglio avvisare e fermarsi che generare un documento inutilizzabile.
+  if (totalDays > 1830 || totalDays < 1) {
+    toast.error('Intervallo di date delle fasi troppo ampio o non valido — controlla le date di inizio/fine prima di esportare')
+    return
+  }
   const toX = d => d ? GANTT_X + Math.max(0, Math.min(GANTT_W, (dayjs(d).diff(minD,'day') / totalDays) * GANTT_W)) : null
   const todayX = GANTT_X + Math.max(0, Math.min(GANTT_W, (oggi.diff(minD,'day') / totalDays) * GANTT_W))
 
