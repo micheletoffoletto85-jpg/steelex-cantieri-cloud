@@ -1553,7 +1553,8 @@ function DiarioTab({ cantiereId, utente }) {
     setGenerandoRelazione(true)
     try {
       const ids = Array.from(selRelazione).join(',')
-      const resp = await api.get(`/cantieri/${cantiereId}/diari/relazione-pdf?ids=${ids}`, { responseType: 'blob' })
+      // Scarica le foto da storage remoto per ogni nota: sulla rete di cantiere 12s spesso non bastano
+      const resp = await api.get(`/cantieri/${cantiereId}/diari/relazione-pdf?ids=${ids}`, { responseType: 'blob', timeout: 60000 })
       const url = URL.createObjectURL(resp.data)
       const a = document.createElement('a')
       a.href = url
