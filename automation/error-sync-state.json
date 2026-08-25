@@ -5,40 +5,6 @@
   "deleted_id_fr": 96,
   "pending": {
     "steelex": [],
-    "fr": [
-      {
-        "id": 97,
-        "creato_il": "2026-08-25T14:39:16.709498+00:00",
-        "ruolo": "admin",
-        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=72",
-        "metodo": "GET",
-        "status_code": 405,
-        "messaggio": "Request failed with status code 405",
-        "url_pagina": "/cantieri/18",
-        "dettagli": "{}"
-      },
-      {
-        "id": 98,
-        "creato_il": "2026-08-25T14:48:17.847434+00:00",
-        "ruolo": "admin",
-        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=72",
-        "metodo": "GET",
-        "status_code": null,
-        "messaggio": "Timeout client dopo 12000ms",
-        "url_pagina": "/cantieri/18",
-        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
-      },
-      {
-        "id": 99,
-        "creato_il": "2026-08-25T14:49:11.452317+00:00",
-        "ruolo": "admin",
-        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=72",
-        "metodo": "GET",
-        "status_code": null,
-        "messaggio": "Timeout client dopo 12000ms",
-        "url_pagina": "/error-log",
-        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
-      }
-    ]
+    "fr": []
   }
 }
