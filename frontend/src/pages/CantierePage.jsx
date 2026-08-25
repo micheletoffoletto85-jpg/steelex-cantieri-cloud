@@ -1456,6 +1456,9 @@ function DiarioTab({ cantiereId, utente }) {
   const [editId, setEditId] = useState(null)       // id nota in modifica
   const [confermaEliminaId, setConfermaEliminaId] = useState(null)
   const [editTesto, setEditTesto] = useState('')    // testo in modifica
+  // Selezione note per la relazione PDF (extra preventivo da mandare al cliente)
+  const [selRelazione, setSelRelazione] = useState(new Set())
+  const [generandoRelazione, setGenerandoRelazione] = useState(false)
   // Stato registrazione vocale
   const [recStato, setRecStato] = useState('idle') // idle | recording | processing
   const [recSecondi, setRecSecondi] = useState(0)
@@ -1539,6 +1542,28 @@ function DiarioTab({ cantiereId, utente }) {
       toast.success(fileList.length > 1 ? `${fileList.length} foto caricate!` : 'Foto caricata!')
     } catch { toast.error('Errore upload foto') }
     finally { setUploadingFor(null) }
+  }
+
+  const toggleSelRelazione = (id) => setSelRelazione(prev => {
+    const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s
+  })
+
+  const generaRelazione = async () => {
+    if (!selRelazione.size) return
+    setGenerandoRelazione(true)
+    try {
+      const ids = Array.from(selRelazione).join(',')
+      const resp = await api.get(`/cantieri/${cantiereId}/diari/relazione-pdf?ids=${ids}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = resp.headers['content-disposition']?.match(/filename="(.+)"/)?.[1] || 'relazione.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+      setSelRelazione(new Set())
+      toast.success('Relazione generata!')
+    } catch { toast.error('Errore generazione relazione') }
+    finally { setGenerandoRelazione(false) }
   }
 
   // ── Registrazione vocale ──────────────────────────────────────────────────
@@ -1841,18 +1866,44 @@ function DiarioTab({ cantiereId, utente }) {
         </div>
       )}
 
+      {/* Selezione note per relazione PDF cliente (extra preventivo) */}
+      {puoValidare && diariPubblicati.length > 0 && (
+        <div className="flex items-center gap-3 px-1 sticky top-0 z-10 bg-gray-50/95 backdrop-blur py-1.5 -mx-1">
+          <span className="text-xs text-gray-400">
+            {selRelazione.size > 0 ? `${selRelazione.size} nota${selRelazione.size > 1 ? 'e' : ''} selezionat${selRelazione.size > 1 ? 'e' : 'a'}` : 'Seleziona note per generare una relazione'}
+          </span>
+          {selRelazione.size > 0 && (
+            <div className="ml-auto flex items-center gap-3">
+              <button onClick={() => setSelRelazione(new Set())} className="text-xs text-gray-400 hover:text-gray-600">
+                Deseleziona
+              </button>
+              <button onClick={generaRelazione} disabled={generandoRelazione}
+                className="flex items-center gap-1 text-xs bg-steelex-orange text-white px-3 py-1.5 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50">
+                <FileText size={13} /> {generandoRelazione ? 'Generazione...' : 'Genera relazione PDF'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {diariPubblicati.length === 0 && diariBozza.length === 0 && rapportiniPendingQui.length === 0
         ? <div className="card text-center py-8 text-gray-400"><BookOpen size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun diario</p><p className="text-xs mt-1">Registra dalla dashboard per aggiungere una nota</p></div>
         : diariPubblicati.map(d => (
-          <div key={d.id} className="card space-y-2">
+          <div key={d.id} className={`card space-y-2 ${selRelazione.has(d.id) ? 'ring-2 ring-steelex-orange' : ''}`}>
             <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {d.fonte === 'voce' && <Mic size={12} className="text-red-400 flex-shrink-0" />}
-                  <span className="font-bold text-gray-800 text-sm">{dayjs(d.data).format('dddd D MMMM YYYY')}</span>
-                  {d.extra_preventivo && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">⚠ Extra preventivo</span>}
+              <div className="flex items-start gap-2">
+                {puoValidare && (
+                  <input type="checkbox" checked={selRelazione.has(d.id)} onChange={() => toggleSelRelazione(d.id)}
+                    className="w-4 h-4 mt-0.5 accent-fr-accent flex-shrink-0 cursor-pointer" title="Seleziona per la relazione PDF" />
+                )}
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {d.fonte === 'voce' && <Mic size={12} className="text-red-400 flex-shrink-0" />}
+                    <span className="font-bold text-gray-800 text-sm">{dayjs(d.data).format('dddd D MMMM YYYY')}</span>
+                    {d.extra_preventivo && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">⚠ Extra preventivo</span>}
+                  </div>
+                  {d.autore_nome && <p className="text-xs text-gray-400">{d.autore_nome}</p>}
                 </div>
-                {d.autore_nome && <p className="text-xs text-gray-400">{d.autore_nome}</p>}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 {d.meteo && <span className="text-sm text-gray-500">{d.meteo}</span>}

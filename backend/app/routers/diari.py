@@ -1,6 +1,6 @@
-import os, tempfile
+import io, os, tempfile
 from datetime import date as date_today
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
@@ -109,6 +109,243 @@ def crea_diario(cantiere_id: int, data: DiarioCreate, db: Session = Depends(get_
                 )
     except Exception: pass
     return _diario_out(diario)
+
+
+_GIORNI_IT = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+_MESI_IT = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
+            "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+
+
+def _data_it(d) -> str:
+    return f"{_GIORNI_IT[d.weekday()]} {d.day} {_MESI_IT[d.month - 1]} {d.year}"
+
+
+def _chiave_da_url_foto(url: str) -> str:
+    if url.startswith("http"):
+        from urllib.parse import urlparse
+        return urlparse(url).path.lstrip("/")
+    return os.path.join(settings.UPLOAD_DIR, url.removeprefix("/uploads/"))
+
+
+@router.get("/relazione-pdf")
+def genera_relazione_pdf(
+    cantiere_id: int,
+    ids: str = Query(..., description="ID note diario separati da virgola"),
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Relazione PDF con intestazione aziendale che raggruppa una o più note del
+    diario (testo, foto, ore lavorate) — pensata per relazionare al cliente
+    lavori extra preventivo."""
+    if user.ruolo.value not in _RUOLI_VALIDA:
+        raise HTTPException(403, "Solo capocantiere, amministrazione o admin può generare la relazione")
+
+    try:
+        id_list = [int(x) for x in ids.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(400, "Parametro ids non valido")
+    if not id_list:
+        raise HTTPException(400, "Nessuna nota selezionata")
+
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+
+    diari = (db.query(DiarioGiornaliero)
+             .filter(DiarioGiornaliero.id.in_(id_list), DiarioGiornaliero.cantiere_id == cantiere_id)
+             .order_by(DiarioGiornaliero.data.asc())
+             .all())
+    if not diari:
+        raise HTTPException(404, "Nessuna nota trovata")
+
+    from xml.sax.saxutils import escape
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph,
+                                     Spacer, HRFlowable, Image as RLImage, KeepTogether)
+    from app.routers.economico import PDF_BRAND
+    from app.storage import leggi_file
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=15*mm, rightMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=18*mm)
+
+    PRIMARIO = colors.HexColor(PDF_BRAND["colore_primario"])
+    SCURO    = colors.HexColor(PDF_BRAND["colore_scuro"])
+    GRIGIO   = colors.HexColor("#F5F5F5")
+
+    styles = getSampleStyleSheet()
+    style_titolo = ParagraphStyle("titolo_rel", parent=styles["Heading1"], textColor=PRIMARIO, fontSize=18, spaceAfter=2)
+    style_sub = ParagraphStyle("sub_rel", parent=styles["Normal"], textColor=SCURO, fontSize=10)
+    style_label = ParagraphStyle("label_rel", parent=styles["Normal"], textColor=SCURO, fontSize=9, fontName="Helvetica-Bold")
+    style_giorno = ParagraphStyle("giorno_rel", parent=styles["Heading2"], textColor=SCURO, fontSize=13, spaceAfter=2, spaceBefore=8)
+    style_meta = ParagraphStyle("meta_rel", parent=styles["Normal"], fontSize=8.5, textColor=colors.grey, spaceAfter=4)
+    style_testo = ParagraphStyle("testo_rel", parent=styles["Normal"], fontSize=9.5, leading=13, spaceAfter=4)
+    style_small = ParagraphStyle("small_rel", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+
+    story = []
+
+    # Intestazione aziendale — stesso brand usato per i preventivi
+    logo_path = PDF_BRAND["logo"]
+    if os.path.exists(logo_path):
+        try:
+            iw, ih = ImageReader(logo_path).getSize()
+            h = PDF_BRAND["logo_altezza_mm"] * mm
+            img = RLImage(logo_path, width=iw * h / ih, height=h)
+            img.hAlign = "LEFT"
+            story.append(img)
+        except Exception:
+            story.append(Paragraph(PDF_BRAND["nome"], style_titolo))
+    else:
+        story.append(Paragraph(PDF_BRAND["nome"], style_titolo))
+    story.append(Paragraph(PDF_BRAND["sottotitolo"], style_sub))
+    story.append(Spacer(1, 2*mm))
+    story.append(HRFlowable(width="100%", thickness=2, color=PRIMARIO, spaceAfter=6))
+
+    story.append(Paragraph("RELAZIONE LAVORI", style_titolo))
+    data_min = diari[0].data.strftime("%d/%m/%Y")
+    data_max = diari[-1].data.strftime("%d/%m/%Y")
+    periodo = data_min if data_min == data_max else f"dal {data_min} al {data_max}"
+    info_data = [
+        [Paragraph(f"<b>Cantiere:</b> {escape(cantiere.nome or '')}", style_label),
+         Paragraph(f"<b>Periodo:</b> {periodo}", style_label)],
+    ]
+    if cantiere.cliente:
+        info_data.append([Paragraph(f"<b>Cliente:</b> {escape(cantiere.cliente)}", style_label),
+                           Paragraph(f"<b>Data emissione:</b> {date_today.today().strftime('%d/%m/%Y')}", style_label)])
+    indirizzo = ", ".join(x for x in [cantiere.indirizzo, cantiere.citta] if x)
+    if indirizzo:
+        info_data.append([Paragraph(f"<b>Indirizzo:</b> {escape(indirizzo)}", style_label), ""])
+    info_table = Table(info_data, colWidths=["55%", "45%"])
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+    ]))
+    story.append(Spacer(1, 3*mm))
+    story.append(info_table)
+    story.append(Spacer(1, 6*mm))
+
+    tot_ore = 0.0
+    tot_foto = 0
+
+    for d in diari:
+        sezione = [Paragraph(_data_it(d.data), style_giorno)]
+        meta_parts = []
+        if d.meteo:
+            meta_parts.append(d.meteo)
+        if d.operai_presenti:
+            meta_parts.append(f"{d.operai_presenti} operai presenti")
+        if meta_parts:
+            sezione.append(Paragraph(" · ".join(meta_parts), style_meta))
+        sezione.append(HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey, spaceAfter=4))
+
+        testo = (d.attivita or "").strip()
+        for para in testo.split("\n"):
+            if para.strip():
+                sezione.append(Paragraph(escape(para), style_testo))
+        if d.problemi:
+            sezione.append(Paragraph(f"<b>Criticità:</b> {escape(d.problemi)}", style_testo))
+
+        # Ore lavorate registrate per questa nota
+        ore_rows = db.query(OreExtra).filter(OreExtra.diario_id == d.id).all()
+        if ore_rows:
+            tabella_ore = [["Operaio", "Ore", "Attività"]]
+            for o in ore_rows:
+                tot_ore += o.ore or 0
+                tabella_ore.append([o.operaio_nome, f"{o.ore:g}h", o.attivita or ""])
+            t = Table(tabella_ore, colWidths=[45*mm, 15*mm, 105*mm])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), SCURO),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            sezione.append(Spacer(1, 2*mm))
+            sezione.append(t)
+
+        story.append(KeepTogether(sezione))
+        story.append(Spacer(1, 3*mm))
+
+        # Report fotografico — griglia 3 per riga
+        foto_urls = d.foto_urls or []
+        if foto_urls:
+            tot_foto += len(foto_urls)
+            cella_w = 55*mm
+            righe_foto, riga = [], []
+            for url in foto_urls:
+                try:
+                    contenuto, _ = leggi_file(_chiave_da_url_foto(url))
+                    img_buf = io.BytesIO(contenuto)
+                    iw, ih = ImageReader(img_buf).getSize()
+                    img_buf.seek(0)
+                    h = min(cella_w * ih / iw, 55*mm) if iw else cella_w
+                    w = h * iw / ih if ih else cella_w
+                    riga.append(RLImage(img_buf, width=w, height=h))
+                except Exception:
+                    continue
+                if len(riga) == 3:
+                    righe_foto.append(riga); riga = []
+            if riga:
+                riga += [""] * (3 - len(riga))
+                righe_foto.append(riga)
+            if righe_foto:
+                foto_table = Table(righe_foto, colWidths=[cella_w]*3)
+                foto_table.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]))
+                story.append(foto_table)
+        story.append(Spacer(1, 6*mm))
+
+    # Riepilogo
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
+    story.append(Spacer(1, 3*mm))
+    riepilogo = [
+        [Paragraph("<b>Giorni relazionati</b>", style_label), Paragraph(str(len(diari)), style_label)],
+        [Paragraph("<b>Totale ore lavorate</b>", style_label), Paragraph(f"{tot_ore:g}h" if tot_ore else "—", style_label)],
+        [Paragraph("<b>Foto allegate</b>", style_label), Paragraph(str(tot_foto), style_label)],
+    ]
+    riep_table = Table(riepilogo, colWidths=["60%", "40%"])
+    riep_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(riep_table)
+    story.append(Spacer(1, 8*mm))
+
+    # Firma
+    firma_data = [
+        [Paragraph("Per presa visione:", style_label), Paragraph(PDF_BRAND["ragione_sociale"], style_label)],
+        [Paragraph("_" * 35, style_small), Paragraph("_" * 35, style_small)],
+        [Paragraph("Timbro e firma cliente", style_small), Paragraph("Firma", style_small)],
+    ]
+    firma_table = Table(firma_data, colWidths=["50%", "50%"])
+    story.append(firma_table)
+
+    doc.build(story)
+    buf.seek(0)
+
+    nome_cantiere = (cantiere.nome or "cantiere").replace(" ", "_")
+    nome_file = f"relazione_{nome_cantiere}_{data_min.replace('/', '-')}.pdf"
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nome_file}"'},
+    )
 
 
 @router.put("/{diario_id}", response_model=DiarioOut)
