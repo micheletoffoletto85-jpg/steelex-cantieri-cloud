@@ -30,6 +30,11 @@ class RapportinoOperativo(Base):
     spese_extra       = Column(JSON, default=list)   # [{"descrizione": "...", "importo": 0}]
     riassunto         = Column(Text)
 
+    # Lavorazioni extra rispetto al preventivo originale — rilevate dall'IA se l'operaio
+    # lo dice esplicitamente, oppure impostate a mano dall'admin in revisione
+    extra_preventivo      = Column(Boolean, default=False)
+    extra_preventivo_nota = Column(Text, nullable=True)
+
     # Foto allegate
     foto_urls         = Column(JSON, default=list)
 

@@ -1903,6 +1903,9 @@ function DiarioTab({ cantiereId, utente }) {
                     {d.extra_preventivo && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">⚠ Extra preventivo</span>}
                   </div>
                   {d.autore_nome && <p className="text-xs text-gray-400">{d.autore_nome}</p>}
+                  {d.extra_preventivo && d.extra_preventivo_nota && (
+                    <p className="text-xs text-orange-600 mt-0.5">{d.extra_preventivo_nota}</p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">

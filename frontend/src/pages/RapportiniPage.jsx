@@ -19,6 +19,8 @@ function Chips({ rapportino }) {
     chips.push({ icon: AlertTriangle, label: 'Criticità', color: 'bg-red-100 text-red-700' })
   if (rapportino.spese_extra?.length)
     chips.push({ icon: Euro, label: `${rapportino.spese_extra.length} extra`, color: 'bg-yellow-100 text-yellow-700' })
+  if (rapportino.extra_preventivo)
+    chips.push({ icon: AlertTriangle, label: 'Extra preventivo', color: 'bg-orange-100 text-orange-700' })
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
       {chips.map(({ icon: Icon, label, color }, i) => (
@@ -72,6 +74,8 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const [modificaTesto, setModificaTesto] = useState(false)
   const [testoEdit, setTestoEdit] = useState(r.testo_italiano || '')
   const [oreEdit, setOreEdit] = useState(r.ore_lavorate ?? '')
+  const [extraEdit, setExtraEdit] = useState(!!r.extra_preventivo)
+  const [extraNotaEdit, setExtraNotaEdit] = useState(r.extra_preventivo_nota || '')
   const [dividendo, setDividendo] = useState(false)
   const [segmenti, setSegmenti] = useState(() =>
     (r.segmenti_cantieri || []).map(s => ({ ...s, cantiere_id: s.cantiere_id ? String(s.cantiere_id) : '' }))
@@ -88,7 +92,12 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   )
 
   const salvaTesto = () => {
-    onModifica(r.id, { testo_italiano: testoEdit, ore_lavorate: oreEdit === '' ? null : parseFloat(oreEdit) })
+    onModifica(r.id, {
+      testo_italiano: testoEdit,
+      ore_lavorate: oreEdit === '' ? null : parseFloat(oreEdit),
+      extra_preventivo: extraEdit,
+      extra_preventivo_nota: extraEdit ? (extraNotaEdit || null) : null,
+    })
     setModificaTesto(false)
   }
 
@@ -201,7 +210,11 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                     title="Ri-analizza con IA (matching cantiere e rilevamento multi-cantiere aggiornati)">
                     <Sparkles size={13} className={rianalizzando ? 'animate-pulse' : ''} />
                   </button>
-                  <button onClick={() => { setTestoEdit(r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? ''); setModificaTesto(true) }}
+                  <button onClick={() => {
+                    setTestoEdit(r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? '')
+                    setExtraEdit(!!r.extra_preventivo); setExtraNotaEdit(r.extra_preventivo_nota || '')
+                    setModificaTesto(true)
+                  }}
                     className="text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica testo">
                     <Edit3 size={13} />
                   </button>
@@ -218,6 +231,16 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                     onChange={e => setOreEdit(e.target.value)}
                     className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
                 </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={extraEdit} onChange={e => setExtraEdit(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-steelex-orange" />
+                  <span className="text-xs text-gray-600">⚠ Lavorazione extra preventivo</span>
+                </label>
+                {extraEdit && (
+                  <input value={extraNotaEdit} onChange={e => setExtraNotaEdit(e.target.value)}
+                    placeholder="Nota (opzionale): cosa è extra rispetto al preventivo"
+                    className="w-full text-xs border border-orange-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                )}
                 <div className="flex gap-2">
                   <button onClick={salvaTesto}
                     className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-steelex-orange text-white rounded-lg text-xs font-semibold hover:opacity-90">
@@ -228,7 +251,15 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                 </div>
               </div>
             ) : (
-              <p className="text-xs leading-relaxed bg-gray-50 p-2 rounded whitespace-pre-wrap text-gray-700">{r.testo_italiano}</p>
+              <>
+                {r.extra_preventivo && (
+                  <div className="mb-1.5 bg-orange-50 border border-orange-200 rounded-lg px-2 py-1.5 text-xs text-orange-700">
+                    <span className="font-semibold">⚠ Extra preventivo</span>
+                    {r.extra_preventivo_nota && <> — {r.extra_preventivo_nota}</>}
+                  </div>
+                )}
+                <p className="text-xs leading-relaxed bg-gray-50 p-2 rounded whitespace-pre-wrap text-gray-700">{r.testo_italiano}</p>
+              </>
             )}
           </div>
         )}

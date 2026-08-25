@@ -54,6 +54,8 @@ Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON, nessun altro 
   "materiali": ["lista dei materiali usati, es: 'Cartongesso 12.5mm', 'Viti 25mm'"],
   "criticita": "descrizione del problema emerso in una frase, null se nessuna criticità",
   "spese_extra": [{{"descrizione": "cosa", "importo": numero_o_null}}],
+  "extra_preventivo": true_oppure_false,
+  "extra_preventivo_nota": "breve nota su cosa è extra, null se extra_preventivo è false",
   "riassunto": "frase di max 2 righe che riassume la giornata di lavoro",
   "altri_cantieri": [
     {{"cantiere": "nome del secondo cantiere menzionato", "ore": numero_decimale_o_null,
@@ -66,6 +68,9 @@ Regole:
 - Se l'operaio cita un numero di ore (es. "otto ore", "7 ore e mezza"), estrailo come numero
 - Se cita materiali specifici, inseriscili nella lista materiali
 - Se cita un costo aggiuntivo o una spesa non prevista, inseriscila in spese_extra
+- Imposta extra_preventivo a true SOLO se l'operaio dice esplicitamente che il lavoro è extra,
+  fuori preventivo, non concordato o da aggiungere al preventivo (es. "questo è un lavoro extra",
+  "non era nel preventivo", "da fatturare a parte") — non dedurlo da solo, in caso di dubbio lascialo false
 - Non inventare dati non presenti nel testo — se un cantiere non è chiaramente riconoscibile lascialo null
   piuttosto che indovinare
 - I campi lavorazioni e materiali devono essere liste di stringhe brevi
@@ -92,7 +97,8 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
     """Chiama Claude per estrarre i dati strutturati dal testo del rapportino."""
     if not settings.ANTHROPIC_API_KEY:
         return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
-                "criticita": None, "spese_extra": [], "riassunto": testo[:200], "data_lavoro": None,
+                "criticita": None, "spese_extra": [], "extra_preventivo": False, "extra_preventivo_nota": None,
+                "riassunto": testo[:200], "data_lavoro": None,
                 "altri_cantieri": [], "testo": testo}
     import anthropic
     claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -118,7 +124,8 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
         return dati
     except Exception:
         return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
-                "criticita": None, "spese_extra": [], "riassunto": testo[:200], "data_lavoro": None,
+                "criticita": None, "spese_extra": [], "extra_preventivo": False, "extra_preventivo_nota": None,
+                "riassunto": testo[:200], "data_lavoro": None,
                 "altri_cantieri": [], "testo": testo}
 
 
@@ -178,6 +185,8 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
         "materiali": r.materiali or [],
         "criticita": r.criticita,
         "spese_extra": r.spese_extra or [],
+        "extra_preventivo": r.extra_preventivo or False,
+        "extra_preventivo_nota": r.extra_preventivo_nota,
         "riassunto": r.riassunto,
         "stato": r.stato,
         "fuori_cantiere": r.fuori_cantiere,
@@ -483,6 +492,8 @@ async def invia_rapportino(
         materiali       = dati.get("materiali") or [],
         criticita       = dati.get("criticita"),
         spese_extra     = dati.get("spese_extra") or [],
+        extra_preventivo = dati.get("extra_preventivo") or False,
+        extra_preventivo_nota = dati.get("extra_preventivo_nota"),
         riassunto       = dati.get("riassunto") or testo_ita[:200],
         stato           = "inviato",
         fuori_cantiere  = cantiere_id is None,
@@ -582,6 +593,8 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
         stato_validazione = "pubblicata",
         foto_urls       = r.foto_urls or [],
         voci_estratte   = voci,
+        extra_preventivo = r.extra_preventivo or False,
+        extra_preventivo_nota = r.extra_preventivo_nota,
     )
     db.add(diario); db.flush()
     r.diario_id = diario.id
@@ -664,6 +677,8 @@ class ModificaBody(BaseModel):
     lavorazioni: Optional[List[str]] = None
     materiali: Optional[List[str]] = None
     criticita: Optional[str] = None
+    extra_preventivo: Optional[bool] = None
+    extra_preventivo_nota: Optional[str] = None
 
 
 @router.put("/{rapportino_id}")
@@ -681,7 +696,8 @@ def modifica_rapportino(
     if not r: raise HTTPException(404)
 
     dati = body.model_dump(exclude_unset=True)
-    for campo in ("testo_italiano", "riassunto", "ore_lavorate", "lavorazioni", "materiali", "criticita"):
+    for campo in ("testo_italiano", "riassunto", "ore_lavorate", "lavorazioni", "materiali", "criticita",
+                  "extra_preventivo", "extra_preventivo_nota"):
         if campo in dati:
             setattr(r, campo, dati[campo])
 
@@ -695,6 +711,8 @@ def modifica_rapportino(
             if r.criticita:
                 testo_diario += f"\n\n⚠️ Criticità: {r.criticita}"
             diario.attivita = testo_diario
+            diario.extra_preventivo = r.extra_preventivo or False
+            diario.extra_preventivo_nota = r.extra_preventivo_nota
 
     # Se le ore sono cambiate e c'era già una registrazione automatica, aggiornala
     if "ore_lavorate" in dati and r.ore_extra_id:
@@ -749,6 +767,8 @@ def rianalizza_rapportino(
     r.materiali = dati.get("materiali") or []
     r.criticita = dati.get("criticita")
     r.spese_extra = dati.get("spese_extra") or []
+    r.extra_preventivo = dati.get("extra_preventivo") or False
+    r.extra_preventivo_nota = dati.get("extra_preventivo_nota")
     r.riassunto = dati.get("riassunto") or r.riassunto
 
     altri = dati.get("altri_cantieri") or []
@@ -909,6 +929,8 @@ def dividi_rapportino(
             materiali         = seg.materiali or [],
             criticita         = r.criticita if i == 0 else None,
             spese_extra       = r.spese_extra if i == 0 else [],
+            extra_preventivo  = (r.extra_preventivo or False) if i == 0 else False,
+            extra_preventivo_nota = r.extra_preventivo_nota if i == 0 else None,
             riassunto         = seg.riassunto or (testo_seg[:200] if testo_seg else r.riassunto),
             stato             = "inviato",
             fuori_cantiere    = False,

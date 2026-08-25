@@ -23,6 +23,8 @@ class DiarioGiornaliero(Base):
     lingua_originale = Column(String(10))               # es. "ro", "en", "it"
     voci_estratte = Column(JSON, default=list)          # voci contabilizzabili estratte da Claude
     stato_validazione = Column(String(20), default="pubblicata")  # bozza | pubblicata
+    extra_preventivo = Column(Boolean, default=False)   # lavorazione extra rispetto al preventivo
+    extra_preventivo_nota = Column(Text, nullable=True)
 
     cantiere = relationship("Cantiere", back_populates="diari")
     autore = relationship("Utente", back_populates="diari")

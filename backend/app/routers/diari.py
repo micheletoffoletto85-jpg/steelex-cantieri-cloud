@@ -186,6 +186,8 @@ def genera_relazione_pdf(
     style_meta = ParagraphStyle("meta_rel", parent=styles["Normal"], fontSize=8.5, textColor=colors.grey, spaceAfter=4)
     style_testo = ParagraphStyle("testo_rel", parent=styles["Normal"], fontSize=9.5, leading=13, spaceAfter=4)
     style_small = ParagraphStyle("small_rel", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+    style_extra = ParagraphStyle("extra_rel", parent=styles["Normal"], fontSize=9, textColor=PRIMARIO,
+                                  fontName="Helvetica-Bold", spaceAfter=4)
 
     story = []
 
@@ -244,6 +246,10 @@ def genera_relazione_pdf(
         if meta_parts:
             sezione.append(Paragraph(" · ".join(meta_parts), style_meta))
         sezione.append(HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey, spaceAfter=4))
+
+        if d.extra_preventivo:
+            nota_extra = f" — {escape(d.extra_preventivo_nota)}" if d.extra_preventivo_nota else ""
+            sezione.append(Paragraph(f"⚠ LAVORAZIONE EXTRA PREVENTIVO{nota_extra}", style_extra))
 
         testo = (d.attivita or "").strip()
         for para in testo.split("\n"):
@@ -311,11 +317,14 @@ def genera_relazione_pdf(
     # Riepilogo
     story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
     story.append(Spacer(1, 3*mm))
+    n_extra = sum(1 for d in diari if d.extra_preventivo)
     riepilogo = [
         [Paragraph("<b>Giorni relazionati</b>", style_label), Paragraph(str(len(diari)), style_label)],
         [Paragraph("<b>Totale ore lavorate</b>", style_label), Paragraph(f"{tot_ore:g}h" if tot_ore else "—", style_label)],
         [Paragraph("<b>Foto allegate</b>", style_label), Paragraph(str(tot_foto), style_label)],
     ]
+    if n_extra:
+        riepilogo.append([Paragraph("<b>Di cui extra preventivo</b>", style_label), Paragraph(str(n_extra), style_label)])
     riep_table = Table(riepilogo, colWidths=["60%", "40%"])
     riep_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
