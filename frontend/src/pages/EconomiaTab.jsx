@@ -920,7 +920,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
                         </td>
                         <td className="p-1 text-center">
                           <button onClick={() => setVoci(vv => vv.filter(x=>x.id!==v.id))}
-                            className="text-gray-300 hover:text-red-500 transition-colors p-0.5">
+                            className="text-gray-400 hover:text-red-500 transition-colors p-0.5">
                             <Trash2 size={13}/>
                           </button>
                         </td>
@@ -1035,7 +1035,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
                   <input type="file" accept=".pdf,.jpg,.png" className="hidden" onChange={e => e.target.files[0] && uploadPdf(p.id, e.target.files[0])} />
                 </label>
                 <button onClick={() => apriModifica(p)} className="p-1 text-gray-400 hover:text-steelex-orange"><Edit2 size={14} /></button>
-                <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(p.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+                <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(p.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
               </>}
             </div>
           </div>
@@ -1323,7 +1323,7 @@ function SpeseSection({ cantiereId, canWrite }) {
                 {' · '}selezionate {importExcel.selezionate.size}/{importExcel.righe.length}
               </p>
             </div>
-            <button onClick={() => setImportExcel(null)} className="text-gray-300 hover:text-gray-500"><X size={16}/></button>
+            <button onClick={() => setImportExcel(null)} className="text-gray-400 hover:text-gray-500"><X size={16}/></button>
           </div>
 
           {importExcel.errori?.length > 0 && (
@@ -1591,7 +1591,7 @@ function SpeseSection({ cantiereId, canWrite }) {
                   <input type="file" accept=".pdf" className="hidden" onChange={e => e.target.files[0] && uploadAllegato(s.id, e.target.files[0])} />
                 </label>
                 <button onClick={() => apriModificaSpesa(s)} className="p-1 text-gray-400 hover:text-steelex-orange"><Edit2 size={14} /></button>
-                <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(s.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+                <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(s.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
               </div>
             )}
           </div>
@@ -1682,7 +1682,7 @@ function SALSection({ cantiereId, canWrite, isDL = false }) {
                 {Object.entries(STATO_SAL).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             ) : <span className={`text-xs px-2 py-0.5 rounded-full ${STATO_SAL[s.stato]?.bg}`}>{STATO_SAL[s.stato]?.label}</span>}
-            {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(s.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>}
+            {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(s.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>}
           </div>
         </div>
       ))}
@@ -1847,8 +1847,8 @@ function OreExtraSection({ cantiereId, canWrite }) {
                       → Spesa
                     </button>
                   )}
-                  {canWrite && <button onClick={() => startEdit(o)} className="p-1 text-gray-300 hover:text-blue-500"><Pencil size={13}/></button>}
-                  {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(o.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>}
+                  {canWrite && <button onClick={() => startEdit(o)} className="p-1 text-gray-400 hover:text-blue-500"><Pencil size={13}/></button>}
+                  {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(o.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13}/></button>}
                 </div>
               </div>
             </div>
@@ -1978,8 +1978,8 @@ function OrdiniSection({ cantiereId, canWrite }) {
                       onChange={e => cambiaStato.mutate({ id: o.id, stato: e.target.value })}>
                       {Object.entries(STATI_ORDINE).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
                     </select>
-                    <button onClick={() => apriModifica(o)} className="p-1 text-gray-300 hover:text-blue-500"><Edit2 size={14}/></button>
-                    <button onClick={() => confirm('Eliminare ordine?') && elimina.mutate(o.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14}/></button>
+                    <button onClick={() => apriModifica(o)} className="p-1 text-gray-400 hover:text-blue-500"><Edit2 size={14}/></button>
+                    <button onClick={() => confirm('Eliminare ordine?') && elimina.mutate(o.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14}/></button>
                   </div>
                 )}
               </div>
@@ -2119,8 +2119,8 @@ function BolleSection({ cantiereId, canWrite }) {
                       <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => e.target.files[0] && uploadFoto(b.id, e.target.files[0])}/>
                     </label>
                     <div className="flex-1"/>
-                    <button onClick={() => apriModifica(b)} className="p-1 text-gray-300 hover:text-blue-500"><Edit2 size={14}/></button>
-                    <button onClick={() => confirm('Eliminare DDT?') && elimina.mutate(b.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14}/></button>
+                    <button onClick={() => apriModifica(b)} className="p-1 text-gray-400 hover:text-blue-500"><Edit2 size={14}/></button>
+                    <button onClick={() => confirm('Eliminare DDT?') && elimina.mutate(b.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14}/></button>
                   </div>
                 )}
               </div>
@@ -2208,7 +2208,7 @@ function FattureSection({ cantiereId, canWrite }) {
             ) : (
               <span className="text-xs text-orange-600 font-medium">⏳ In attesa autorizzazione</span>
             )}
-            {canWrite && <button onClick={()=>confirm('Eliminare fattura?')&&elimina.mutate(f.id)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>}
+            {canWrite && <button onClick={()=>confirm('Eliminare fattura?')&&elimina.mutate(f.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13}/></button>}
           </div>
         </div>
       ))}

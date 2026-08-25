@@ -84,7 +84,7 @@ function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle
             ? `${op.nome} — ${rangeCelle.length} turni`
             : `${op.nome} — ${turno === 'M' ? 'Mattina' : 'Pomeriggio'} ${dayjs(data).format('D/M')}`}
         </p>
-        <button onClick={onChiudi} className="text-gray-300 hover:text-gray-500"><X size={14}/></button>
+        <button onClick={onChiudi} className="text-gray-400 hover:text-gray-500"><X size={14}/></button>
       </div>
       {/* Tipo attività: cantiere o programmazione libera */}
       <div className="flex gap-1 mb-2 flex-wrap">

@@ -961,7 +961,7 @@ function MappeTab({ cantiereId }) {
                 <p className="text-xs text-gray-400">{doc.tipo?.toUpperCase()} · {doc.pin_dati?.length || 0} pin</p>
               </div>
               {canWrite && (
-                <button onClick={e => { e.stopPropagation(); if (confirm('Eliminare?')) deleteMutation.mutate(doc.id) }} className="p-1 text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                <button onClick={e => { e.stopPropagation(); if (confirm('Eliminare?')) deleteMutation.mutate(doc.id) }} className="p-1 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
               )}
             </div>
           ))}
@@ -1859,7 +1859,7 @@ function DiarioTab({ cantiereId, utente }) {
                 {d.operai_presenti > 0 && <span className="text-sm text-gray-500">👷 {d.operai_presenti}</span>}
                 {isAdminDiario && (<>
                   <button onClick={() => { setEditId(d.id); setEditTesto(d.attivita || '') }}
-                    className="p-1 text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica">
+                    className="p-1 text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica">
                     <Edit2 size={14} />
                   </button>
                   {confermaEliminaId === d.id ? (
@@ -1875,7 +1875,7 @@ function DiarioTab({ cantiereId, utente }) {
                     </div>
                   ) : (
                     <button onClick={() => setConfermaEliminaId(d.id)}
-                      className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Elimina">
+                      className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Elimina">
                       <Trash2 size={14} />
                     </button>
                   )}
@@ -2307,6 +2307,23 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
     toast.success('Eliminati')
   }
 
+  const scaricaSelezionati = () => {
+    const daScaricare = docs.filter(d => selezionati.has(d.id))
+    daScaricare.forEach((doc, i) => {
+      setTimeout(() => {
+        const url = doc.file_url?.startsWith('http') ? doc.file_url : `${apiUrl}${doc.file_url}`
+        const a = document.createElement('a')
+        a.href = url
+        a.download = doc.nome || ''
+        a.target = '_blank'
+        a.rel = 'noreferrer'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }, i * 350)
+    })
+  }
+
   const toggleSel = (id) => setSelezionati(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   const tuttiSelezionati = docs.length > 0 && docs.every(d => selezionati.has(d.id))
   const toggleTutti = () => setSelezionati(tuttiSelezionati ? new Set() : new Set(docs.map(d => d.id)))
@@ -2421,10 +2438,16 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
             {tuttiSelezionati ? 'Deseleziona tutto' : 'Seleziona tutto'}
           </label>
           {selezionati.size > 0 && (
-            <button onClick={eliminaSelezionati}
-              className="ml-auto flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium">
-              <Trash2 size={13} /> Elimina {selezionati.size} selezionat{selezionati.size > 1 ? 'i' : 'o'}
-            </button>
+            <div className="ml-auto flex items-center gap-3">
+              <button onClick={scaricaSelezionati}
+                className="flex items-center gap-1 text-xs text-steelex-orange hover:text-orange-700 font-medium">
+                <Download size={13} /> Scarica {selezionati.size} selezionat{selezionati.size > 1 ? 'i' : 'o'}
+              </button>
+              <button onClick={eliminaSelezionati}
+                className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium">
+                <Trash2 size={13} /> Elimina {selezionati.size} selezionat{selezionati.size > 1 ? 'i' : 'o'}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -2485,8 +2508,12 @@ function DocRow({ doc, apiUrl, isStaff, onElimina, selezionato, onToggleSel }) {
           <span className="text-xs text-gray-300 ml-auto flex-shrink-0">{new Date(doc.caricato_il).toLocaleDateString('it-IT')}</span>
         </div>
       </a>
+      <a href={fileUrl} download={doc.nome} target="_blank" rel="noreferrer"
+        className="p-1.5 text-gray-400 hover:text-steelex-orange flex-shrink-0 transition-colors" title="Scarica">
+        <Download size={14} />
+      </a>
       {isStaff && (
-        <button onClick={onElimina} className="p-1.5 text-gray-200 hover:text-red-500 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={onElimina} className="p-1.5 text-gray-400 hover:text-red-500 flex-shrink-0 transition-colors" title="Elimina">
           <Trash2 size={14} />
         </button>
       )}
@@ -2796,10 +2823,10 @@ function FotoTab({ cantiereId, utente }) {
                     className="p-1.5 text-gray-400 hover:text-gray-700 disabled:opacity-20"><ChevronDown size={16} /></button>
                   <button onClick={() => toggleVisibileCliente(f)}
                     title={f.visibile_cliente ? 'Visibile al cliente — tocca per nascondere' : 'Nascosta al cliente — tocca per mostrare'}
-                    className={`p-1.5 rounded-lg ${f.visibile_cliente ? 'text-steelex-orange bg-orange-50' : 'text-gray-300 hover:text-gray-500'}`}>
+                    className={`p-1.5 rounded-lg ${f.visibile_cliente ? 'text-steelex-orange bg-orange-50' : 'text-gray-400 hover:text-gray-500'}`}>
                     {f.visibile_cliente ? <Eye size={16} /> : <EyeOff size={16} />}
                   </button>
-                  <button onClick={() => setConfermaEliminaId(f.id)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={16} /></button>
+                  <button onClick={() => setConfermaEliminaId(f.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
                 </div>
               )}
             </div>

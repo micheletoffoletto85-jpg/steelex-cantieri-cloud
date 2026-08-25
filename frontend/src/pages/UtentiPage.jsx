@@ -302,7 +302,7 @@ export default function UtentiPage() {
                     </button>
                     {!isSelf && (
                       <button onClick={() => setConfirmElimina(u)}
-                        className="p-1.5 text-gray-300 hover:text-red-500 transition-colors" title="Elimina">
+                        className="p-1.5 text-gray-400 hover:text-red-500 transition-colors" title="Elimina">
                         <Trash2 size={16} />
                       </button>
                     )}

@@ -159,7 +159,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
             </span>
             {isAdmin && r.stato !== 'inviato' && r.stato !== 'diviso' && (
               <button onClick={() => setModificaCantiere(v => !v)}
-                className={`transition-colors ${modificaCantiere ? 'text-steelex-orange' : 'text-gray-300 hover:text-steelex-orange'}`}
+                className={`transition-colors ${modificaCantiere ? 'text-steelex-orange' : 'text-gray-400 hover:text-steelex-orange'}`}
                 title="Assegna / cambia cantiere">
                 <Pencil size={14} />
               </button>
@@ -178,7 +178,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                 </div>
               ) : (
                 <button onClick={() => setConfermaElimina(true)}
-                  className="text-gray-300 hover:text-red-500 transition-colors"
+                  className="text-gray-400 hover:text-red-500 transition-colors"
                   title="Elimina rapportino">
                   <Trash2 size={14} />
                 </button>
@@ -197,12 +197,12 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
               {isAdmin && !modificaTesto && r.stato !== 'diviso' && (
                 <div className="flex items-center gap-2">
                   <button onClick={rianalizza} disabled={rianalizzando}
-                    className="text-gray-300 hover:text-purple-600 transition-colors disabled:opacity-40"
+                    className="text-gray-400 hover:text-purple-600 transition-colors disabled:opacity-40"
                     title="Ri-analizza con IA (matching cantiere e rilevamento multi-cantiere aggiornati)">
                     <Sparkles size={13} className={rianalizzando ? 'animate-pulse' : ''} />
                   </button>
                   <button onClick={() => { setTestoEdit(r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? ''); setModificaTesto(true) }}
-                    className="text-gray-300 hover:text-steelex-orange transition-colors" title="Modifica testo">
+                    className="text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica testo">
                     <Edit3 size={13} />
                   </button>
                 </div>
@@ -370,7 +370,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                           : <span className="text-gray-400">Segmento {i + 1}</span>}
                       </p>
                       {segmenti.length > 2 && (
-                        <button onClick={() => rimuoviSegmento(i)} className="text-gray-300 hover:text-red-500">
+                        <button onClick={() => rimuoviSegmento(i)} className="text-gray-400 hover:text-red-500">
                           <X size={13} />
                         </button>
                       )}

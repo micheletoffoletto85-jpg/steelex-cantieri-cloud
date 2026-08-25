@@ -1158,7 +1158,7 @@ export function GanttChart({ fasi, salList, canWrite, onEdit, onDelete, onUpdate
                   className="flex-shrink-0 px-2 flex items-center gap-1.5 overflow-hidden border-r-2 border-gray-200">
                   {canWrite && (
                     <GripVertical size={13}
-                      className="flex-shrink-0 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing hidden group-hover:block"
+                      className="flex-shrink-0 text-gray-400 hover:text-gray-500 cursor-grab active:cursor-grabbing hidden group-hover:block"
                       onMouseDown={e => {
                         e.stopPropagation(); e.preventDefault()
                         const rowIndex = fasiRef.current.findIndex(f2 => f2.id === f.id)
@@ -1352,7 +1352,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
                   <button
                     onClick={e => { e.stopPropagation(); onToggleCliente(f.id, !f.visibile_cliente) }}
                     title={f.visibile_cliente ? 'Visibile al cliente — clicca per nascondere' : 'Nascosto al cliente — clicca per condividere'}
-                    className={`flex-shrink-0 p-0.5 rounded transition-colors ${f.visibile_cliente ? 'text-blue-500 hover:text-blue-700' : 'text-gray-300 hover:text-blue-400'}`}
+                    className={`flex-shrink-0 p-0.5 rounded transition-colors ${f.visibile_cliente ? 'text-blue-500 hover:text-blue-700' : 'text-gray-400 hover:text-blue-400'}`}
                   >
                     {f.visibile_cliente ? <Eye size={14} /> : <EyeOff size={14} />}
                   </button>
@@ -1374,7 +1374,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
                 </button>
                 <button
                   onClick={e => { e.stopPropagation(); onDelete(f.id) }}
-                  className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                 >
                   <Trash2 size={15} />
                 </button>

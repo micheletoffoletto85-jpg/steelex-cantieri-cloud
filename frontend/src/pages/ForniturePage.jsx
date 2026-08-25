@@ -267,7 +267,7 @@ function FornitoreCard({ fornitore: f, espanso, onEspandi, puoScrivere, showRati
                     <p className="text-[10px] text-gray-400 mt-0.5">{r.creato_il ? new Date(r.creato_il).toLocaleDateString('it-IT') : ''}</p>
                   </div>
                   {puoScrivere && (
-                    <button onClick={() => deleteRatingMutation.mutate(r.id)} className="p-1 text-gray-300 hover:text-red-400">
+                    <button onClick={() => deleteRatingMutation.mutate(r.id)} className="p-1 text-gray-400 hover:text-red-400">
                       <X size={12} />
                     </button>
                   )}

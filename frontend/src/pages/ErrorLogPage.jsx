@@ -132,7 +132,7 @@ export default function ErrorLogPage() {
                   </td>
                   <td className="px-2 py-2" onClick={ev => ev.stopPropagation()}>
                     <button onClick={() => elimina.mutate(e.id)}
-                      className="p-1 text-gray-300 hover:text-red-500 transition-colors">
+                      className="p-1 text-gray-400 hover:text-red-500 transition-colors">
                       <Trash2 size={14} />
                     </button>
                   </td>

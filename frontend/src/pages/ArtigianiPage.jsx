@@ -801,7 +801,7 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
                     </div>
                     {puoScrivere && (
                       <button onClick={() => deleteFeedbackMutation.mutate(fb.id)}
-                        className="p-1 text-gray-300 hover:text-red-400 transition-colors">
+                        className="p-1 text-gray-400 hover:text-red-400 transition-colors">
                         <X size={12} />
                       </button>
                     )}
