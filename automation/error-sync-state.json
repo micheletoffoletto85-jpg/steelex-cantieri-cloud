@@ -5,40 +5,6 @@
   "deleted_id_fr": 93,
   "pending": {
     "steelex": [],
-    "fr": [
-      {
-        "id": 94,
-        "creato_il": "2026-08-25T11:44:05.625438+00:00",
-        "ruolo": "admin",
-        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=72",
-        "metodo": "GET",
-        "status_code": 405,
-        "messaggio": "Request failed with status code 405",
-        "url_pagina": "/cantieri/18",
-        "dettagli": "{}"
-      },
-      {
-        "id": 95,
-        "creato_il": "2026-08-25T11:44:09.411489+00:00",
-        "ruolo": "admin",
-        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=72",
-        "metodo": "GET",
-        "status_code": 405,
-        "messaggio": "Request failed with status code 405",
-        "url_pagina": "/cantieri/18",
-        "dettagli": "{}"
-      },
-      {
-        "id": 96,
-        "creato_il": "2026-08-25T12:24:37.475603+00:00",
-        "ruolo": "admin",
-        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=72",
-        "metodo": "GET",
-        "status_code": 405,
-        "messaggio": "Request failed with status code 405",
-        "url_pagina": "/cantieri/18",
-        "dettagli": "{}"
-      }
-    ]
+    "fr": []
   }
 }
