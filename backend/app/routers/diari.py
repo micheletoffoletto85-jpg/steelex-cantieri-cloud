@@ -188,6 +188,7 @@ def genera_relazione_pdf(
     style_small = ParagraphStyle("small_rel", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
     style_extra = ParagraphStyle("extra_rel", parent=styles["Normal"], fontSize=9, textColor=PRIMARIO,
                                   fontName="Helvetica-Bold", spaceAfter=4)
+    style_cella = ParagraphStyle("cella_rel", parent=styles["Normal"], fontSize=8, leading=10, textColor=SCURO)
 
     story = []
 
@@ -266,10 +267,17 @@ def genera_relazione_pdf(
         # Ore lavorate registrate per questa nota
         ore_rows = db.query(OreExtra).filter(OreExtra.diario_id == d.id).all()
         if ore_rows:
+            # Celle come Paragraph, non stringhe nude: reportlab non va a capo il testo
+            # dentro una Table se il contenuto è una stringa semplice, solo se è un
+            # Flowable — con nomi/attività lunghe il testo sbordava dalla colonna.
             tabella_ore = [["Operaio", "Ore", "Attività"]]
             for o in ore_rows:
                 tot_ore += o.ore or 0
-                tabella_ore.append([o.operaio_nome, f"{o.ore:g}h", o.attivita or ""])
+                tabella_ore.append([
+                    Paragraph(escape(o.operaio_nome or ""), style_cella),
+                    f"{o.ore:g}h",
+                    Paragraph(escape(o.attivita or ""), style_cella),
+                ])
             t = Table(tabella_ore, colWidths=[45*mm, 15*mm, 105*mm])
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), SCURO),
