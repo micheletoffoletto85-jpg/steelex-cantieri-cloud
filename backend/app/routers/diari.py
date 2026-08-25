@@ -168,6 +168,7 @@ def genera_relazione_pdf(
                                      Spacer, HRFlowable, Image as RLImage, KeepTogether)
     from app.routers.economico import PDF_BRAND
     from app.storage import leggi_file
+    from concurrent.futures import ThreadPoolExecutor
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
@@ -298,10 +299,22 @@ def genera_relazione_pdf(
         if foto_urls:
             tot_foto += len(foto_urls)
             cella_w = 55*mm
-            righe_foto, riga = [], []
-            for url in foto_urls:
+            # Le foto vengono scaricate da R2 una alla volta: con più foto la somma
+            # delle latenze di rete supera facilmente i 12s di timeout del client.
+            # Le scarichiamo in parallelo (sono I/O-bound, non tocca il DB).
+            def _scarica_foto(url):
                 try:
-                    contenuto, _ = leggi_file(_chiave_da_url_foto(url))
+                    return leggi_file(_chiave_da_url_foto(url))
+                except Exception:
+                    return None
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                contenuti = list(executor.map(_scarica_foto, foto_urls))
+            righe_foto, riga = [], []
+            for risultato in contenuti:
+                if risultato is None:
+                    continue
+                contenuto, _ = risultato
+                try:
                     img_buf = io.BytesIO(contenuto)
                     iw, ih = ImageReader(img_buf).getSize()
                     img_buf.seek(0)
