@@ -1,10 +1,22 @@
 {
   "since_id_steelex": 39,
-  "since_id_fr": 96,
+  "since_id_fr": 97,
   "deleted_id_steelex": 39,
   "deleted_id_fr": 96,
   "pending": {
     "steelex": [],
-    "fr": []
+    "fr": [
+      {
+        "id": 97,
+        "creato_il": "2026-08-25T14:39:16.709498+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/18/diari/relazione-pdf?ids=72",
+        "metodo": "GET",
+        "status_code": 405,
+        "messaggio": "Request failed with status code 405",
+        "url_pagina": "/cantieri/18",
+        "dettagli": "{}"
+      }
+    ]
   }
 }
