@@ -358,7 +358,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
     fd.append('lingua_hint', linguaReg)
     if (cantiereSelezionato) fd.append('cantiere_id', cantiereSelezionato)
     if (dataRif) fd.append('data_riferimento', dataRif)
-    foto.forEach(f => fd.append('foto', f))
+    foto.forEach(f => fd.append('foto_avanzamento', f))
     return fd
   }
 

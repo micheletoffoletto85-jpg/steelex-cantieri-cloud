@@ -1439,6 +1439,99 @@ function getSupportedMimeType() {
   return types.find(t => MediaRecorder.isTypeSupported(t)) || 'audio/webm'
 }
 
+/* ─── Riga ore extra editabile (dentro "Voci da contabilizzare" del diario) ─── */
+function VoceOreRow({ ore, cantiereId }) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [nome, setNome] = useState(ore.operaio_nome || '')
+  const [oreVal, setOreVal] = useState(ore.ore ?? '')
+  const [attivita, setAttivita] = useState(ore.attivita || '')
+  const [extra, setExtra] = useState(!!ore.extra_preventivo)
+  const [extraNota, setExtraNota] = useState(ore.extra_preventivo_nota || '')
+
+  const salva = useMutation(
+    (dati) => api.put(`/cantieri/${cantiereId}/ore-extra/${ore.id}`, dati),
+    {
+      onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Aggiornato') },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore'),
+    }
+  )
+
+  const apriModifica = () => {
+    setNome(ore.operaio_nome || ''); setOreVal(ore.ore ?? ''); setAttivita(ore.attivita || '')
+    setExtra(!!ore.extra_preventivo); setExtraNota(ore.extra_preventivo_nota || '')
+    setEditing(true)
+  }
+
+  const conferma = () => {
+    salva.mutate({
+      operaio_nome: nome.trim() || ore.operaio_nome,
+      ore: oreVal === '' ? ore.ore : parseFloat(oreVal),
+      attivita: attivita.trim() || null,
+      extra_preventivo: extra,
+      extra_preventivo_nota: extra ? (extraNota.trim() || null) : null,
+    })
+    setEditing(false)
+  }
+
+  // Spunta rapida extra preventivo senza aprire l'editor completo
+  const toggleExtra = () => {
+    const nuovo = !ore.extra_preventivo
+    salva.mutate({ extra_preventivo: nuovo, extra_preventivo_nota: nuovo ? ore.extra_preventivo_nota : null })
+  }
+
+  if (editing) {
+    return (
+      <div className="py-1.5 border-b border-amber-100 last:border-0 space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Operaio"
+            className="flex-1 border border-amber-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400" />
+          <input type="number" step="0.5" min="0" value={oreVal} onChange={e => setOreVal(e.target.value)}
+            className="w-16 border border-amber-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400" />
+        </div>
+        <input value={attivita} onChange={e => setAttivita(e.target.value)} placeholder="Attività"
+          className="w-full border border-amber-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400" />
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input type="checkbox" checked={extra} onChange={e => {
+            setExtra(e.target.checked)
+            // Precompila con l'attività già scritta per questa persona — è più veloce
+            // tagliare/correggere un testo esistente che scriverne uno nuovo da zero
+            if (e.target.checked && !extraNota) setExtraNota(ore.attivita || '')
+          }} className="w-3.5 h-3.5 accent-orange-600" />
+          <span className="text-xs text-gray-600">⚠ Extra preventivo</span>
+        </label>
+        {extra && (
+          <input value={extraNota} onChange={e => setExtraNota(e.target.value)}
+            placeholder="Cosa è extra — questo testo va nella relazione PDF al posto del racconto generale"
+            className="w-full border border-orange-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400" />
+        )}
+        <div className="flex gap-1.5">
+          <button onClick={conferma} className="flex-1 text-xs py-1 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700">Salva</button>
+          <button onClick={() => setEditing(false)} className="px-2 text-xs text-gray-500 hover:text-gray-700">Annulla</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 py-1.5 border-b border-amber-100 last:border-0">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-gray-800">👷 {ore.operaio_nome} — {ore.ore}h {ore.attivita ? `(${ore.attivita})` : ''}</p>
+        {ore.extra_preventivo && (
+          <p className="text-xs text-orange-600">⚠ Extra preventivo{ore.extra_preventivo_nota ? ` — ${ore.extra_preventivo_nota}` : ''}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button onClick={toggleExtra} title={ore.extra_preventivo ? 'Rimuovi extra preventivo' : 'Segna come extra preventivo'}
+          className={`p-1 rounded transition-colors ${ore.extra_preventivo ? 'text-orange-600' : 'text-gray-300 hover:text-orange-500'}`}>
+          <AlertTriangle size={13} />
+        </button>
+        <button onClick={apriModifica} className="p-1 text-gray-400 hover:text-steelex-orange transition-colors"><Edit2 size={13} /></button>
+      </div>
+    </div>
+  )
+}
+
 /* ─── TAB DIARIO ─── */
 function DiarioTab({ cantiereId, utente }) {
   const qc = useQueryClient()
@@ -1553,7 +1646,7 @@ function DiarioTab({ cantiereId, utente }) {
     setGenerandoRelazione(true)
     try {
       const ids = Array.from(selRelazione).join(',')
-      const resp = await api.get(`/cantieri/${cantiereId}/diari/relazione-pdf?ids=${ids}`, { responseType: 'blob' })
+      const resp = await api.get(`/cantieri/${cantiereId}/diari/relazione-pdf?ids=${ids}`, { responseType: 'blob', timeout: 90000 })
       const url = URL.createObjectURL(resp.data)
       const a = document.createElement('a')
       a.href = url
@@ -1770,7 +1863,12 @@ function DiarioTab({ cantiereId, utente }) {
           {/* Tag Extra Preventivo */}
           <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${form.extra_preventivo ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`}>
             <input type="checkbox" checked={form.extra_preventivo || false}
-              onChange={e => setForm(f => ({ ...f, extra_preventivo: e.target.checked }))}
+              onChange={e => setForm(f => ({
+                ...f, extra_preventivo: e.target.checked,
+                // Precompila con l'attività già scritta — più veloce tagliare/correggere
+                // un testo esistente che scriverne uno nuovo da zero
+                extra_preventivo_nota: (e.target.checked && !f.extra_preventivo_nota) ? (f.attivita || '') : f.extra_preventivo_nota,
+              }))}
               className="w-4 h-4 accent-orange-500" />
             <div>
               <p className="text-sm font-medium text-gray-800">⚠️ Extra preventivo</p>
@@ -1778,7 +1876,7 @@ function DiarioTab({ cantiereId, utente }) {
             </div>
           </label>
           {form.extra_preventivo && (
-            <input className="input-field" placeholder="Nota extra preventivo (opzionale)..."
+            <input className="input-field" placeholder="Cosa è extra — va nella relazione PDF al posto del racconto generale"
               value={form.extra_preventivo_nota || ''}
               onChange={e => setForm(f => ({ ...f, extra_preventivo_nota: e.target.value }))} />
           )}
@@ -1853,10 +1951,10 @@ function DiarioTab({ cantiereId, utente }) {
                 <span className="text-xs text-gray-500 font-medium">{dayjs(r.creato_il).format('dddd D MMMM YYYY')}</span>
                 <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full ml-auto">In attesa</span>
               </div>
-              <p className="text-sm text-gray-500 leading-relaxed">{r.testo_italiano || r.riassunto}</p>
-              {r.foto_urls?.length > 0 && (
+              <p className="text-sm text-gray-500 leading-relaxed">{r.descrizione_lavori || r.testo_italiano || r.riassunto}</p>
+              {(r.foto_avanzamento_urls?.length > 0 || r.foto_extra_urls?.length > 0) && (
                 <div className="flex gap-1.5 flex-wrap">
-                  {r.foto_urls.map((url, i) => (
+                  {[...(r.foto_avanzamento_urls || []), ...(r.foto_extra_urls || [])].map((url, i) => (
                     <img key={i} src={url} alt="" className="w-12 h-12 object-cover rounded-lg border border-gray-200 opacity-60" />
                   ))}
                 </div>
@@ -1952,26 +2050,26 @@ function DiarioTab({ cantiereId, utente }) {
               d.attivita && <p className="text-sm text-gray-700 leading-relaxed">{d.attivita}</p>
             )}
 
-            {/* Voci contabilizzabili estratte dalla voce */}
-            {d.voci_estratte?.length > 0 && (
+            {/* Voci contabilizzabili: ore già registrate (dato live, editabile qui) +
+                eventuali materiali/spese ancora da approvare (snapshot voci_estratte) */}
+            {(d.ore_extra?.length > 0 || d.voci_estratte?.some(v => v.tipo !== 'ore_extra')) && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
                 <p className="text-xs font-semibold text-amber-700 flex items-center gap-1">
                   <Wrench size={12} /> Voci da contabilizzare
                 </p>
-                {d.voci_estratte.map((v, idx) => (
+                {d.ore_extra?.map(ore => (
+                  <VoceOreRow key={ore.id} ore={ore} cantiereId={cantiereId} />
+                ))}
+                {d.voci_estratte?.filter(v => v.tipo !== 'ore_extra').map((v, idx) => (
                   <div key={idx} className={`flex items-center justify-between gap-2 py-1.5 border-b border-amber-100 last:border-0 ${v.approvato ? 'opacity-40' : ''}`}>
                     <div className="flex-1 min-w-0">
-                      {v.tipo === 'ore_extra' ? (
-                        <p className="text-xs font-medium text-gray-800">👷 {v.operaio} — {v.ore}h {v.attivita ? `(${v.attivita})` : ''}</p>
-                      ) : (
-                        <p className="text-xs font-medium text-gray-800">📦 {v.descrizione} × {v.quantita} {v.um}</p>
-                      )}
+                      <p className="text-xs font-medium text-gray-800">📦 {v.descrizione} × {v.quantita} {v.um}</p>
                       {v.totale > 0 && <p className="text-xs text-gray-500">≈ €{v.totale.toFixed(2)}</p>}
                     </div>
                     {!v.approvato ? (
                       <button onClick={() => approvaVoce(d.id, v, idx)}
                         className="flex-shrink-0 text-xs px-2 py-1 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium whitespace-nowrap">
-                        {v.tipo === 'ore_extra' ? '→ Ore' : '→ Spesa'}
+                        → Spesa
                       </button>
                     ) : (
                       <span className="text-xs text-green-600 font-medium flex-shrink-0">✓ Registrato</span>

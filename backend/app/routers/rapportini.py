@@ -3,7 +3,6 @@ logger = logging.getLogger(__name__)
 from datetime import datetime, date as date_today
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from typing import List as TypingList
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -39,24 +38,30 @@ def _suffix_audio(upload_file) -> str:
 RUOLI_OPERATIVO = {RuoloUtente.artigiano}
 RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
 
-# ── Prompt estrazione strutturata ──────────────────────────────────────────────
+# ── Prompt estrazione da voce ──────────────────────────────────────────────────
 
-PROMPT_ESTRAI = """Analizza questo rapportino di lavoro scritto in italiano da un operaio edile.
-Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON, nessun altro testo.
+PROMPT_ESTRAI = """Analizza questo rapportino di lavoro di un operaio edile.
+Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON.
 
 {{
-  "cantiere": "nome del cantiere o indirizzo menzionato (stringa), null se non specificato",
-  "data_lavoro": "data nel formato YYYY-MM-DD se menzionata, null altrimenti",
-  "ore": numero_decimale_ore_lavorate oppure null,
+  "cantiere": "nome del cantiere menzionato, null se non specificato",
+  "data_lavoro": "data YYYY-MM-DD se menzionata, null altrimenti",
+  "ore": numero_ore_lavorate oppure null,
   "testo": "la porzione di racconto relativa SOLO a questo primo cantiere, riscritta in modo che si
     legga da sola senza il resto — se il rapportino parla di UN SOLO cantiere, qui va l'intero racconto",
-  "lavorazioni": ["lista sintetica delle lavorazioni eseguite, max 5-6 parole ciascuna"],
-  "materiali": ["lista dei materiali usati, es: 'Cartongesso 12.5mm', 'Viti 25mm'"],
-  "criticita": "descrizione del problema emerso in una frase, null se nessuna criticità",
+  "descrizione_lavori": "descrizione chiara dei lavori principali svolti (in questo primo cantiere)",
+  "lavorazioni": ["lista sintetica lavorazioni, max 5-6 parole ciascuna"],
+  "materiali": ["lista materiali usati"],
+  "descrizione_extra": "eventuali lavori extra o situazioni particolari, null se nessuna",
+  "ore_extra": numero_ore_extra oppure null,
+  "materiale_extra": "materiale extra usato non previsto, null se nessuno",
+  "criticita": "problema emerso in una frase, null se nessuna criticità o non conformità",
   "spese_extra": [{{"descrizione": "cosa", "importo": numero_o_null}}],
+  "colleghi": [{{"nome": "nome del collega citato come presente/al lavoro insieme",
+                 "ore": numero_ore_o_null}}],
   "extra_preventivo": true_oppure_false,
-  "extra_preventivo_nota": "breve nota su cosa è extra, null se extra_preventivo è false",
-  "riassunto": "frase di max 2 righe che riassume la giornata di lavoro",
+  "extra_preventivo_nota": "breve nota su cosa è extra rispetto al preventivo, null se extra_preventivo è false",
+  "riassunto": "frase di max 2 righe che riassume la giornata",
   "altri_cantieri": [
     {{"cantiere": "nome del secondo cantiere menzionato", "ore": numero_decimale_o_null,
       "testo": "porzione di racconto relativa SOLO a questo cantiere, riscritta in modo che si legga da sola",
@@ -65,23 +70,27 @@ Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON, nessun altro 
 }}
 
 Regole:
-- Se l'operaio cita un numero di ore (es. "otto ore", "7 ore e mezza"), estrailo come numero
-- Se cita materiali specifici, inseriscili nella lista materiali
-- Se cita un costo aggiuntivo o una spesa non prevista, inseriscila in spese_extra
+- Non inventare dati non presenti nel testo — se un cantiere non è chiaramente riconoscibile lascialo
+  null piuttosto che indovinare
+- Se l'operaio nomina un collega presente/al lavoro insieme a lui (es. "io e Mesedin",
+  "con Mario abbiamo fatto...", "eravamo in due, io e..."), inseriscilo in colleghi con il suo
+  nome — se non specifica ore diverse per il collega, lascia ore a null (si userà lo stesso
+  numero di ore del rapportino principale). Non confondere con menzioni generiche di altri
+  operai non presenti quel giorno o riferiti ad altri cantieri
 - Imposta extra_preventivo a true SOLO se l'operaio dice esplicitamente che il lavoro è extra,
-  fuori preventivo, non concordato o da aggiungere al preventivo (es. "questo è un lavoro extra",
-  "non era nel preventivo", "da fatturare a parte") — non dedurlo da solo, in caso di dubbio lascialo false
-- Non inventare dati non presenti nel testo — se un cantiere non è chiaramente riconoscibile lascialo null
-  piuttosto che indovinare
-- I campi lavorazioni e materiali devono essere liste di stringhe brevi
+  fuori preventivo, non concordato o da fatturare a parte (es. "questo è un lavoro extra",
+  "non era nel preventivo", "da aggiungere al preventivo") — non dedurlo da solo, in caso di
+  dubbio lascialo false. È un concetto diverso da descrizione_extra/materiale_extra (che sono
+  note libere su lavori insoliti, non necessariamente fuori contratto)
+- lavorazioni e materiali devono essere liste di stringhe brevi
 - ATTENZIONE ai cantieri multipli: rileggi sempre il racconto cercando cambi di luogo — parole come
   "poi sono andato a/al/da", "dopo pranzo mi sono spostato", "nel pomeriggio ero a", "stamattina invece",
   "prima... poi...", o due nomi di cantiere diversi citati in punti diversi del racconto, sono il segnale
   che si tratta di PIÙ cantieri nella stessa giornata, non uno solo con più fasi di lavoro
-- In quel caso: metti il primo cantiere nei campi principali (cantiere, ore, testo, lavorazioni,
-  riassunto = SOLO quella parte, non tutto il racconto) e OGNI cantiere successivo come voce separata
-  in altri_cantieri, ciascuno con il proprio testo/ore/lavorazioni — il campo "testo" di ogni voce deve
-  coprire, insieme agli altri, l'intero racconto originale senza perdere né duplicare frasi
+- In quel caso: metti il primo cantiere nei campi principali (cantiere, ore, testo, descrizione_lavori,
+  lavorazioni, riassunto = SOLO quella parte, non tutto il racconto) e OGNI cantiere successivo come
+  voce separata in altri_cantieri, ciascuno con il proprio testo/ore/lavorazioni — il campo "testo" di
+  ogni voce deve coprire, insieme agli altri, l'intero racconto originale senza perdere né duplicare frasi
 - Esempio: "Stamattina ero al cantiere Rossi, ho fatto la posa del cartongesso per 4 ore. Poi nel
   pomeriggio sono passato dal cantiere Bianchi per la rasatura, altre 3 ore" → cantiere: "Rossi", ore: 4,
   testo: "Stamattina ho fatto la posa del cartongesso.", altri_cantieri: [{{"cantiere": "Bianchi", "ore": 3,
@@ -93,24 +102,25 @@ Rapportino:
 
 JSON:"""
 
+
 def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
-    """Chiama Claude per estrarre i dati strutturati dal testo del rapportino."""
+    vuoto = {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
+             "criticita": None, "spese_extra": [], "riassunto": testo[:200],
+             "data_lavoro": None, "descrizione_lavori": testo[:300], "testo": testo,
+             "descrizione_extra": None, "ore_extra": None, "materiale_extra": None,
+             "colleghi": [], "extra_preventivo": False, "extra_preventivo_nota": None, "altri_cantieri": []}
     if not settings.ANTHROPIC_API_KEY:
-        return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
-                "criticita": None, "spese_extra": [], "extra_preventivo": False, "extra_preventivo_nota": None,
-                "riassunto": testo[:200], "data_lavoro": None,
-                "altri_cantieri": [], "testo": testo}
+        return vuoto
     import anthropic
     claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    hint_cantieri = ""
+    hint = ""
     if cantieri_nomi:
-        hint_cantieri = f"\nCantieri attivi conosciuti (cerca la corrispondenza migliore, anche parziale o con nomi simili): {', '.join(cantieri_nomi[:20])}\n"
+        hint = f"\nCantieri attivi: {', '.join(cantieri_nomi[:20])}\n"
 
-    prompt = PROMPT_ESTRAI.format(testo=testo) + hint_cantieri
+    prompt = PROMPT_ESTRAI.format(testo=testo) + hint
     msg = claude.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=4096,
+        model="claude-haiku-4-5-20251001", max_tokens=4096,
         messages=[{"role": "user", "content": prompt}]
     )
     raw = msg.content[0].text.strip()
@@ -123,10 +133,7 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
             dati["testo"] = testo
         return dati
     except Exception:
-        return {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
-                "criticita": None, "spese_extra": [], "extra_preventivo": False, "extra_preventivo_nota": None,
-                "riassunto": testo[:200], "data_lavoro": None,
-                "altri_cantieri": [], "testo": testo}
+        return vuoto
 
 
 _PAROLE_NOISE = {"cantiere", "cliente", "via", "presso", "sig", "signor", "signora", "ditta", "azienda"}
@@ -155,7 +162,7 @@ def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[in
         nome_c = _normalizza_nome(c.nome)
         if nome_c and (nome_norm in nome_c or nome_c in nome_norm):
             return c.id
-        indirizzo_c = _normalizza_nome(c.indirizzo)
+        indirizzo_c = _normalizza_nome(getattr(c, "indirizzo", None))
         if indirizzo_c and (nome_norm in indirizzo_c or indirizzo_c in nome_norm):
             return c.id
     parole_rilevate = {p for p in nome_norm.split() if len(p) >= 4}
@@ -180,23 +187,46 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
         "testo_italiano": r.testo_italiano,
         "testo_originale": r.testo_originale,
         "lingua_originale": r.lingua_originale,
+        "descrizione_lavori": r.descrizione_lavori,
+        "foto_avanzamento_urls": r.foto_avanzamento_urls or [],
+        "descrizione_extra": r.descrizione_extra,
+        "foto_extra_urls": r.foto_extra_urls or [],
+        "ore_extra": r.ore_extra,
+        "materiale_extra": r.materiale_extra,
         "ore_lavorate": r.ore_lavorate,
+        "colleghi_ore": r.colleghi_ore or [],
+        "extra_preventivo": r.extra_preventivo or False,
+        "extra_preventivo_nota": r.extra_preventivo_nota,
         "lavorazioni": r.lavorazioni or [],
         "materiali": r.materiali or [],
         "criticita": r.criticita,
         "spese_extra": r.spese_extra or [],
-        "extra_preventivo": r.extra_preventivo or False,
-        "extra_preventivo_nota": r.extra_preventivo_nota,
         "riassunto": r.riassunto,
         "stato": r.stato,
         "fuori_cantiere": r.fuori_cantiere,
         "multi_cantiere": r.multi_cantiere,
         "segmenti_cantieri": r.segmenti_cantieri or [],
-        "foto_urls": r.foto_urls or [],
         "validato_da": f"{r.validato_da.nome} {r.validato_da.cognome}" if r.validato_da else None,
         "validato_il": r.validato_il.isoformat() if r.validato_il else None,
         "note_admin": r.note_admin,
     }
+
+
+async def _salva_foto_lista(files: list, prefisso: str) -> list:
+    urls = []
+    for f in files:
+        if f and f.filename:
+            try:
+                import os as _os
+                ext = _os.path.splitext(f.filename)[1].lower() or ".jpg"
+                contenuto = await f.read()
+                url, _ = salva_file(contenuto, prefisso, ext)
+                if url:
+                    urls.append(url)
+            except Exception:
+                logger.exception("[salva_foto] Errore su file=%s", getattr(f, 'filename', '?'))
+                pass
+    return urls
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -221,7 +251,7 @@ def _whisper_prompt(db: Session) -> str:
     del prompt come contesto, mettere qui i nomi propri aiuta a trascriverli giusti invece
     di sentirli male (es. 'Rossi' capito 'Rosi'), che è la causa più comune di mancato
     abbinamento automatico del cantiere."""
-    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso", "preventivo", "sospeso"])).all()
+    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso"])).all()
     nomi = [c.nome for c in cantieri_attivi if c.nome]
     if not nomi:
         return WHISPER_PROMPT
@@ -317,7 +347,7 @@ async def trascrivi_audio(
             testo_finale = msg_b.content[0].text.strip()
         else:
             testo_finale = testo_riordinato
-      except Exception:
+      except Exception as e:
         logger.exception("[trascrivi] Errore Claude reordering — fallback a testo Whisper grezzo")
         testo_finale = testo_originale
 
@@ -326,28 +356,39 @@ async def trascrivi_audio(
 
 @router.post("/invia")
 async def invia_rapportino(
-    file: UploadFile = File(None),
-    testo: str = Form(None),
+    # Campi form strutturati
     cantiere_id: Optional[int] = Form(None),
+    descrizione_lavori: Optional[str] = Form(None),
+    descrizione_extra: Optional[str] = Form(None),
+    ore_extra: Optional[float] = Form(None),
+    materiale_extra: Optional[str] = Form(None),
+    criticita: Optional[str] = Form(None),
     lingua_hint: Optional[str] = Form(None),
+    # Audio (alternativo al form)
+    audio: UploadFile = File(None),
+    # Testo alternativo all'audio
+    testo: str = Form(None),
     data_riferimento: Optional[str] = Form(None),
-    foto: TypingList[UploadFile] = File(default=[]),
+    # Foto
+    foto_avanzamento: List[UploadFile] = File(default=[]),
+    foto_extra: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    """Operativo invia rapportino (audio o testo). Claude estrae i dati strutturati."""
-    testo_originale = None
-    testo_elaborato = None
-    testo_ita       = None
-    lingua          = "it"
+    """Operativo invia rapportino: form strutturato + foto, oppure audio → AI."""
 
-    if file and file.filename:
-        # ── Audio: Whisper + Claude 2-step ────────────────────────────────────
+    testo_originale = None
+    testo_ita = None
+    lingua = "it"
+    dati_ai = {}
+
+    if audio and audio.filename:
+        # ── Modalità vocale: Whisper + Claude ────────────────────────────────
         if not settings.OPENAI_API_KEY:
             raise HTTPException(503, "OpenAI API key non configurata")
-        suffix = _suffix_audio(file)
+        suffix = _suffix_audio(audio)
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(await file.read()); tmp_path = tmp.name
+            tmp.write(await audio.read()); tmp_path = tmp.name
         if os.path.getsize(tmp_path) < 1024:
             try: os.unlink(tmp_path)
             except Exception: pass
@@ -366,7 +407,7 @@ async def invia_rapportino(
         except HTTPException:
             raise
         except Exception as e:
-            logger.exception("[invia] Errore Whisper — utente=%s filename=%s", getattr(user, 'id', '?'), getattr(file, 'filename', '?'))
+            logger.exception("[invia] Errore Whisper — utente=%s filename=%s", getattr(user, 'id', '?'), audio.filename)
             err_str = str(e).lower()
             if "quota" in err_str or "rate" in err_str or "429" in err_str:
                 raise HTTPException(503, "Servizio di trascrizione momentaneamente sovraccarico — riprova tra qualche secondo")
@@ -378,11 +419,11 @@ async def invia_rapportino(
         if not testo_originale:
             raise HTTPException(422, "Audio non udibile")
 
-        # Claude: riordina nella lingua originale poi traduce
         if settings.ANTHROPIC_API_KEY and len(testo_originale.split()) >= 3:
             import anthropic
             claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-            LINGUE = {"it":"italiano","ro":"rumeno","en":"inglese","de":"tedesco","fr":"francese","pl":"polacco","uk":"ucraino"}
+            LINGUE = {"it":"italiano","ro":"rumeno","en":"inglese","de":"tedesco",
+                      "fr":"francese","pl":"polacco","uk":"ucraino"}
             lingua_nome = LINGUE.get(lingua, lingua)
 
             RIORDINA = (
@@ -397,8 +438,8 @@ async def invia_rapportino(
 
             if lingua != "it":
                 TRADUCI = (
-                    f"Traduci in italiano questo testo in {lingua_nome} scritto da un operaio di cantiere.\n"
-                    "Traduci fedelmente, parole semplici, solo testo scorrevole.\n\n"
+                    f"Traduci in italiano questo testo in {lingua_nome} di un operaio di cantiere.\n"
+                    "Traduci fedelmente, parole semplici.\n\n"
                     f"Testo:\n{testo_elaborato}\n\nTraduzione:"
                 )
                 msg_b = claude.messages.create(
@@ -408,50 +449,45 @@ async def invia_rapportino(
             else:
                 testo_ita = testo_elaborato
         else:
-            testo_elaborato = testo_originale
             testo_ita = testo_originale
 
     elif testo:
-        # ── Testo diretto ─────────────────────────────────────────────────────
         testo_originale = testo.strip()
-        testo_elaborato = testo_originale
-        testo_ita       = testo_originale
-        lingua          = "it"
-    else:
-        raise HTTPException(400, "Fornisci audio o testo")
+        testo_ita = testo_originale
 
-    # Carica lista cantieri attivi per il match
-    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso","preventivo","sospeso"])).all()
-    cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
+    # Estrai dati strutturati dal testo — sia che venga da audio che da testo diretto.
+    # Prima questa chiamata girava solo dentro il ramo audio: i rapportini testuali
+    # (la maggioranza nell'uso reale) non passavano mai dall'IA, quindi ore/cantiere/
+    # criticità scritte nel testo restavano completamente ignorate
+    if testo_ita:
+        cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso"])).all()
+        cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
+        dati_ai = _estrai_dati(testo_ita, cantieri_nomi)
 
-    # Claude estrae dati strutturati
-    dati = _estrai_dati(testo_ita, cantieri_nomi)
+    # ── Salva foto ────────────────────────────────────────────────────────────
+    foto_av_urls = await _salva_foto_lista(foto_avanzamento, "rapportini/avanzamento")
+    foto_ex_urls = await _salva_foto_lista(foto_extra, "rapportini/extra")
 
-    # Se l'operativo ha selezionato manualmente il cantiere, usa quello; altrimenti tenta match automatico
+    # ── Risolvi cantiere ──────────────────────────────────────────────────────
     multi_cantiere = False
     segmenti_cantieri = None
-    if cantiere_id:
-        # Verifica che l'operativo sia assegnato a quel cantiere
-        cantiere_obj = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
-        if not cantiere_obj:
-            cantiere_id = None
-    else:
-        cantiere_id = _match_cantiere(dati.get("cantiere"), cantieri_attivi)
+    if not cantiere_id and dati_ai.get("cantiere"):
+        cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso"])).all()
+        cantiere_id = _match_cantiere(dati_ai.get("cantiere"), cantieri_attivi)
 
         # Rilevamento multi-cantiere: Claude segnala se il rapportino parla di più cantieri.
-        # Costruiamo l'elenco segmenti (primo cantiere + eventuali altri) con il match automatico
-        # per ciascuno — se il nome non corrisponde a nessun cantiere attivo, cantiere_id resta null
-        # cosi' l'admin lo vede segnalato e sceglie a mano in fase di divisione.
-        altri = dati.get("altri_cantieri") or []
+        # Se il nome non corrisponde a nessun cantiere attivo, cantiere_id resta null cosi'
+        # l'admin lo vede segnalato e sceglie a mano in fase di divisione.
+        altri = dati_ai.get("altri_cantieri") or []
         if altri:
             multi_cantiere = True
             segmenti_cantieri = [{
-                "cantiere": dati.get("cantiere"),
+                "cantiere": dati_ai.get("cantiere"),
                 "cantiere_id": cantiere_id,
-                "ore": dati.get("ore"),
-                "testo": dati.get("testo"),
-                "lavorazioni": dati.get("lavorazioni") or [],
-                "riassunto": dati.get("riassunto"),
+                "ore": dati_ai.get("ore"),
+                "testo": dati_ai.get("testo"),
+                "lavorazioni": dati_ai.get("lavorazioni") or [],
+                "riassunto": dati_ai.get("riassunto"),
             }]
             for alt in altri:
                 nome_alt = alt.get("cantiere")
@@ -464,41 +500,34 @@ async def invia_rapportino(
                     "riassunto": alt.get("riassunto"),
                 })
 
-    # Salva foto allegate
-    foto_urls = []
-    if foto:
-        for f in foto:
-            if f and f.filename:
-                try:
-                    ext = os.path.splitext(f.filename)[1].lower() or ".jpg"
-                    contenuto = await f.read()
-                    url, _ = salva_file(contenuto, "rapportini", ext)
-                    if url:
-                        foto_urls.append(url)
-                except Exception:
-                    pass
-
+    # ── Crea rapportino ───────────────────────────────────────────────────────
     rapportino = RapportinoOperativo(
-        operativo_id    = user.id,
-        cantiere_id     = cantiere_id,
-        data_lavoro     = data_riferimento or dati.get("data_lavoro") or str(date_today.today()),
-        testo_originale = testo_originale,
-        testo_elaborato = testo_elaborato,
-        testo_italiano  = testo_ita,
-        lingua_originale = lingua,
-        cantiere_rilevato = dati.get("cantiere"),
-        ore_lavorate    = dati.get("ore"),
-        lavorazioni     = dati.get("lavorazioni") or [],
-        materiali       = dati.get("materiali") or [],
-        criticita       = dati.get("criticita"),
-        spese_extra     = dati.get("spese_extra") or [],
-        extra_preventivo = dati.get("extra_preventivo") or False,
-        extra_preventivo_nota = dati.get("extra_preventivo_nota"),
-        riassunto       = dati.get("riassunto") or testo_ita[:200],
-        stato           = "inviato",
-        fuori_cantiere  = cantiere_id is None,
-        foto_urls       = foto_urls,
-        multi_cantiere  = multi_cantiere,
+        operativo_id      = user.id,
+        cantiere_id       = cantiere_id,
+        data_lavoro       = data_riferimento or dati_ai.get("data_lavoro") or str(date_today.today()),
+        testo_originale   = testo_originale,
+        testo_elaborato   = testo_ita,
+        testo_italiano    = testo_ita,
+        lingua_originale  = lingua,
+        cantiere_rilevato = dati_ai.get("cantiere"),
+        descrizione_lavori = descrizione_lavori or dati_ai.get("descrizione_lavori"),
+        foto_avanzamento_urls = foto_av_urls,
+        descrizione_extra = descrizione_extra or dati_ai.get("descrizione_extra"),
+        foto_extra_urls   = foto_ex_urls,
+        ore_extra         = ore_extra or dati_ai.get("ore_extra"),
+        materiale_extra   = materiale_extra or dati_ai.get("materiale_extra"),
+        ore_lavorate      = dati_ai.get("ore"),
+        colleghi_ore      = dati_ai.get("colleghi") or [],
+        extra_preventivo  = dati_ai.get("extra_preventivo") or False,
+        extra_preventivo_nota = dati_ai.get("extra_preventivo_nota"),
+        lavorazioni       = dati_ai.get("lavorazioni") or [],
+        materiali         = dati_ai.get("materiali") or [],
+        criticita         = criticita or dati_ai.get("criticita"),
+        spese_extra       = dati_ai.get("spese_extra") or [],
+        riassunto         = dati_ai.get("riassunto") or (testo_ita or "")[:200],
+        stato             = "inviato",
+        fuori_cantiere    = cantiere_id is None,
+        multi_cantiere    = multi_cantiere,
         segmenti_cantieri = segmenti_cantieri,
     )
     db.add(rapportino); db.commit(); db.refresh(rapportino)
@@ -508,15 +537,16 @@ async def invia_rapportino(
         admins = db.query(Utente).filter(Utente.ruolo.in_(["admin","capo_cantiere"])).all()
         from app.routers.notifiche import invia_notifica
         for a in admins:
-            invia_notifica(db, [a.id], "📋 Nuovo rapportino", f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}", url="/rapportini")
-    except Exception: pass
+            invia_notifica(db, [a.id], "📋 Nuovo rapportino",
+                           f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}", url="/rapportini")
+    except Exception:
+        pass
 
     return _rap_dict(rapportino)
 
 
 @router.get("/miei")
 def miei_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Operativo vede i propri rapportini."""
     rs = db.query(RapportinoOperativo).filter(
         RapportinoOperativo.operativo_id == user.id
     ).order_by(RapportinoOperativo.creato_il.desc()).limit(50).all()
@@ -525,7 +555,6 @@ def miei_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_cu
 
 @router.get("/da-validare")
 def da_validare(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Admin: rapportini in attesa di validazione."""
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
     rs = db.query(RapportinoOperativo).filter(
@@ -536,7 +565,6 @@ def da_validare(db: Session = Depends(get_db), user: Utente = Depends(get_curren
 
 @router.get("/fuori-cantiere")
 def fuori_cantiere(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Admin: rapportini validati senza cantiere assegnato."""
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
     rs = db.query(RapportinoOperativo).filter(
@@ -546,10 +574,56 @@ def fuori_cantiere(db: Session = Depends(get_db), user: Utente = Depends(get_cur
     return [_rap_dict(r) for r in rs]
 
 
+def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: int, data_obj) -> None:
+    """Ricrea le righe OreExtra dei colleghi citati nel rapportino (persone che hanno
+    lavorato insieme all'operativo ma non hanno inviato un proprio rapportino) — cancella
+    quelle vecchie legate a questo diario e le rifà dalla lista aggiornata, così una
+    modifica o un rianalizza non lasciano righe duplicate o obsolete. La riga
+    dell'operativo stesso (r.ore_extra_id) non viene toccata."""
+    if not r.diario_id:
+        return
+    db.query(OreExtra).filter(
+        OreExtra.diario_id == r.diario_id,
+        OreExtra.id != (r.ore_extra_id or 0),
+    ).delete(synchronize_session=False)
+    for c in (r.colleghi_ore or []):
+        nome = (c.get("nome") or "").strip()
+        if not nome:
+            continue
+        ore = c.get("ore")
+        ore = float(ore) if ore else float(r.ore_lavorate or 0)
+        if ore <= 0:
+            continue
+        db.add(OreExtra(
+            cantiere_id=cantiere_id, diario_id=r.diario_id, operaio_nome=nome,
+            ore=ore, attivita=r.riassunto or "", tariffa_oraria=0.0, totale=0.0,
+            data=data_obj, approvato=True, creato_da=r.operativo_id,
+        ))
+    db.flush()
+
+
 class ValidaBody(BaseModel):
     cantiere_id: Optional[int] = None
     note_admin: Optional[str] = None
     rifiuta: bool = False
+
+
+def _costruisci_testo_diario(r: RapportinoOperativo) -> str:
+    """Testo della nota diario a partire dal rapportino — usa sempre descrizione_lavori
+    (la versione corretta a mano dall'admin, se c'è) e non la dettatura grezza. Prima le
+    lavorazioni elencate non finivano da nessuna parte nel testo/PDF: ora ci sono."""
+    testo = r.descrizione_lavori or r.testo_italiano or r.riassunto or ""
+    if r.lavorazioni:
+        testo += "\n\nLavorazioni: " + ", ".join(r.lavorazioni)
+    if r.materiale_extra:
+        testo += f"\n\nMateriale extra: {r.materiale_extra}"
+    if r.materiali:
+        testo += f"\n\nMateriali usati: {', '.join(r.materiali)}"
+    if r.criticita:
+        testo += f"\n\n⚠️ Criticità/NC: {r.criticita}"
+    if r.descrizione_extra:
+        testo += f"\n\nExtra: {r.descrizione_extra}"
+    return testo
 
 
 def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id: int) -> None:
@@ -560,11 +634,10 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
     except Exception:
         data_obj = date_today.today()
 
-    testo_diario = r.testo_italiano or r.riassunto
-    if r.materiali:
-        testo_diario += f"\n\nMateriali usati: {', '.join(r.materiali)}"
-    if r.criticita:
-        testo_diario += f"\n\n⚠️ Criticità: {r.criticita}"
+    testo_diario = _costruisci_testo_diario(r)
+
+    # unisci tutte le foto
+    tutte_foto = list(r.foto_avanzamento_urls or []) + list(r.foto_extra_urls or [])
 
     # Costruisce voci_estratte con le ore del rapportino — già segnate come registrate
     # perché le ore vengono imputate automaticamente al cantiere (vedi sotto), senza bisogno
@@ -581,19 +654,31 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
             "attivita": r.riassunto or "",
             "approvato": True,
         })
+    for c in (r.colleghi_ore or []):
+        nome_collega = (c.get("nome") or "").strip()
+        ore_collega = c.get("ore")
+        ore_collega = float(ore_collega) if ore_collega else float(r.ore_lavorate or 0)
+        if nome_collega and ore_collega > 0:
+            voci.append({
+                "tipo": "ore_extra",
+                "operaio": nome_collega,
+                "ore": ore_collega,
+                "attivita": r.riassunto or "",
+                "approvato": True,
+            })
 
     diario = DiarioGiornaliero(
-        cantiere_id     = cantiere_id,
-        data            = data_obj,
-        autore_id       = r.operativo_id,
-        attivita        = testo_diario,
-        fonte           = "voce",
-        testo_originale = r.testo_originale,
-        lingua_originale = r.lingua_originale,
+        cantiere_id       = cantiere_id,
+        data              = data_obj,
+        autore_id         = r.operativo_id,
+        attivita          = testo_diario,
+        fonte             = "voce",
+        testo_originale   = r.testo_originale,
+        lingua_originale  = r.lingua_originale,
         stato_validazione = "pubblicata",
-        foto_urls       = r.foto_urls or [],
-        voci_estratte   = voci,
-        extra_preventivo = r.extra_preventivo or False,
+        foto_urls         = tutte_foto,
+        voci_estratte     = voci,
+        extra_preventivo  = r.extra_preventivo or False,
         extra_preventivo_nota = r.extra_preventivo_nota,
     )
     db.add(diario); db.flush()
@@ -601,7 +686,7 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
 
     # Calcolo automatico ore lavorate → registrazione diretta nella sezione ore del cantiere
     if r.ore_lavorate and r.ore_lavorate > 0:
-        ore_extra = OreExtra(
+        ore_extra_row = OreExtra(
             cantiere_id    = cantiere_id,
             diario_id      = diario.id,
             operaio_nome   = nome_op or "Operativo",
@@ -613,8 +698,8 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
             approvato      = True,
             creato_da      = r.operativo_id,
         )
-        db.add(ore_extra); db.flush()
-        r.ore_extra_id = ore_extra.id
+        db.add(ore_extra_row); db.flush()
+        r.ore_extra_id = ore_extra_row.id
 
         # Aggiorna anche il registro ore personale dell'operativo — così non deve
         # inserirle a mano una seconda volta nella sezione "Ore lavorate"
@@ -627,6 +712,11 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
         )
         db.add(ore_personali); db.flush()
         r.ore_lavorate_id = ore_personali.id
+
+    # Colleghi citati come presenti/al lavoro insieme (senza un proprio rapportino) —
+    # anche le loro ore vanno registrate, non solo quelle di chi ha inviato il rapportino
+    if r.colleghi_ore:
+        _sostituisci_colleghi_ore(db, r, cantiere_id, data_obj)
 
 
 class AssegnaBody(BaseModel):
@@ -659,9 +749,15 @@ def assegna_cantiere_rapportino(
             diario.cantiere_id = cantiere.id
         # Sposta anche le ore già registrate automaticamente, se presenti
         if r.ore_extra_id:
-            ore_extra = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
-            if ore_extra:
-                ore_extra.cantiere_id = cantiere.id
+            ore_extra_row = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
+            if ore_extra_row:
+                ore_extra_row.cantiere_id = cantiere.id
+        # ...comprese quelle dei colleghi, legate allo stesso diario
+        if r.diario_id:
+            db.query(OreExtra).filter(
+                OreExtra.diario_id == r.diario_id,
+                OreExtra.id != (r.ore_extra_id or 0),
+            ).update({"cantiere_id": cantiere.id}, synchronize_session=False)
     elif r.stato == "validato":
         # Rapportino validato senza diario (era fuori cantiere): crealo ora
         _crea_diario_da_rapportino(db, r, cantiere.id)
@@ -670,13 +766,23 @@ def assegna_cantiere_rapportino(
     return _rap_dict(r)
 
 
+class CollegaOre(BaseModel):
+    nome: str
+    ore: Optional[float] = None
+
+
 class ModificaBody(BaseModel):
     testo_italiano: Optional[str] = None
+    descrizione_lavori: Optional[str] = None
+    descrizione_extra: Optional[str] = None
     riassunto: Optional[str] = None
     ore_lavorate: Optional[float] = None
+    ore_extra: Optional[float] = None
+    materiale_extra: Optional[str] = None
     lavorazioni: Optional[List[str]] = None
     materiali: Optional[List[str]] = None
     criticita: Optional[str] = None
+    colleghi_ore: Optional[List[CollegaOre]] = None
     extra_preventivo: Optional[bool] = None
     extra_preventivo_nota: Optional[str] = None
 
@@ -696,8 +802,9 @@ def modifica_rapportino(
     if not r: raise HTTPException(404)
 
     dati = body.model_dump(exclude_unset=True)
-    for campo in ("testo_italiano", "riassunto", "ore_lavorate", "lavorazioni", "materiali", "criticita",
-                  "extra_preventivo", "extra_preventivo_nota"):
+    for campo in ("testo_italiano", "descrizione_lavori", "descrizione_extra", "riassunto",
+                  "ore_lavorate", "ore_extra", "materiale_extra", "lavorazioni", "materiali", "criticita",
+                  "colleghi_ore", "extra_preventivo", "extra_preventivo_nota"):
         if campo in dati:
             setattr(r, campo, dati[campo])
 
@@ -705,24 +812,19 @@ def modifica_rapportino(
     if r.diario_id:
         diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == r.diario_id).first()
         if diario:
-            testo_diario = r.testo_italiano or r.riassunto
-            if r.materiali:
-                testo_diario += f"\n\nMateriali usati: {', '.join(r.materiali)}"
-            if r.criticita:
-                testo_diario += f"\n\n⚠️ Criticità: {r.criticita}"
-            diario.attivita = testo_diario
+            diario.attivita = _costruisci_testo_diario(r)
             diario.extra_preventivo = r.extra_preventivo or False
             diario.extra_preventivo_nota = r.extra_preventivo_nota
 
     # Se le ore sono cambiate e c'era già una registrazione automatica, aggiornala
     if "ore_lavorate" in dati and r.ore_extra_id:
-        ore_extra = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
-        if ore_extra:
+        ore_extra_row = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
+        if ore_extra_row:
             if r.ore_lavorate and r.ore_lavorate > 0:
-                ore_extra.ore = float(r.ore_lavorate)
-                ore_extra.totale = round(ore_extra.ore * (ore_extra.tariffa_oraria or 0), 2)
+                ore_extra_row.ore = float(r.ore_lavorate)
+                ore_extra_row.totale = round(ore_extra_row.ore * (ore_extra_row.tariffa_oraria or 0), 2)
             else:
-                db.delete(ore_extra)
+                db.delete(ore_extra_row)
                 r.ore_extra_id = None
 
     if "ore_lavorate" in dati and r.ore_lavorate_id:
@@ -734,6 +836,15 @@ def modifica_rapportino(
             else:
                 db.delete(ore_personali)
                 r.ore_lavorate_id = None
+
+    # Colleghi citati come presenti/al lavoro insieme — ricrea le loro righe ore se la
+    # lista è cambiata (anche se ore_lavorate non è stato toccato in questa modifica)
+    if "colleghi_ore" in dati and r.diario_id and r.cantiere_id:
+        try:
+            data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
+        except Exception:
+            data_obj = date_today.today()
+        _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)
 
     db.commit()
     return _rap_dict(r)
@@ -752,14 +863,20 @@ def rianalizza_rapportino(
         raise HTTPException(403)
     r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
     if not r: raise HTTPException(404)
-    if not r.testo_italiano:
+    # testo_italiano (il racconto completo originale) prima di descrizione_lavori: quest'ultimo
+    # può essere un riassunto breve — scritto a mano dall'operativo nel form strutturato, o
+    # generato da una ri-analisi precedente — e usarlo come sorgente principale fa perdere
+    # dettagli (ore, nome cantiere) ad ogni ri-analisi successiva invece di ripartire sempre
+    # dal racconto più ricco, che questa funzione non modifica mai
+    testo_base = r.testo_italiano or r.descrizione_lavori
+    if not testo_base:
         raise HTTPException(400, "Nessun testo da rianalizzare")
     if r.stato == "diviso":
         raise HTTPException(400, "Rapportino già diviso")
 
-    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso", "preventivo", "sospeso"])).all()
+    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso"])).all()
     cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
-    dati = _estrai_dati(r.testo_italiano, cantieri_nomi)
+    dati = _estrai_dati(testo_base, cantieri_nomi)
 
     r.cantiere_rilevato = dati.get("cantiere")
     r.ore_lavorate = dati.get("ore")
@@ -767,9 +884,12 @@ def rianalizza_rapportino(
     r.materiali = dati.get("materiali") or []
     r.criticita = dati.get("criticita")
     r.spese_extra = dati.get("spese_extra") or []
+    r.colleghi_ore = dati.get("colleghi") or []
     r.extra_preventivo = dati.get("extra_preventivo") or False
     r.extra_preventivo_nota = dati.get("extra_preventivo_nota")
     r.riassunto = dati.get("riassunto") or r.riassunto
+    if dati.get("descrizione_lavori"):
+        r.descrizione_lavori = dati.get("descrizione_lavori")
 
     altri = dati.get("altri_cantieri") or []
     if altri:
@@ -810,22 +930,22 @@ def rianalizza_rapportino(
         data_obj = date_today.today()
 
     if r.ore_extra_id:
-        ore_extra = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
-        if ore_extra:
+        ore_extra_row = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
+        if ore_extra_row:
             if r.ore_lavorate and r.ore_lavorate > 0:
-                ore_extra.ore = float(r.ore_lavorate)
-                ore_extra.totale = round(ore_extra.ore * (ore_extra.tariffa_oraria or 0), 2)
+                ore_extra_row.ore = float(r.ore_lavorate)
+                ore_extra_row.totale = round(ore_extra_row.ore * (ore_extra_row.tariffa_oraria or 0), 2)
             else:
-                db.delete(ore_extra)
+                db.delete(ore_extra_row)
                 r.ore_extra_id = None
     elif r.diario_id and r.cantiere_id and r.ore_lavorate and r.ore_lavorate > 0:
-        ore_extra = OreExtra(
+        ore_extra_row = OreExtra(
             cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
             ore=float(r.ore_lavorate), attivita=r.riassunto or "", tariffa_oraria=0.0,
             totale=0.0, data=data_obj, approvato=True, creato_da=r.operativo_id,
         )
-        db.add(ore_extra); db.flush()
-        r.ore_extra_id = ore_extra.id
+        db.add(ore_extra_row); db.flush()
+        r.ore_extra_id = ore_extra_row.id
 
     if r.ore_lavorate_id:
         ore_personali = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
@@ -843,6 +963,9 @@ def rianalizza_rapportino(
         )
         db.add(ore_personali); db.flush()
         r.ore_lavorate_id = ore_personali.id
+
+    if r.diario_id and r.cantiere_id:
+        _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)
 
     db.commit()
     return _rap_dict(r)
@@ -913,28 +1036,31 @@ def dividi_rapportino(
         # per intero su ogni cantiere, va effettivamente diviso
         testo_seg = (seg.testo or "").strip()
         if not testo_seg and i == 0:
-            testo_seg = r.testo_italiano or ""
+            testo_seg = r.descrizione_lavori or r.testo_italiano or ""
 
         nuovo = RapportinoOperativo(
-            operativo_id      = r.operativo_id,
-            cantiere_id       = cantiere.id,
-            data_lavoro       = r.data_lavoro,
-            testo_originale   = r.testo_originale,
-            testo_elaborato   = testo_seg,
-            testo_italiano    = testo_seg,
-            lingua_originale  = r.lingua_originale,
-            cantiere_rilevato = cantiere.nome,
-            ore_lavorate      = seg.ore,
-            lavorazioni       = seg.lavorazioni or [],
-            materiali         = seg.materiali or [],
-            criticita         = r.criticita if i == 0 else None,
-            spese_extra       = r.spese_extra if i == 0 else [],
-            extra_preventivo  = (r.extra_preventivo or False) if i == 0 else False,
-            extra_preventivo_nota = r.extra_preventivo_nota if i == 0 else None,
-            riassunto         = seg.riassunto or (testo_seg[:200] if testo_seg else r.riassunto),
-            stato             = "inviato",
-            fuori_cantiere    = False,
-            foto_urls         = r.foto_urls or [],
+            operativo_id       = r.operativo_id,
+            cantiere_id        = cantiere.id,
+            data_lavoro        = r.data_lavoro,
+            testo_originale    = r.testo_originale,
+            testo_elaborato    = testo_seg,
+            testo_italiano     = testo_seg,
+            lingua_originale   = r.lingua_originale,
+            cantiere_rilevato  = cantiere.nome,
+            descrizione_lavori = testo_seg,
+            foto_avanzamento_urls = r.foto_avanzamento_urls or [],
+            descrizione_extra  = r.descrizione_extra if i == 0 else None,
+            foto_extra_urls    = r.foto_extra_urls or [] if i == 0 else [],
+            ore_extra          = r.ore_extra if i == 0 else None,
+            materiale_extra    = r.materiale_extra if i == 0 else None,
+            ore_lavorate       = seg.ore,
+            lavorazioni        = seg.lavorazioni or [],
+            materiali          = seg.materiali or [],
+            criticita          = r.criticita if i == 0 else None,
+            spese_extra        = r.spese_extra if i == 0 else [],
+            riassunto          = seg.riassunto or (testo_seg[:200] if testo_seg else r.riassunto),
+            stato              = "inviato",
+            fuori_cantiere     = False,
         )
         db.add(nuovo)
         creati.append(nuovo)
@@ -953,7 +1079,6 @@ def valida_rapportino(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    """Admin valida o rifiuta il rapportino. Se validato, crea una nota diario nel cantiere."""
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
     r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
@@ -967,12 +1092,10 @@ def valida_rapportino(
         db.commit()
         return _rap_dict(r)
 
-    # Assegna cantiere se l'admin lo specifica (override del match automatico)
     cantiere_id = body.cantiere_id or r.cantiere_id
     r.cantiere_id = cantiere_id
     r.fuori_cantiere = cantiere_id is None
 
-    # Crea nota diario nel cantiere (se assegnato)
     if cantiere_id:
         _crea_diario_da_rapportino(db, r, cantiere_id)
 
@@ -982,12 +1105,12 @@ def valida_rapportino(
     r.validato_il = datetime.utcnow()
     db.commit()
 
-    # Notifica l'operativo
     try:
         from app.routers.notifiche import invia_notifica
-        msg = "✅ Rapportino validato" if not body.rifiuta else "❌ Rapportino rifiutato"
+        msg = "✅ Rapportino validato"
         invia_notifica(db, [r.operativo_id], msg, body.note_admin or "")
-    except Exception: pass
+    except Exception:
+        pass
 
     return _rap_dict(r)
 
@@ -1011,9 +1134,9 @@ def elimina_rapportino(
 
 @router.get("")
 def lista_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Admin: tutti i rapportini. Operativo: i propri."""
     if user.ruolo in RUOLI_ADMIN:
-        rs = db.query(RapportinoOperativo).order_by(RapportinoOperativo.creato_il.desc()).limit(100).all()
+        rs = db.query(RapportinoOperativo).order_by(
+            RapportinoOperativo.creato_il.desc()).limit(100).all()
     else:
         rs = db.query(RapportinoOperativo).filter(
             RapportinoOperativo.operativo_id == user.id
