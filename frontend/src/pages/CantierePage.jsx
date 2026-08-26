@@ -1492,7 +1492,12 @@ function VoceOreRow({ ore, cantiereId }) {
         <input value={attivita} onChange={e => setAttivita(e.target.value)} placeholder="Attività"
           className="w-full border border-amber-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400" />
         <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input type="checkbox" checked={extra} onChange={e => setExtra(e.target.checked)} className="w-3.5 h-3.5 accent-orange-600" />
+          <input type="checkbox" checked={extra} onChange={e => {
+            setExtra(e.target.checked)
+            // Precompila con l'attività già scritta per questa persona — è più veloce
+            // tagliare/correggere un testo esistente che scriverne uno nuovo da zero
+            if (e.target.checked && !extraNota) setExtraNota(ore.attivita || '')
+          }} className="w-3.5 h-3.5 accent-orange-600" />
           <span className="text-xs text-gray-600">⚠ Extra preventivo</span>
         </label>
         {extra && (
@@ -1858,7 +1863,12 @@ function DiarioTab({ cantiereId, utente }) {
           {/* Tag Extra Preventivo */}
           <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${form.extra_preventivo ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`}>
             <input type="checkbox" checked={form.extra_preventivo || false}
-              onChange={e => setForm(f => ({ ...f, extra_preventivo: e.target.checked }))}
+              onChange={e => setForm(f => ({
+                ...f, extra_preventivo: e.target.checked,
+                // Precompila con l'attività già scritta — più veloce tagliare/correggere
+                // un testo esistente che scriverne uno nuovo da zero
+                extra_preventivo_nota: (e.target.checked && !f.extra_preventivo_nota) ? (f.attivita || '') : f.extra_preventivo_nota,
+              }))}
               className="w-4 h-4 accent-orange-500" />
             <div>
               <p className="text-sm font-medium text-gray-800">⚠️ Extra preventivo</p>
