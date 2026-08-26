@@ -23,25 +23,6 @@ class DiarioUpdate(BaseModel):
     extra_preventivo: Optional[bool] = None
     extra_preventivo_nota: Optional[str] = None
 
-class DiarioOut(DiarioBase):
-    id: int
-    cantiere_id: int
-    autore_id: int
-    foto_urls: List[str] = []
-    creato_il: datetime
-    fonte: Optional[str] = "manuale"
-    testo_originale: Optional[str] = None
-    lingua_originale: Optional[str] = None
-    voci_estratte: Optional[Any] = None
-    condividi_cliente: bool = False
-    stato_validazione: Optional[str] = "pubblicata"
-    extra_preventivo: Optional[bool] = False
-    extra_preventivo_nota: Optional[str] = None
-    autore_nome: Optional[str] = None   # calcolato nel router
-
-    class Config:
-        from_attributes = True
-
 
 class OreExtraOut(BaseModel):
     id: int
@@ -55,6 +36,8 @@ class OreExtraOut(BaseModel):
     data: date
     approvato: bool
     note: Optional[str] = None
+    extra_preventivo: Optional[bool] = False
+    extra_preventivo_nota: Optional[str] = None
     creato_il: Optional[datetime] = None
 
     class Config:
@@ -68,6 +51,8 @@ class OreExtraCreate(BaseModel):
     data: Optional[date] = None
     note: Optional[str] = None
     diario_id: Optional[int] = None
+    extra_preventivo: Optional[bool] = False
+    extra_preventivo_nota: Optional[str] = None
 
 class OreExtraUpdate(BaseModel):
     operaio_nome: Optional[str] = None
@@ -77,3 +62,26 @@ class OreExtraUpdate(BaseModel):
     data: Optional[date] = None
     approvato: Optional[bool] = None
     note: Optional[str] = None
+    extra_preventivo: Optional[bool] = None
+    extra_preventivo_nota: Optional[str] = None
+
+
+class DiarioOut(DiarioBase):
+    id: int
+    cantiere_id: int
+    autore_id: int
+    foto_urls: List[str] = []
+    creato_il: datetime
+    fonte: Optional[str] = "manuale"
+    testo_originale: Optional[str] = None
+    lingua_originale: Optional[str] = None
+    voci_estratte: Optional[Any] = None
+    ore_extra: List[OreExtraOut] = []   # righe ore live (editabili), non più solo lo snapshot voci_estratte
+    condividi_cliente: bool = False
+    stato_validazione: Optional[str] = "pubblicata"
+    extra_preventivo: Optional[bool] = False
+    extra_preventivo_nota: Optional[str] = None
+    autore_nome: Optional[str] = None   # calcolato nel router
+
+    class Config:
+        from_attributes = True

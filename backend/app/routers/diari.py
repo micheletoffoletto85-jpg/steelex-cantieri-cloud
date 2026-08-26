@@ -237,6 +237,16 @@ def genera_relazione_pdf(
     tot_ore = 0.0
     tot_foto = 0
 
+    # Ore per nota, prese in blocco — e se almeno una riga è marcata come extra preventivo,
+    # la relazione riporta SOLO quelle (è lo scopo della relazione: documentare cosa fatturare
+    # a parte). Se invece nessuna riga è marcata, si comporta come report generale e le mostra
+    # tutte, per non rompere l'uso "riassunto lavori" non legato alla fatturazione extra.
+    tutte_le_ore = {
+        d.id: db.query(OreExtra).filter(OreExtra.diario_id == d.id).order_by(OreExtra.id).all()
+        for d in diari
+    }
+    solo_extra_preventivo = any(o.extra_preventivo for righe in tutte_le_ore.values() for o in righe)
+
     for d in diari:
         # Solo l'intestazione (data + meta + separatore) va tenuta insieme — è sempre
         # piccola. Il resto (testo, tabella ore, foto) può essere lungo quanto vuole e
@@ -264,8 +274,11 @@ def genera_relazione_pdf(
         if d.problemi:
             story.append(Paragraph(f"<b>Criticità:</b> {escape(d.problemi)}", style_testo))
 
-        # Ore lavorate registrate per questa nota
-        ore_rows = db.query(OreExtra).filter(OreExtra.diario_id == d.id).all()
+        # Ore lavorate registrate per questa nota — filtrate a extra preventivo se la
+        # relazione ne contiene almeno una (vedi sopra)
+        ore_rows = tutte_le_ore.get(d.id, [])
+        if solo_extra_preventivo:
+            ore_rows = [o for o in ore_rows if o.extra_preventivo]
         if ore_rows:
             # Celle come Paragraph, non stringhe nude: reportlab non va a capo il testo
             # dentro una Table se il contenuto è una stringa semplice, solo se è un
@@ -330,9 +343,10 @@ def genera_relazione_pdf(
     story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
     story.append(Spacer(1, 3*mm))
     n_extra = sum(1 for d in diari if d.extra_preventivo)
+    etichetta_ore = "Totale ore extra preventivo" if solo_extra_preventivo else "Totale ore lavorate"
     riepilogo = [
         [Paragraph("<b>Giorni relazionati</b>", style_label), Paragraph(str(len(diari)), style_label)],
-        [Paragraph("<b>Totale ore lavorate</b>", style_label), Paragraph(f"{tot_ore:g}h" if tot_ore else "—", style_label)],
+        [Paragraph(f"<b>{etichetta_ore}</b>", style_label), Paragraph(f"{tot_ore:g}h" if tot_ore else "—", style_label)],
         [Paragraph("<b>Foto allegate</b>", style_label), Paragraph(str(tot_foto), style_label)],
     ]
     if n_extra:

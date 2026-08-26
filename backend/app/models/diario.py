@@ -28,7 +28,7 @@ class DiarioGiornaliero(Base):
 
     cantiere = relationship("Cantiere", back_populates="diari")
     autore = relationship("Utente", back_populates="diari")
-    ore_extra = relationship("OreExtra", back_populates="diario", cascade="all, delete-orphan")
+    ore_extra = relationship("OreExtra", back_populates="diario", cascade="all, delete-orphan", order_by="OreExtra.id")
 
 
 class OreExtra(Base):
@@ -46,6 +46,11 @@ class OreExtra(Base):
     data = Column(Date, nullable=False)
     approvato = Column(Boolean, default=False)
     note = Column(Text)
+    # Lavorazione extra rispetto al preventivo — a livello di singola riga ore: un rapportino
+    # può avere colleghi con ore normali e uno con ore extra preventivo, non è un flag unico
+    # per tutta la nota diario
+    extra_preventivo = Column(Boolean, default=False)
+    extra_preventivo_nota = Column(Text, nullable=True)
     creato_da = Column(Integer, ForeignKey("utenti.id"))
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 
