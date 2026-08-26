@@ -127,6 +127,26 @@ def _chiave_da_url_foto(url: str) -> str:
     return os.path.join(settings.UPLOAD_DIR, url.removeprefix("/uploads/"))
 
 
+def _foto_ridotta_per_pdf(contenuto: bytes, larghezza_max_px: int = 700):
+    """Ridimensiona e ricomprime una foto prima di metterla nel PDF — le foto da
+    smartphone arrivano spesso a 3-4000px e diversi MB: incollate a piena risoluzione
+    (reportlab non le ridimensiona, disegna solo più piccolo) una relazione con qualche
+    foto superava abbondantemente i 12s di timeout del client e pesava decine di MB.
+    Ritorna (buffer_jpeg, larghezza, altezza) del file già ridotto."""
+    from PIL import Image, ImageOps
+    img = Image.open(io.BytesIO(contenuto))
+    img = ImageOps.exif_transpose(img)  # rispetta la rotazione EXIF (foto verticali da telefono)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    if img.width > larghezza_max_px:
+        nuova_h = round(img.height * larghezza_max_px / img.width)
+        img = img.resize((larghezza_max_px, nuova_h), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=72, optimize=True)
+    out.seek(0)
+    return out, img.width, img.height
+
+
 @router.get("/relazione-pdf")
 def genera_relazione_pdf(
     cantiere_id: int,
@@ -315,9 +335,7 @@ def genera_relazione_pdf(
             for url in foto_urls:
                 try:
                     contenuto, _ = leggi_file(_chiave_da_url_foto(url))
-                    img_buf = io.BytesIO(contenuto)
-                    iw, ih = ImageReader(img_buf).getSize()
-                    img_buf.seek(0)
+                    img_buf, iw, ih = _foto_ridotta_per_pdf(contenuto)
                     h = min(cella_w * ih / iw, 55*mm) if iw else cella_w
                     w = h * iw / ih if ih else cella_w
                     riga.append(RLImage(img_buf, width=w, height=h))

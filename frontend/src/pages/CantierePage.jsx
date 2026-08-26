@@ -1640,7 +1640,7 @@ function DiarioTab({ cantiereId, utente }) {
     setGenerandoRelazione(true)
     try {
       const ids = Array.from(selRelazione).join(',')
-      const resp = await api.get(`/cantieri/${cantiereId}/diari/relazione-pdf?ids=${ids}`, { responseType: 'blob' })
+      const resp = await api.get(`/cantieri/${cantiereId}/diari/relazione-pdf?ids=${ids}`, { responseType: 'blob', timeout: 90000 })
       const url = URL.createObjectURL(resp.data)
       const a = document.createElement('a')
       a.href = url
