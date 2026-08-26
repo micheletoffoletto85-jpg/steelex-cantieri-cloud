@@ -1853,10 +1853,10 @@ function DiarioTab({ cantiereId, utente }) {
                 <span className="text-xs text-gray-500 font-medium">{dayjs(r.creato_il).format('dddd D MMMM YYYY')}</span>
                 <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full ml-auto">In attesa</span>
               </div>
-              <p className="text-sm text-gray-500 leading-relaxed">{r.testo_italiano || r.riassunto}</p>
-              {r.foto_urls?.length > 0 && (
+              <p className="text-sm text-gray-500 leading-relaxed">{r.descrizione_lavori || r.testo_italiano || r.riassunto}</p>
+              {(r.foto_avanzamento_urls?.length > 0 || r.foto_extra_urls?.length > 0) && (
                 <div className="flex gap-1.5 flex-wrap">
-                  {r.foto_urls.map((url, i) => (
+                  {[...(r.foto_avanzamento_urls || []), ...(r.foto_extra_urls || [])].map((url, i) => (
                     <img key={i} src={url} alt="" className="w-12 h-12 object-cover rounded-lg border border-gray-200 opacity-60" />
                   ))}
                 </div>

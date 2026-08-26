@@ -21,21 +21,35 @@ class RapportinoOperativo(Base):
     testo_italiano  = Column(Text)        # traduzione finale italiana
     lingua_originale = Column(String(10), default="it")
 
-    # Dati estratti da Claude
-    cantiere_rilevato = Column(String(300))   # nome cantiere come detto dall'operativo
-    ore_lavorate      = Column(Float, nullable=True)
+    # Dati estratti da Claude — allineato a FR: form strutturato (descrizione_lavori/
+    # descrizione_extra/materiale_extra) oltre alla dettatura, non solo estrazione IA
+    cantiere_rilevato     = Column(String(300))   # nome cantiere come detto dall'operativo
+    descrizione_lavori    = Column(Text, nullable=True)    # descrizione lavori svolti (form o IA)
+    foto_avanzamento_urls = Column(JSON, default=list)     # foto stato avanzamento
+    descrizione_extra     = Column(Text, nullable=True)    # lavori/note extra (non extra_preventivo)
+    foto_extra_urls       = Column(JSON, default=list)     # foto extra
+    ore_extra             = Column(Float, nullable=True)   # ore extra rispetto standard
+    materiale_extra       = Column(Text, nullable=True)    # materiale extra usato
+    ore_lavorate          = Column(Float, nullable=True)
+    # Colleghi citati come presenti/al lavoro insieme all'operativo ma senza un proprio
+    # rapportino — [{"nome": "...", "ore": numero_o_null}]. Le loro ore vanno comunque
+    # registrate nel cantiere, non solo quelle di chi ha inviato il rapportino
+    colleghi_ore      = Column(JSON, default=list)
     lavorazioni       = Column(JSON, default=list)   # ["posa cartongesso", ...]
     materiali         = Column(JSON, default=list)   # ["cartongesso 12.5mm", ...]
     criticita         = Column(Text, nullable=True)
     spese_extra       = Column(JSON, default=list)   # [{"descrizione": "...", "importo": 0}]
     riassunto         = Column(Text)
 
-    # Lavorazioni extra rispetto al preventivo originale — rilevate dall'IA se l'operaio
-    # lo dice esplicitamente, oppure impostate a mano dall'admin in revisione
+    # Lavorazione extra rispetto al preventivo originale (da fatturare a parte) — diverso
+    # da descrizione_extra/materiale_extra, che sono note libere di lavori insoliti: questo
+    # è un flag esplicito per marcare/filtrare cosa va oltre il preventivo col cliente
     extra_preventivo      = Column(Boolean, default=False)
     extra_preventivo_nota = Column(Text, nullable=True)
 
-    # Foto allegate
+    # Foto allegate — foto_urls è la colonna storica pre-form-strutturato, non più scritta
+    # da codice nuovo (le foto vanno in foto_avanzamento_urls/foto_extra_urls) ma lasciata
+    # per non perdere gli URL delle foto dei rapportini già esistenti
     foto_urls         = Column(JSON, default=list)
 
     # Stato validazione
