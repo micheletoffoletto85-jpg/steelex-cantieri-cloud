@@ -287,18 +287,36 @@ def genera_relazione_pdf(
             nota_extra = f" — {escape(d.extra_preventivo_nota)}" if d.extra_preventivo_nota else ""
             story.append(Paragraph(f"⚠ LAVORAZIONE EXTRA PREVENTIVO{nota_extra}", style_extra))
 
-        testo = (d.attivita or "").strip()
-        for para in testo.split("\n"):
-            if para.strip():
-                story.append(Paragraph(escape(para), style_testo))
-        if d.problemi:
-            story.append(Paragraph(f"<b>Criticità:</b> {escape(d.problemi)}", style_testo))
-
         # Ore lavorate registrate per questa nota — filtrate a extra preventivo se la
         # relazione ne contiene almeno una (vedi sopra)
         ore_rows = tutte_le_ore.get(d.id, [])
         if solo_extra_preventivo:
             ore_rows = [o for o in ore_rows if o.extra_preventivo]
+
+        # Testo del giorno: in una relazione "solo extra preventivo" NON usare il racconto
+        # generale della giornata (descrive tutto il lavoro svolto, non solo la parte extra
+        # fatturata a parte) — usa invece le note extra preventivo dedicate (della nota diario
+        # e/o delle singole righe ore), così il cliente non vede un racconto generico abbinato
+        # a poche ore di una sola persona. Nessun bisogno di toccare/ripristinare la nota
+        # diario: basta compilare la nota extra preventivo dedicata (checkbox nel diario o
+        # nella riga ore) per ottenere un testo mirato in relazione.
+        if solo_extra_preventivo:
+            note_dedicate = []
+            if d.extra_preventivo_nota:
+                note_dedicate.append(d.extra_preventivo_nota)
+            for o in ore_rows:
+                if o.extra_preventivo_nota and o.extra_preventivo_nota not in note_dedicate:
+                    prefisso = f"{o.operaio_nome}: " if len(ore_rows) > 1 else ""
+                    note_dedicate.append(f"{prefisso}{o.extra_preventivo_nota}")
+            testo = "\n".join(note_dedicate) if note_dedicate else (d.attivita or "").strip()
+        else:
+            testo = (d.attivita or "").strip()
+
+        for para in testo.split("\n"):
+            if para.strip():
+                story.append(Paragraph(escape(para), style_testo))
+        if d.problemi:
+            story.append(Paragraph(f"<b>Criticità:</b> {escape(d.problemi)}", style_testo))
         if ore_rows:
             # Celle come Paragraph, non stringhe nude: reportlab non va a capo il testo
             # dentro una Table se il contenuto è una stringa semplice, solo se è un

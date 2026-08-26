@@ -1496,7 +1496,8 @@ function VoceOreRow({ ore, cantiereId }) {
           <span className="text-xs text-gray-600">⚠ Extra preventivo</span>
         </label>
         {extra && (
-          <input value={extraNota} onChange={e => setExtraNota(e.target.value)} placeholder="Nota (opzionale): cosa è extra"
+          <input value={extraNota} onChange={e => setExtraNota(e.target.value)}
+            placeholder="Cosa è extra — questo testo va nella relazione PDF al posto del racconto generale"
             className="w-full border border-orange-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400" />
         )}
         <div className="flex gap-1.5">
@@ -1865,7 +1866,7 @@ function DiarioTab({ cantiereId, utente }) {
             </div>
           </label>
           {form.extra_preventivo && (
-            <input className="input-field" placeholder="Nota extra preventivo (opzionale)..."
+            <input className="input-field" placeholder="Cosa è extra — va nella relazione PDF al posto del racconto generale"
               value={form.extra_preventivo_nota || ''}
               onChange={e => setForm(f => ({ ...f, extra_preventivo_nota: e.target.value }))} />
           )}
