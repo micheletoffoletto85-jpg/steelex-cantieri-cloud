@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     CORS_ORIGINS: str = "*"
+    # Costo orario di default per la manodopera quando l'operatore non ha un
+    # costo_orario impostato sulla scheda — usato per valorizzare le ore nei costi cantiere
+    COSTO_ORARIO_DEFAULT: float = 25.0
 
     @field_validator("SECRET_KEY")
     @classmethod

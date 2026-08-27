@@ -67,8 +67,9 @@ const PROFESSIONI = [
 ]
 
 const RUOLI_CON_PROFESSIONE = ['fornitore', 'artigiano']
+const RUOLI_CON_COSTO = ['artigiano', 'operativo', 'capo_cantiere', 'capo_cantiere_sub']
 
-const FORM_VUOTO = { nome: '', cognome: '', email: '', telefono: '', password: '', ruolo: 'capo_cantiere', tipo_professione: '' }
+const FORM_VUOTO = { nome: '', cognome: '', email: '', telefono: '', password: '', ruolo: 'capo_cantiere', tipo_professione: '', costo_orario: '' }
 
 export default function UtentiPage() {
   const { utente: me } = useAuth()
@@ -125,7 +126,7 @@ export default function UtentiPage() {
 
   const apriModifica = (u) => {
     setEditando(u)
-    setEditForm({ nome: u.nome, cognome: u.cognome, telefono: u.telefono || '', ruolo: u.ruolo, password: '', tipo_professione: u.tipo_professione || '' })
+    setEditForm({ nome: u.nome, cognome: u.cognome, telefono: u.telefono || '', ruolo: u.ruolo, password: '', tipo_professione: u.tipo_professione || '', costo_orario: u.costo_orario ?? '' })
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -135,12 +136,14 @@ export default function UtentiPage() {
     const payload = { ...editForm }
     if (!payload.password) delete payload.password
     if (!payload.tipo_professione) payload.tipo_professione = null
+    payload.costo_orario = payload.costo_orario === '' || payload.costo_orario == null ? null : parseFloat(payload.costo_orario)
     updateMutation.mutate({ id: editando.id, data: payload })
   }
 
   const creaUtente = () => {
     const payload = { ...form }
     if (!payload.tipo_professione) delete payload.tipo_professione
+    payload.costo_orario = payload.costo_orario === '' ? null : parseFloat(payload.costo_orario)
     createMutation.mutate(payload)
   }
 
@@ -192,6 +195,14 @@ export default function UtentiPage() {
               </select>
             </div>
           )}
+          {RUOLI_CON_COSTO.includes(form.ruolo) && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Costo orario manodopera (€/h)</label>
+              <input className="input-field" type="number" step="0.5" min="0" placeholder="es. 28"
+                value={form.costo_orario} onChange={e => set('costo_orario', e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">Usato per valorizzare le ore di questo operatore nei costi cantiere</p>
+            </div>
+          )}
           <div className="flex gap-2 pt-1">
             <button onClick={() => setShowCreate(false)} className="btn-secondary flex-1">Annulla</button>
             <button onClick={creaUtente} className="btn-primary flex-1"
@@ -238,6 +249,14 @@ export default function UtentiPage() {
                 <option value="">— seleziona —</option>
                 {PROFESSIONI.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
+            </div>
+          )}
+          {RUOLI_CON_COSTO.includes(editForm.ruolo) && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Costo orario manodopera (€/h)</label>
+              <input className="input-field" type="number" step="0.5" min="0" placeholder="es. 28"
+                value={editForm.costo_orario ?? ''} onChange={e => setE('costo_orario', e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">Usato per valorizzare le ore di questo operatore nei costi cantiere</p>
             </div>
           )}
           <div className="flex gap-2 pt-1">

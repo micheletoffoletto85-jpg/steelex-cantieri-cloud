@@ -29,6 +29,8 @@ class OreExtraOut(BaseModel):
     cantiere_id: int
     diario_id: Optional[int] = None
     operaio_nome: str
+    utente_id: Optional[int] = None
+    utente_nome: Optional[str] = None
     ore: float
     attivita: Optional[str] = None
     tariffa_oraria: float
@@ -51,11 +53,13 @@ class OreExtraCreate(BaseModel):
     data: Optional[date] = None
     note: Optional[str] = None
     diario_id: Optional[int] = None
+    utente_id: Optional[int] = None
     extra_preventivo: Optional[bool] = False
     extra_preventivo_nota: Optional[str] = None
 
 class OreExtraUpdate(BaseModel):
     operaio_nome: Optional[str] = None
+    utente_id: Optional[int] = None
     ore: Optional[float] = None
     attivita: Optional[str] = None
     tariffa_oraria: Optional[float] = None

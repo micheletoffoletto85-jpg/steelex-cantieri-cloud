@@ -12,6 +12,7 @@ class UtenteBase(BaseModel):
     telefono: Optional[str] = None
     ruolo: str = "capo_cantiere"
     tipo_professione: Optional[str] = None
+    costo_orario: Optional[float] = None
 
     @field_validator("ruolo")
     @classmethod
@@ -42,6 +43,7 @@ class UtenteUpdate(BaseModel):
     attivo: Optional[bool] = None
     password: Optional[str] = None
     tipo_professione: Optional[str] = None
+    costo_orario: Optional[float] = None
 
     @field_validator("ruolo")
     @classmethod

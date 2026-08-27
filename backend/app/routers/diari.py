@@ -786,25 +786,39 @@ def riordina_foto_cantiere(cantiere_id: int, body: FotoRiordinaBody, db: Session
 ore_router = APIRouter(prefix="/cantieri/{cantiere_id}/ore-extra", tags=["Ore Extra"])
 
 
+def _ore_out(ore: OreExtra) -> dict:
+    d = OreExtraOut.model_validate(ore).model_dump()
+    d["utente_nome"] = f"{ore.operatore.nome} {ore.operatore.cognome}" if ore.operatore else None
+    return d
+
+
 @ore_router.get("", response_model=List[OreExtraOut])
 def lista_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    return db.query(OreExtra).filter(OreExtra.cantiere_id == cantiere_id).order_by(OreExtra.data.desc()).all()
+    righe = db.query(OreExtra).filter(OreExtra.cantiere_id == cantiere_id).order_by(OreExtra.data.desc()).all()
+    return [_ore_out(o) for o in righe]
 
 
 @ore_router.post("", response_model=OreExtraOut, status_code=201)
 def crea_ore(cantiere_id: int, body: OreExtraCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    totale = round(body.ore * body.tariffa_oraria, 2)
+    dati = body.model_dump(exclude={"data"})
+    # Se collegata a un operatore e non è stata passata una tariffa, usa il suo costo orario
+    tariffa = body.tariffa_oraria
+    if body.utente_id and not tariffa:
+        op_u = db.query(Utente).filter(Utente.id == body.utente_id).first()
+        if op_u and op_u.costo_orario:
+            tariffa = float(op_u.costo_orario)
+    dati["tariffa_oraria"] = tariffa
     ore = OreExtra(
         cantiere_id=cantiere_id,
         creato_da=user.id,
-        totale=totale,
+        totale=round(body.ore * tariffa, 2),
         data=body.data or date_today.today(),
-        **body.model_dump(exclude={"data"}),
+        **dati,
     )
     db.add(ore)
     db.commit()
     db.refresh(ore)
-    return ore
+    return _ore_out(ore)
 
 
 @ore_router.put("/{ore_id}", response_model=OreExtraOut)
@@ -813,9 +827,9 @@ def aggiorna_ore(cantiere_id: int, ore_id: int, body: OreExtraUpdate, db: Sessio
     if not ore: raise HTTPException(404, "Non trovato")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(ore, k, v)
-    ore.totale = round(ore.ore * ore.tariffa_oraria, 2)
+    ore.totale = round((ore.ore or 0) * (ore.tariffa_oraria or 0), 2)
     db.commit(); db.refresh(ore)
-    return ore
+    return _ore_out(ore)
 
 
 @ore_router.delete("/{ore_id}", status_code=204)

@@ -97,7 +97,8 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const [modificaTesto, setModificaTesto] = useState(false)
   const [testoEdit, setTestoEdit] = useState(r.descrizione_lavori || r.testo_italiano || '')
   const [oreEdit, setOreEdit] = useState(r.ore_lavorate ?? '')
-  const [colleghiEdit, setColleghiEdit] = useState(() => (r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '' })))
+  const [colleghiEdit, setColleghiEdit] = useState(() => (r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '', utente_id: c.utente_id ?? '' })))
+  const { data: operatori = [] } = useQuery('operatori', () => api.get('/rapportini/operatori').then(r => r.data), { enabled: isAdmin, staleTime: 5 * 60 * 1000 })
   const [lavorazioniEdit, setLavorazioniEdit] = useState(() => r.lavorazioni?.length ? r.lavorazioni : [''])
   const [materialiEdit, setMaterialiEdit] = useState(() => r.materiali?.length ? r.materiali : [''])
   const [criticitaEdit, setCriticitaEdit] = useState(r.criticita || '')
@@ -134,7 +135,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
       ore_lavorate: oreEdit === '' ? null : parseFloat(oreEdit),
       colleghi_ore: colleghiEdit
         .filter(c => c.nome.trim())
-        .map(c => ({ nome: c.nome.trim(), ore: c.ore === '' ? null : parseFloat(c.ore) })),
+        .map(c => ({ nome: c.nome.trim(), ore: c.ore === '' ? null : parseFloat(c.ore), utente_id: c.utente_id === '' || c.utente_id == null ? null : parseInt(c.utente_id) })),
       lavorazioni: lavorazioniEdit.map(l => l.trim()).filter(Boolean),
       materiali: materialiEdit.map(m => m.trim()).filter(Boolean),
       criticita: criticitaEdit.trim() || null,
@@ -146,7 +147,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     setModificaTesto(false)
   }
 
-  const aggiungiCollega = () => setColleghiEdit(c => [...c, { nome: '', ore: '' }])
+  const aggiungiCollega = () => setColleghiEdit(c => [...c, { nome: '', ore: '', utente_id: '' }])
   const aggiornaCollega = (idx, campo, val) => setColleghiEdit(c => c.map((x, i) => i === idx ? { ...x, [campo]: val } : x))
   const rimuoviCollega = (idx) => setColleghiEdit(c => c.filter((_, i) => i !== idx))
 
@@ -281,18 +282,25 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                     onChange={e => setOreEdit(e.target.value)}
                     className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-gray-500">Colleghi presenti (senza un proprio rapportino)</label>
+                <div className="space-y-2">
+                  <label className="text-xs text-gray-500">Colleghi presenti (senza un proprio rapportino) — collegali a un operatore per aggiornare le sue ore</label>
                   {colleghiEdit.map((c, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <input value={c.nome} onChange={e => aggiornaCollega(i, 'nome', e.target.value)}
-                        placeholder="Nome"
-                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
-                      <input type="number" step="0.5" min="0" max="24" value={c.ore}
-                        onChange={e => aggiornaCollega(i, 'ore', e.target.value)}
-                        placeholder={oreEdit || '—'}
-                        className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
-                      <button onClick={() => rimuoviCollega(i)} className="text-gray-400 hover:text-red-500 p-1"><X size={13} /></button>
+                    <div key={i} className="space-y-1 border border-gray-100 rounded-lg p-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <input value={c.nome} onChange={e => aggiornaCollega(i, 'nome', e.target.value)}
+                          placeholder="Nome citato"
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                        <input type="number" step="0.5" min="0" max="24" value={c.ore}
+                          onChange={e => aggiornaCollega(i, 'ore', e.target.value)}
+                          placeholder={oreEdit || '—'}
+                          className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                        <button onClick={() => rimuoviCollega(i)} className="text-gray-400 hover:text-red-500 p-1"><X size={13} /></button>
+                      </div>
+                      <select value={c.utente_id ?? ''} onChange={e => aggiornaCollega(i, 'utente_id', e.target.value)}
+                        className={`w-full border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange ${c.utente_id ? 'border-green-300 bg-green-50 text-green-800' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
+                        <option value="">⚠ Nessun operatore collegato</option>
+                        {operatori.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                      </select>
                     </div>
                   ))}
                   <button onClick={aggiungiCollega} className="text-xs text-steelex-orange hover:underline flex items-center gap-1">
@@ -351,9 +359,16 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                   {r.descrizione_lavori || r.testo_italiano}
                 </p>
                 {r.colleghi_ore?.length > 0 && (
-                  <p className="text-xs text-purple-700 mt-1">
-                    + {r.colleghi_ore.map(c => `${c.nome} (${c.ore ?? r.ore_lavorate ?? '—'}h)`).join(', ')}
-                  </p>
+                  <div className="text-xs mt-1 space-y-0.5">
+                    {r.colleghi_ore.map((c, i) => (
+                      <p key={i} className="text-purple-700">
+                        + {c.nome} ({c.ore ?? r.ore_lavorate ?? '—'}h){' '}
+                        {c.utente_nome
+                          ? <span className="text-green-700">→ {c.utente_nome}</span>
+                          : <span className="text-amber-600">→ operatore non collegato</span>}
+                      </p>
+                    ))}
+                  </div>
                 )}
               </>
             )}

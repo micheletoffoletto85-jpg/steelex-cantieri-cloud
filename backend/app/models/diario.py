@@ -39,6 +39,9 @@ class OreExtra(Base):
     cantiere_id = Column(Integer, ForeignKey("cantieri.id"), nullable=False)
     diario_id = Column(Integer, ForeignKey("diari_giornalieri.id"), nullable=True)
     operaio_nome = Column(String(200), nullable=False)
+    # Operatore/utente a cui è collegata questa riga ore (per aggiornare il suo registro
+    # ore personale) — null se il nome citato non corrisponde a nessun utente
+    utente_id = Column(Integer, ForeignKey("utenti.id", ondelete="SET NULL"), nullable=True)
     ore = Column(Float, nullable=False)
     attivita = Column(Text)
     tariffa_oraria = Column(Float, default=0.0)
@@ -57,3 +60,4 @@ class OreExtra(Base):
     cantiere = relationship("Cantiere")
     diario = relationship("DiarioGiornaliero", back_populates="ore_extra")
     creatore = relationship("Utente", foreign_keys=[creato_da])
+    operatore = relationship("Utente", foreign_keys=[utente_id])

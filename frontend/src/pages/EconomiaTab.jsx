@@ -221,7 +221,10 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
             <div>
               <p className="text-xs text-gray-400 mb-1">Totale speso</p>
               <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_speso)}</p>
-              <p className="text-xs text-gray-400">{Math.round(percSpeso)}% del budget</p>
+              <p className="text-xs text-gray-400">
+                {Math.round(percSpeso)}% del budget
+                {rv.costo_manodopera > 0 && <> · di cui manodopera {fmt(rv.costo_manodopera)}</>}
+              </p>
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-1">Margine reale</p>
@@ -1740,7 +1743,7 @@ function OreExtraSection({ cantiereId, canWrite }) {
   )
 
   const totaleOre = oreList.reduce((s,o) => s + o.ore, 0)
-  const totaleCosto = oreList.filter(o => o.approvato).reduce((s,o) => s + o.totale, 0)
+  const totaleCosto = oreList.filter(o => !o.approvato).reduce((s,o) => s + (o.totale || 0), 0)
 
   const createMutation = useMutation(
     d => api.post(`/cantieri/${cantiereId}/ore-extra`, d),
@@ -1756,22 +1759,6 @@ function OreExtraSection({ cantiereId, canWrite }) {
     { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); toast.success('Eliminato') } }
   )
 
-  const convertiInSpesa = async (ore) => {
-    try {
-      await api.post(`/cantieri/${cantiereId}/spese`, {
-        descrizione: `Ore extra — ${ore.operaio_nome}${ore.attivita ? `: ${ore.attivita}` : ''}`,
-        categoria: 'manodopera',
-        fornitore: ore.operaio_nome,
-        importo: ore.totale,
-        data: ore.data,
-        note: `${ore.ore}h × €${ore.tariffa_oraria}/h`,
-      })
-      await api.put(`/cantieri/${cantiereId}/ore-extra/${ore.id}`, { approvato: true })
-      qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['spese',cantiereId]); qc.invalidateQueries(['economia',cantiereId])
-      toast.success('Registrato nelle spese!')
-    } catch(e) { toast.error(e.response?.data?.detail||'Errore') }
-  }
-
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
 
   return (
@@ -1785,8 +1772,9 @@ function OreExtraSection({ cantiereId, canWrite }) {
             <p className="text-xl font-bold text-steelex-orange">{totaleOre.toFixed(1)}h</p>
           </div>
           <div className="card text-center">
-            <p className="text-xs text-gray-400">Costo approvato</p>
+            <p className="text-xs text-gray-400">Costo manodopera</p>
             <p className="text-xl font-bold text-gray-900">{fmt(totaleCosto)}</p>
+            <p className="text-[10px] text-gray-400">incluso nel Totale speso</p>
           </div>
         </div>
       )}
@@ -1829,7 +1817,7 @@ function OreExtraSection({ cantiereId, canWrite }) {
           <p className="text-xs mt-1">Le ore vengono aggiunte automaticamente dalle note vocali nel Diario</p>
         </div>
       ) : oreList.map(o => (
-        <div key={o.id} className={`card space-y-1.5 ${o.approvato ? 'opacity-60' : ''}`}>
+        <div key={o.id} className={`card space-y-1.5 ${o.approvato ? 'opacity-50' : ''}`}>
           {editId === o.id ? (
             /* ── Form modifica inline ── */
             <div className="space-y-2">
@@ -1856,25 +1844,22 @@ function OreExtraSection({ cantiereId, canWrite }) {
             /* ── Vista normale ── */
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <UserCheck size={14} className="text-steelex-orange flex-shrink-0" />
                   <p className="font-semibold text-gray-900">{o.operaio_nome}</p>
-                  {o.approvato && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">✓ In spese</span>}
+                  {o.utente_nome
+                    ? <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">→ {o.utente_nome}</span>
+                    : <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">operatore non collegato</span>}
+                  {o.approvato && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">già a spesa separata</span>}
                 </div>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {o.ore}h {o.tariffa_oraria > 0 ? `× €${o.tariffa_oraria}/h` : ''} {o.data ? `— ${fmtD(o.data)}` : ''}
+                  {o.ore}h {o.tariffa_oraria > 0 ? `× €${o.tariffa_oraria}/h` : '— nessuna tariffa'} {o.data ? `— ${fmtD(o.data)}` : ''}
                 </p>
                 {o.attivita && <p className="text-xs text-gray-600 italic">{o.attivita}</p>}
               </div>
               <div className="text-right flex-shrink-0">
                 {o.totale > 0 && <p className="font-bold text-gray-900">{fmt(o.totale)}</p>}
                 <div className="flex gap-1 mt-1 justify-end">
-                  {!o.approvato && canWrite && (
-                    <button onClick={() => convertiInSpesa(o)}
-                      className="text-xs px-2 py-1 bg-steelex-orange text-white rounded-lg hover:bg-orange-600 font-medium whitespace-nowrap">
-                      → Spesa
-                    </button>
-                  )}
                   {canWrite && <button onClick={() => startEdit(o)} className="p-1 text-gray-400 hover:text-blue-500"><Pencil size={13}/></button>}
                   {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(o.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13}/></button>}
                 </div>

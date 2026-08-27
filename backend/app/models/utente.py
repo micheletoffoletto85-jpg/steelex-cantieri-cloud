@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -37,6 +37,7 @@ class Utente(Base):
     password_hash = Column(String, nullable=False)
     ruolo = Column(Enum(RuoloUtente, native_enum=False), default=RuoloUtente.capo_cantiere)
     tipo_professione = Column(String, nullable=True)
+    costo_orario = Column(Float, nullable=True)   # €/h — costo della manodopera di questo operatore
     attivo = Column(Boolean, default=True)
     lingua_preferita = Column(String(10), nullable=False, server_default="it")
     creato_il = Column(DateTime(timezone=True), server_default=func.now())

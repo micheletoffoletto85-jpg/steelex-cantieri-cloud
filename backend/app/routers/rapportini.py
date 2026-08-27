@@ -173,7 +173,76 @@ def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[in
     return None
 
 
-def _rap_dict(r: RapportinoOperativo) -> dict:
+_RUOLI_OPERATIVI_MATCH = ("operativo", "artigiano", "capo_cantiere", "capo_cantiere_sub")
+
+
+def _candidati_operatori(db: Session, cantiere_id: Optional[int]) -> list:
+    """Utenti candidati per l'abbinamento di un collega citato: prima il team del
+    cantiere, poi tutti gli utenti con ruolo operativo."""
+    cand, visti = [], set()
+    if cantiere_id:
+        c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+        for u in (c.artigiani if c else []):
+            if u.id not in visti:
+                visti.add(u.id); cand.append(u)
+    for u in db.query(Utente).filter(Utente.ruolo.in_(_RUOLI_OPERATIVI_MATCH)).all():
+        if u.id not in visti:
+            visti.add(u.id); cand.append(u)
+    return cand
+
+
+def _match_operatore(db: Session, nome: Optional[str], cantiere_id: Optional[int]) -> Optional[int]:
+    """Abbina il nome di un collega citato nel rapportino a un utente reale (team
+    cantiere o operatori). Match sul nome normalizzato: nome completo, solo nome,
+    solo cognome, o token in comune. I candidati del team hanno la precedenza."""
+    n = _normalizza_nome(nome)
+    if not n:
+        return None
+    cand = _candidati_operatori(db, cantiere_id)
+    n_tok = set(n.split())
+    # 1° giro: match forte (nome completo / nome / cognome esatti)
+    for u in cand:
+        full = _normalizza_nome(f"{u.nome} {u.cognome}")
+        if n == full or n == _normalizza_nome(u.nome) or n == _normalizza_nome(u.cognome):
+            return u.id
+    # 2° giro: il nome citato è contenuto nel nome completo (o viceversa)
+    for u in cand:
+        full = _normalizza_nome(f"{u.nome} {u.cognome}")
+        if full and (n in full or full in n):
+            return u.id
+    # 3° giro: almeno un token significativo in comune
+    for u in cand:
+        toks = set(_normalizza_nome(f"{u.nome} {u.cognome}").split())
+        if {t for t in (n_tok & toks) if len(t) >= 3}:
+            return u.id
+    return None
+
+
+def _costo_orario(u: Optional[Utente]) -> float:
+    if u and u.costo_orario and u.costo_orario > 0:
+        return float(u.costo_orario)
+    return float(getattr(settings, "COSTO_ORARIO_DEFAULT", 0) or 0)
+
+
+def _colleghi_risolti(db: Session, r: RapportinoOperativo) -> list:
+    """Lista colleghi_ore arricchita con utente_id (memorizzato o abbinato al volo) e
+    utente_nome, per la UI admin."""
+    out = []
+    for c in (r.colleghi_ore or []):
+        nome = (c.get("nome") or "").strip()
+        uid = c.get("utente_id") or _match_operatore(db, nome, r.cantiere_id)
+        u = db.query(Utente).filter(Utente.id == uid).first() if uid else None
+        out.append({
+            "nome": nome,
+            "ore": c.get("ore"),
+            "utente_id": u.id if u else None,
+            "utente_nome": f"{u.nome} {u.cognome}" if u else None,
+        })
+    return out
+
+
+def _rap_dict(r: RapportinoOperativo, db: Optional[Session] = None) -> dict:
+    colleghi = _colleghi_risolti(db, r) if db is not None else (r.colleghi_ore or [])
     return {
         "id": r.id,
         "operativo_id": r.operativo_id,
@@ -194,7 +263,7 @@ def _rap_dict(r: RapportinoOperativo) -> dict:
         "ore_extra": r.ore_extra,
         "materiale_extra": r.materiale_extra,
         "ore_lavorate": r.ore_lavorate,
-        "colleghi_ore": r.colleghi_ore or [],
+        "colleghi_ore": colleghi,
         "extra_preventivo": r.extra_preventivo or False,
         "extra_preventivo_nota": r.extra_preventivo_nota,
         "lavorazioni": r.lavorazioni or [],
@@ -542,7 +611,7 @@ async def invia_rapportino(
     except Exception:
         pass
 
-    return _rap_dict(rapportino)
+    return _rap_dict(rapportino, db)
 
 
 @router.get("/miei")
@@ -550,7 +619,7 @@ def miei_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_cu
     rs = db.query(RapportinoOperativo).filter(
         RapportinoOperativo.operativo_id == user.id
     ).order_by(RapportinoOperativo.creato_il.desc()).limit(50).all()
-    return [_rap_dict(r) for r in rs]
+    return [_rap_dict(r, db) for r in rs]
 
 
 @router.get("/da-validare")
@@ -560,7 +629,19 @@ def da_validare(db: Session = Depends(get_db), user: Utente = Depends(get_curren
     rs = db.query(RapportinoOperativo).filter(
         RapportinoOperativo.stato == "inviato"
     ).order_by(RapportinoOperativo.creato_il.desc()).all()
-    return [_rap_dict(r) for r in rs]
+    return [_rap_dict(r, db) for r in rs]
+
+
+@router.get("/operatori")
+def lista_operatori(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Elenco utenti con ruolo operativo — per abbinare a mano i colleghi citati nei rapportini."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    us = db.query(Utente).filter(
+        Utente.ruolo.in_(_RUOLI_OPERATIVI_MATCH),
+        Utente.attivo == True,
+    ).order_by(Utente.cognome, Utente.nome).all()
+    return [{"id": u.id, "nome": f"{u.nome} {u.cognome}", "ruolo": str(u.ruolo)} for u in us]
 
 
 @router.get("/fuori-cantiere")
@@ -571,7 +652,7 @@ def fuori_cantiere(db: Session = Depends(get_db), user: Utente = Depends(get_cur
         RapportinoOperativo.fuori_cantiere == True,
         RapportinoOperativo.stato.in_(["inviato", "validato"]),
     ).order_by(RapportinoOperativo.creato_il.desc()).all()
-    return [_rap_dict(r) for r in rs]
+    return [_rap_dict(r, db) for r in rs]
 
 
 def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: int, data_obj) -> None:
@@ -579,26 +660,55 @@ def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: 
     lavorato insieme all'operativo ma non hanno inviato un proprio rapportino) — cancella
     quelle vecchie legate a questo diario e le rifà dalla lista aggiornata, così una
     modifica o un rianalizza non lasciano righe duplicate o obsolete. La riga
-    dell'operativo stesso (r.ore_extra_id) non viene toccata."""
+    dell'operativo stesso (r.ore_extra_id) non viene toccata.
+
+    Se il collega è abbinabile a un operatore reale (utente_id già memorizzato o match
+    sul nome), la sua riga ore viene collegata all'utente, valorizzata col suo costo
+    orario e riportata anche nel suo registro ore personale (OreLavorate)."""
+    from sqlalchemy.orm.attributes import flag_modified
     if not r.diario_id:
         return
     db.query(OreExtra).filter(
         OreExtra.diario_id == r.diario_id,
         OreExtra.id != (r.ore_extra_id or 0),
     ).delete(synchronize_session=False)
+    # Le righe registro-ore-personale dei colleghi legate a questo rapportino
+    # (quella dell'operativo, r.ore_lavorate_id, resta)
+    db.query(OreLavorate).filter(
+        OreLavorate.rapportino_id == r.id,
+        OreLavorate.id != (r.ore_lavorate_id or 0),
+    ).delete(synchronize_session=False)
+
+    colleghi_norm = []
     for c in (r.colleghi_ore or []):
         nome = (c.get("nome") or "").strip()
         if not nome:
             continue
-        ore = c.get("ore")
-        ore = float(ore) if ore else float(r.ore_lavorate or 0)
+        ore_raw = c.get("ore")
+        ore = float(ore_raw) if ore_raw else float(r.ore_lavorate or 0)
         if ore <= 0:
             continue
+        uid = c.get("utente_id") or _match_operatore(db, nome, cantiere_id)
+        u = db.query(Utente).filter(Utente.id == uid).first() if uid else None
+        tariffa = _costo_orario(u) if u else 0.0
         db.add(OreExtra(
             cantiere_id=cantiere_id, diario_id=r.diario_id, operaio_nome=nome,
-            ore=ore, attivita=r.riassunto or "", tariffa_oraria=0.0, totale=0.0,
-            data=data_obj, approvato=True, creato_da=r.operativo_id,
+            utente_id=(u.id if u else None),
+            ore=ore, attivita=r.riassunto or "",
+            tariffa_oraria=tariffa, totale=round(ore * tariffa, 2),
+            data=data_obj, approvato=False, creato_da=r.operativo_id,
         ))
+        if u:
+            db.add(OreLavorate(
+                utente_id=u.id, data=data_obj, ore=ore,
+                descrizione=(r.riassunto or "Rapportino di cantiere") + f" — citato da {r.operativo.nome if r.operativo else 'collega'}",
+                rapportino_id=r.id,
+            ))
+        colleghi_norm.append({"nome": nome, "ore": ore_raw, "utente_id": (u.id if u else None)})
+
+    # Memorizza gli abbinamenti risolti così restano stabili tra una modifica e l'altra
+    r.colleghi_ore = colleghi_norm
+    flag_modified(r, "colleghi_ore")
     db.flush()
 
 
@@ -684,18 +794,22 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
     db.add(diario); db.flush()
     r.diario_id = diario.id
 
-    # Calcolo automatico ore lavorate → registrazione diretta nella sezione ore del cantiere
+    # Calcolo automatico ore lavorate → registrazione diretta nella sezione ore del cantiere,
+    # valorizzata col costo orario dell'operativo (entra nei costi del cantiere)
     if r.ore_lavorate and r.ore_lavorate > 0:
+        tariffa_op = _costo_orario(r.operativo)
+        ore_val = float(r.ore_lavorate)
         ore_extra_row = OreExtra(
             cantiere_id    = cantiere_id,
             diario_id      = diario.id,
             operaio_nome   = nome_op or "Operativo",
-            ore            = float(r.ore_lavorate),
+            utente_id      = r.operativo_id,
+            ore            = ore_val,
             attivita       = r.riassunto or "",
-            tariffa_oraria = 0.0,
-            totale         = 0.0,
+            tariffa_oraria = tariffa_op,
+            totale         = round(ore_val * tariffa_op, 2),
             data           = data_obj,
-            approvato      = True,
+            approvato      = False,
             creato_da      = r.operativo_id,
         )
         db.add(ore_extra_row); db.flush()
@@ -763,12 +877,13 @@ def assegna_cantiere_rapportino(
         _crea_diario_da_rapportino(db, r, cantiere.id)
 
     db.commit()
-    return _rap_dict(r)
+    return _rap_dict(r, db)
 
 
 class CollegaOre(BaseModel):
     nome: str
     ore: Optional[float] = None
+    utente_id: Optional[int] = None
 
 
 class ModificaBody(BaseModel):
@@ -838,8 +953,9 @@ def modifica_rapportino(
                 r.ore_lavorate_id = None
 
     # Colleghi citati come presenti/al lavoro insieme — ricrea le loro righe ore se la
-    # lista è cambiata (anche se ore_lavorate non è stato toccato in questa modifica)
-    if "colleghi_ore" in dati and r.diario_id and r.cantiere_id:
+    # lista o le ore di riferimento sono cambiate (i colleghi senza ore proprie ereditano
+    # le ore_lavorate del rapportino)
+    if ("colleghi_ore" in dati or "ore_lavorate" in dati or "riassunto" in dati) and r.diario_id and r.cantiere_id and r.colleghi_ore:
         try:
             data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
         except Exception:
@@ -847,7 +963,7 @@ def modifica_rapportino(
         _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)
 
     db.commit()
-    return _rap_dict(r)
+    return _rap_dict(r, db)
 
 
 @router.put("/{rapportino_id}/rianalizza")
@@ -968,7 +1084,7 @@ def rianalizza_rapportino(
         _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)
 
     db.commit()
-    return _rap_dict(r)
+    return _rap_dict(r, db)
 
 
 class SegmentoDividi(BaseModel):
@@ -1069,7 +1185,7 @@ def dividi_rapportino(
     r.stato = "diviso"
     r.note_admin = f"Diviso in {len(creati)} rapportini: " + ", ".join(f"#{n.id}" for n in creati)
     db.commit()
-    return [_rap_dict(n) for n in creati]
+    return [_rap_dict(n, db) for n in creati]
 
 
 @router.put("/{rapportino_id}/valida")
@@ -1090,7 +1206,7 @@ def valida_rapportino(
         r.validato_da_id = user.id
         r.validato_il = datetime.utcnow()
         db.commit()
-        return _rap_dict(r)
+        return _rap_dict(r, db)
 
     cantiere_id = body.cantiere_id or r.cantiere_id
     r.cantiere_id = cantiere_id
@@ -1112,7 +1228,7 @@ def valida_rapportino(
     except Exception:
         pass
 
-    return _rap_dict(r)
+    return _rap_dict(r, db)
 
 
 @router.delete("/{rapportino_id}")
@@ -1141,4 +1257,4 @@ def lista_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_c
         rs = db.query(RapportinoOperativo).filter(
             RapportinoOperativo.operativo_id == user.id
         ).order_by(RapportinoOperativo.creato_il.desc()).limit(50).all()
-    return [_rap_dict(r) for r in rs]
+    return [_rap_dict(r, db) for r in rs]

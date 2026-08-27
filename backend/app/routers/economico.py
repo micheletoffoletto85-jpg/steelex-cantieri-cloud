@@ -101,6 +101,7 @@ class RiepilogoOut(BaseModel):
     totale_sal_pagati: float     # SAL incassati
     da_incassare: float
     spese_per_categoria: dict
+    costo_manodopera: float = 0.0   # ore manodopera valorizzate (già incluse in totale_speso)
     # ─── Previsionale (fascia in alto del riepilogo) ───
     preventivi_artigiani_totale: float = 0.0   # somma preventivi artigiani considerati
     margine_previsionale: float = 0.0          # ricavo computo - preventivi artigiani
@@ -112,11 +113,18 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     _economia_o_dl(user)
 
     from app.models.preventivo_artigiano import PreventivoArtigiano
+    from app.models.diario import OreExtra
 
     preventivi = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).all()
     spese = db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).all()
     sal_list = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).all()
     prev_art = db.query(PreventivoArtigiano).filter(PreventivoArtigiano.cantiere_id == cantiere_id).all()
+    # Ore manodopera valorizzate — solo quelle non ancora trasformate in una spesa manuale
+    # (approvato=True significa "già registrata a parte come Spesa", quindi esclusa per non contarla due volte)
+    ore_mano = db.query(OreExtra).filter(
+        OreExtra.cantiere_id == cantiere_id,
+        OreExtra.approvato == False,
+    ).all()
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
 
     # Usa i preventivi accettati; se nessuno accettato, somma tutti
@@ -125,7 +133,8 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     budget     = sum(p.subtotale for p in prev_base) or (cantiere.budget or 0)
     budget_iva = sum(p.totale    for p in prev_base) or budget
 
-    totale_speso = sum(s.importo for s in spese)
+    costo_manodopera = round(sum(o.totale or 0 for o in ore_mano), 2)
+    totale_speso = sum(s.importo for s in spese) + costo_manodopera
     sal_emessi = sum(s.importo for s in sal_list if s.stato in ("emesso","pagato"))
     sal_pagati = sum(s.importo for s in sal_list if s.stato == "pagato")
 
@@ -133,6 +142,8 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     for s in spese:
         cat = s.categoria or "altro"
         cat_totali[cat] = cat_totali.get(cat, 0) + s.importo
+    if costo_manodopera > 0:
+        cat_totali["manodopera"] = cat_totali.get("manodopera", 0) + costo_manodopera
 
     # Preventivi artigiani: usa gli accettati; se nessuno accettato, tutti tranne i rifiutati
     pa_accettati = [p for p in prev_art if (p.stato or "") == "accettato"]
@@ -151,6 +162,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
             totale_sal_pagati=sal_pagati,
             da_incassare=sal_emessi - sal_pagati,
             spese_per_categoria={},
+            costo_manodopera=0,
             preventivi_artigiani_totale=0,
             margine_previsionale=0,
             margine_previsionale_perc=0,
@@ -164,6 +176,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         totale_sal_pagati=sal_pagati,
         da_incassare=sal_emessi - sal_pagati,
         spese_per_categoria=cat_totali,
+        costo_manodopera=costo_manodopera,
         preventivi_artigiani_totale=prev_art_totale,
         margine_previsionale=margine_prev,
         margine_previsionale_perc=margine_prev_perc,
