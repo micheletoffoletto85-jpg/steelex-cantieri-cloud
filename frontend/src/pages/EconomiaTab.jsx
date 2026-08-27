@@ -112,8 +112,8 @@ function MiniRiepilogoLive({ cantiereId }) {
   return (
     <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2 text-xs border border-gray-200">
       <span className="text-gray-400">Live →</span>
-      <span>Budget: <strong className="text-steelex-orange">{`€ ${(rv.budget_preventivo||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
-      <span>Spese: <strong className={rv.totale_speso > rv.budget_preventivo ? 'text-red-600' : 'text-gray-700'}>{`€ ${(rv.totale_speso||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
+      <span>Ricavo: <strong className="text-steelex-orange">{`€ ${(rv.budget_preventivo||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
+      <span>Speso: <strong className={rv.margine_atteso < 0 ? 'text-red-600' : 'text-gray-700'}>{`€ ${(rv.totale_speso||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
       <span className="ml-auto">Margine: <strong className={rv.margine_atteso >= 0 ? 'text-green-600' : 'text-red-600'}>{`€ ${(rv.margine_atteso||0).toLocaleString('it-IT',{minimumFractionDigits:0})}`}</strong></span>
     </div>
   )
@@ -157,7 +157,11 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
   if (!rv) return null
 
   const prevOk = preventivi.find(p => p.stato === 'accettato')
-  const percSpeso = rv.budget_preventivo > 0 ? Math.min((rv.totale_speso / rv.budget_preventivo) * 100, 100) : 0
+  // Utilizzo del budget COSTI: speso reale vs costo previsto (non vs il ricavo!)
+  const budgetCosti = rv.costo_previsto || 0
+  const percCosti = budgetCosti > 0 ? (rv.totale_speso / budgetCosti) * 100 : 0
+  // % del fatturato consumato dai costi
+  const percSuFatturato = rv.budget_preventivo > 0 ? Math.min((rv.totale_speso / rv.budget_preventivo) * 100, 100) : 0
   const marginePositivo = rv.margine_atteso >= 0
 
   return (
@@ -249,7 +253,7 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
               <p className="text-xs text-gray-400 mb-1">Totale speso</p>
               <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_speso)}</p>
               <p className="text-xs text-gray-400">
-                {Math.round(percSpeso)}% del budget
+                {Math.round(percSuFatturato)}% del fatturato
                 {rv.costo_manodopera > 0 && <> · manodopera {fmt(rv.costo_manodopera)}</>}
                 {rv.costo_manodopera_extra > 0 && <span className="text-orange-600"> · di cui extra prev. {fmt(rv.costo_manodopera_extra)}</span>}
               </p>
@@ -320,17 +324,21 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
         </div>
       )}
 
-      {/* Barra budget — solo admin/capo */}
-      {!isDL && rv.budget_preventivo > 0 && (
+      {/* Barra budget costi — speso vs costo previsto (solo se conosciamo il costo previsto) */}
+      {!isDL && budgetCosti > 0 && (
         <div className="card space-y-2">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Utilizzo budget costi</p>
-          <div className="w-full bg-gray-100 rounded-full h-3">
-            <div className={`h-3 rounded-full transition-all ${percSpeso > 100 ? 'bg-red-500' : 'bg-steelex-orange'}`} style={{ width: `${percSpeso}%` }} />
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Speso vs costo previsto</p>
+            <p className={`text-xs font-bold ${percCosti > 100 ? 'text-red-600' : 'text-gray-600'}`}>{Math.round(percCosti)}%</p>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+            <div className={`h-3 rounded-full transition-all ${percCosti > 100 ? 'bg-red-500' : 'bg-steelex-orange'}`} style={{ width: `${Math.min(percCosti, 100)}%` }} />
           </div>
           <div className="flex justify-between text-xs text-gray-500">
             <span>Speso: {fmt(rv.totale_speso)}</span>
-            <span>Budget: {fmt(rv.budget_preventivo)}</span>
+            <span>Costo previsto: {fmt(budgetCosti)} {rv.costo_previsto_fonte === 'preventivi_artigiani' && <span className="text-gray-400">(preventivi artigiani)</span>}</span>
           </div>
+          {percCosti > 100 && <p className="text-xs text-red-600">⚠️ Hai speso più del costo previsto — margine in erosione.</p>}
         </div>
       )}
 
