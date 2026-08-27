@@ -1749,14 +1749,14 @@ function OreExtraSection({ cantiereId, canWrite }) {
   )
 
   const totaleOre = oreList.reduce((s,o) => s + o.ore, 0)
-  const totaleCosto = oreList.filter(o => !o.approvato).reduce((s,o) => s + (o.totale || 0), 0)
-  const senzaCosto = oreList.filter(o => !o.approvato && !(o.totale > 0)).length
+  const totaleCosto = oreList.reduce((s,o) => s + (o.totale || 0), 0)
+  const daSistemare = oreList.filter(o => !(o.totale > 0) || !o.utente_id).length
 
   const ricalcola = async () => {
     try {
       const r = await api.post(`/cantieri/${cantiereId}/ore-extra/ricalcola`)
       qc.invalidateQueries(['ore-extra', cantiereId]); qc.invalidateQueries(['economia', cantiereId])
-      toast.success(`${r.data.aggiornate} righe valorizzate`)
+      toast.success(`${r.data.collegate} collegate · ${r.data.valorizzate} valorizzate`)
     } catch { toast.error('Errore ricalcolo') }
   }
 
@@ -1794,10 +1794,10 @@ function OreExtraSection({ cantiereId, canWrite }) {
         </div>
       )}
 
-      {canWrite && senzaCosto > 0 && (
+      {canWrite && daSistemare > 0 && (
         <button onClick={ricalcola}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100">
-          <Loader2 size={13} /> {senzaCosto} righe senza costo — ricalcola tariffe da operatore / default
+          <UserCheck size={13} /> {daSistemare} righe da sistemare — collega operatori e ricalcola i costi
         </button>
       )}
 
@@ -1846,7 +1846,7 @@ function OreExtraSection({ cantiereId, canWrite }) {
           <p className="text-xs mt-1">Le ore vengono aggiunte automaticamente dalle note vocali nel Diario</p>
         </div>
       ) : oreList.map(o => (
-        <div key={o.id} className={`card space-y-1.5 ${o.approvato ? 'opacity-50' : ''}`}>
+        <div key={o.id} className="card space-y-1.5">
           {editId === o.id ? (
             /* ── Form modifica inline ── */
             <div className="space-y-2">
@@ -1883,7 +1883,6 @@ function OreExtraSection({ cantiereId, canWrite }) {
                   {o.utente_nome
                     ? <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">→ {o.utente_nome}</span>
                     : <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">operatore non collegato</span>}
-                  {o.approvato && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">già a spesa separata</span>}
                 </div>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {o.ore}h {o.tariffa_oraria > 0 ? `× €${o.tariffa_oraria}/h` : '— nessuna tariffa'} {o.data ? `— ${fmtD(o.data)}` : ''}

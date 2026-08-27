@@ -848,26 +848,33 @@ def aggiorna_ore(cantiere_id: int, ore_id: int, body: OreExtraUpdate, db: Sessio
 
 @ore_router.post("/ricalcola")
 def ricalcola_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Riassegna la tariffa alle righe ore senza costo: usa il costo orario dell'operatore
-    collegato, altrimenti prova ad abbinare il nome, altrimenti COSTO_ORARIO_DEFAULT."""
+    """Sistema le righe ore incomplete: abbina l'operatore dal nome se manca, e
+    (ri)calcola la tariffa — costo orario dell'operatore collegato, altrimenti
+    COSTO_ORARIO_DEFAULT. Non tocca le righe con tariffa impostata a mano che hanno
+    già un operatore."""
     from app.routers.rapportini import _match_operatore
-    righe = db.query(OreExtra).filter(
-        OreExtra.cantiere_id == cantiere_id,
-        (OreExtra.totale == None) | (OreExtra.totale == 0) | (OreExtra.tariffa_oraria == None) | (OreExtra.tariffa_oraria == 0),
-    ).all()
-    aggiornate = 0
+    default_tar = float(getattr(settings, "COSTO_ORARIO_DEFAULT", 0) or 0)
+    righe = db.query(OreExtra).filter(OreExtra.cantiere_id == cantiere_id).all()
+    linkate = 0
+    valorizzate = 0
     for o in righe:
         if not o.utente_id:
             uid = _match_operatore(db, o.operaio_nome, cantiere_id)
             if uid:
                 o.utente_id = uid
-        tariffa = _tariffa_operatore(db, o.utente_id) if o.utente_id else float(getattr(settings, "COSTO_ORARIO_DEFAULT", 0) or 0)
-        if tariffa > 0 and (o.ore or 0) > 0:
-            o.tariffa_oraria = tariffa
-            o.totale = round(float(o.ore) * tariffa, 2)
-            aggiornate += 1
+                linkate += 1
+        senza_costo = not (o.totale and o.totale > 0) or not (o.tariffa_oraria and o.tariffa_oraria > 0)
+        if senza_costo and (o.ore or 0) > 0:
+            tariffa = _tariffa_operatore(db, o.utente_id) if o.utente_id else default_tar
+            if tariffa > 0:
+                o.tariffa_oraria = tariffa
+                o.totale = round(float(o.ore) * tariffa, 2)
+                valorizzate += 1
+        # il vecchio flag approvato non ha più senso: le ore contano sempre
+        if o.approvato:
+            o.approvato = False
     db.commit()
-    return {"aggiornate": aggiornate, "totali_esaminate": len(righe)}
+    return {"aggiornate": valorizzate + linkate, "valorizzate": valorizzate, "collegate": linkate}
 
 
 @ore_router.delete("/{ore_id}", status_code=204)

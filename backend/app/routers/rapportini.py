@@ -176,6 +176,16 @@ def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[in
 _RUOLI_OPERATIVI_MATCH = ("operativo", "artigiano", "capo_cantiere", "capo_cantiere_sub")
 
 
+def _cantieri_per_match(db: Session) -> list:
+    """Cantieri candidati per l'abbinamento del nome (dettato nel rapportino). Esclude
+    solo quelli chiusi/annullati. `stato` in produzione può essere enum nativo Postgres:
+    il cast a testo evita 'invalid input value for enum' con valori non-label come 'attivo'."""
+    from sqlalchemy import String as _Str
+    return db.query(Cantiere).filter(
+        Cantiere.stato.cast(_Str).notin_(["completato", "annullato"])
+    ).all()
+
+
 def _query_operatori(db: Session):
     """Utenti con ruolo operativo. `ruolo` in produzione è un enum nativo Postgres
     (senza il valore 'operativo'): il confronto diretto con una lista di stringhe
@@ -328,7 +338,7 @@ def _whisper_prompt(db: Session) -> str:
     del prompt come contesto, mettere qui i nomi propri aiuta a trascriverli giusti invece
     di sentirli male (es. 'Rossi' capito 'Rosi'), che è la causa più comune di mancato
     abbinamento automatico del cantiere."""
-    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso"])).all()
+    cantieri_attivi = _cantieri_per_match(db)
     nomi = [c.nome for c in cantieri_attivi if c.nome]
     if not nomi:
         return WHISPER_PROMPT
@@ -537,7 +547,7 @@ async def invia_rapportino(
     # (la maggioranza nell'uso reale) non passavano mai dall'IA, quindi ore/cantiere/
     # criticità scritte nel testo restavano completamente ignorate
     if testo_ita:
-        cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso"])).all()
+        cantieri_attivi = _cantieri_per_match(db)
         cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
         dati_ai = _estrai_dati(testo_ita, cantieri_nomi)
 
@@ -549,7 +559,7 @@ async def invia_rapportino(
     multi_cantiere = False
     segmenti_cantieri = None
     if not cantiere_id and dati_ai.get("cantiere"):
-        cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo","in_corso"])).all()
+        cantieri_attivi = _cantieri_per_match(db)
         cantiere_id = _match_cantiere(dati_ai.get("cantiere"), cantieri_attivi)
 
         # Rilevamento multi-cantiere: Claude segnala se il rapportino parla di più cantieri.
@@ -673,16 +683,25 @@ def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: 
     from sqlalchemy.orm.attributes import flag_modified
     if not r.diario_id:
         return
-    db.query(OreExtra).filter(
+    # Righe ore dei colleghi da rifare: quelle di questo diario che NON sono la riga
+    # dell'operativo e che non sono referenziate come riga principale di un rapportino
+    # (evita ForeignKeyViolation su rapportini_operativi.ore_extra_id)
+    ref_ids = {rid for (rid,) in db.query(RapportinoOperativo.ore_extra_id)
+               .filter(RapportinoOperativo.ore_extra_id.isnot(None)).all()}
+    ref_ids.add(r.ore_extra_id or 0)
+    vecchie = db.query(OreExtra).filter(
         OreExtra.diario_id == r.diario_id,
-        OreExtra.id != (r.ore_extra_id or 0),
-    ).delete(synchronize_session=False)
+        OreExtra.id.notin_(ref_ids),
+    ).all()
+    for oe in vecchie:
+        db.delete(oe)
     # Le righe registro-ore-personale dei colleghi legate a questo rapportino
     # (quella dell'operativo, r.ore_lavorate_id, resta)
     db.query(OreLavorate).filter(
         OreLavorate.rapportino_id == r.id,
         OreLavorate.id != (r.ore_lavorate_id or 0),
     ).delete(synchronize_session=False)
+    db.flush()
 
     colleghi_norm = []
     for c in (r.colleghi_ore or []):
@@ -947,8 +966,9 @@ def modifica_rapportino(
                 ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
                 ore_extra_row.totale = round(ore_extra_row.ore * tariffa, 2)
             else:
-                db.delete(ore_extra_row)
                 r.ore_extra_id = None
+                db.flush()   # scrivi il NULL prima di cancellare la riga referenziata (FK)
+                db.delete(ore_extra_row)
 
     if "ore_lavorate" in dati and r.ore_lavorate_id:
         ore_personali = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
@@ -957,8 +977,9 @@ def modifica_rapportino(
                 ore_personali.ore = float(r.ore_lavorate)
                 ore_personali.aggiornato_il = datetime.utcnow()
             else:
-                db.delete(ore_personali)
                 r.ore_lavorate_id = None
+                db.flush()
+                db.delete(ore_personali)
 
     # Colleghi citati come presenti/al lavoro insieme — ricrea le loro righe ore se la
     # lista o le ore di riferimento sono cambiate (i colleghi senza ore proprie ereditano
@@ -998,17 +1019,21 @@ def rianalizza_rapportino(
     if r.stato == "diviso":
         raise HTTPException(400, "Rapportino già diviso")
 
-    cantieri_attivi = db.query(Cantiere).filter(Cantiere.stato.in_(["attivo", "in_corso"])).all()
+    cantieri_attivi = _cantieri_per_match(db)
     cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
     dati = _estrai_dati(testo_base, cantieri_nomi)
 
     r.cantiere_rilevato = dati.get("cantiere")
-    r.ore_lavorate = dati.get("ore")
+    # Non-distruttivo: se la ri-analisi non trova ore o colleghi non cancellare quelli
+    # già registrati (spesso il testo ri-analizzato è un riassunto più povero dell'originale)
+    if dati.get("ore"):
+        r.ore_lavorate = dati.get("ore")
     r.lavorazioni = dati.get("lavorazioni") or []
     r.materiali = dati.get("materiali") or []
     r.criticita = dati.get("criticita")
     r.spese_extra = dati.get("spese_extra") or []
-    r.colleghi_ore = dati.get("colleghi") or []
+    if dati.get("colleghi"):
+        r.colleghi_ore = dati.get("colleghi")
     r.extra_preventivo = dati.get("extra_preventivo") or False
     r.extra_preventivo_nota = dati.get("extra_preventivo_nota")
     r.riassunto = dati.get("riassunto") or r.riassunto
@@ -1053,46 +1078,38 @@ def rianalizza_rapportino(
     except Exception:
         data_obj = date_today.today()
 
-    if r.ore_extra_id:
-        ore_extra_row = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
+    # Aggiorna la riga ore dell'operativo SOLO se ci sono ore valide — non cancellarla
+    # se la ri-analisi non le ha trovate
+    if r.ore_lavorate and r.ore_lavorate > 0:
+        ore_extra_row = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first() if r.ore_extra_id else None
+        tariffa = (ore_extra_row.tariffa_oraria if ore_extra_row and ore_extra_row.tariffa_oraria else _costo_orario(r.operativo))
         if ore_extra_row:
-            if r.ore_lavorate and r.ore_lavorate > 0:
-                ore_extra_row.ore = float(r.ore_lavorate)
-                tariffa = ore_extra_row.tariffa_oraria or _costo_orario(r.operativo)
-                ore_extra_row.tariffa_oraria = tariffa
-                ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
-                ore_extra_row.totale = round(ore_extra_row.ore * tariffa, 2)
-            else:
-                db.delete(ore_extra_row)
-                r.ore_extra_id = None
-    elif r.diario_id and r.cantiere_id and r.ore_lavorate and r.ore_lavorate > 0:
-        tariffa = _costo_orario(r.operativo)
-        ore_extra_row = OreExtra(
-            cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
-            utente_id=r.operativo_id,
-            ore=float(r.ore_lavorate), attivita=r.riassunto or "", tariffa_oraria=tariffa,
-            totale=round(float(r.ore_lavorate) * tariffa, 2), data=data_obj,
-            approvato=False, creato_da=r.operativo_id,
-        )
-        db.add(ore_extra_row); db.flush()
-        r.ore_extra_id = ore_extra_row.id
+            ore_extra_row.ore = float(r.ore_lavorate)
+            ore_extra_row.tariffa_oraria = tariffa
+            ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
+            ore_extra_row.totale = round(ore_extra_row.ore * tariffa, 2)
+        elif r.diario_id and r.cantiere_id:
+            ore_extra_row = OreExtra(
+                cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
+                utente_id=r.operativo_id,
+                ore=float(r.ore_lavorate), attivita=r.riassunto or "", tariffa_oraria=tariffa,
+                totale=round(float(r.ore_lavorate) * tariffa, 2), data=data_obj,
+                approvato=False, creato_da=r.operativo_id,
+            )
+            db.add(ore_extra_row); db.flush()
+            r.ore_extra_id = ore_extra_row.id
 
-    if r.ore_lavorate_id:
-        ore_personali = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
+        ore_personali = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first() if r.ore_lavorate_id else None
         if ore_personali:
-            if r.ore_lavorate and r.ore_lavorate > 0:
-                ore_personali.ore = float(r.ore_lavorate)
-                ore_personali.aggiornato_il = datetime.utcnow()
-            else:
-                db.delete(ore_personali)
-                r.ore_lavorate_id = None
-    elif r.diario_id and r.ore_lavorate and r.ore_lavorate > 0:
-        ore_personali = OreLavorate(
-            utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
-            descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id,
-        )
-        db.add(ore_personali); db.flush()
-        r.ore_lavorate_id = ore_personali.id
+            ore_personali.ore = float(r.ore_lavorate)
+            ore_personali.aggiornato_il = datetime.utcnow()
+        elif r.diario_id:
+            ore_personali = OreLavorate(
+                utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
+                descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id,
+            )
+            db.add(ore_personali); db.flush()
+            r.ore_lavorate_id = ore_personali.id
 
     if r.diario_id and r.cantiere_id:
         _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)

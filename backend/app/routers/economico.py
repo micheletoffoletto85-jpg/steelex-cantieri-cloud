@@ -119,12 +119,9 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     spese = db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).all()
     sal_list = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).all()
     prev_art = db.query(PreventivoArtigiano).filter(PreventivoArtigiano.cantiere_id == cantiere_id).all()
-    # Ore manodopera valorizzate — solo quelle non ancora trasformate in una spesa manuale
-    # (approvato=True significa "già registrata a parte come Spesa", quindi esclusa per non contarla due volte)
-    ore_mano = db.query(OreExtra).filter(
-        OreExtra.cantiere_id == cantiere_id,
-        OreExtra.approvato == False,
-    ).all()
+    # Ore manodopera valorizzate — tutte le righe ore del cantiere (il vecchio flag
+    # "approvato / trasforma in spesa" è stato ritirato, ora le ore contano sempre)
+    ore_mano = db.query(OreExtra).filter(OreExtra.cantiere_id == cantiere_id).all()
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
 
     # Usa i preventivi accettati; se nessuno accettato, somma tutti
