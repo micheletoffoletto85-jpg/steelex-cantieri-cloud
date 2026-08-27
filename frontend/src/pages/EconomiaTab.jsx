@@ -1463,7 +1463,7 @@ function SpeseSection({ cantiereId, canWrite }) {
         <div className="card space-y-2">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-gray-400">Costo commessa (materiali + manodopera)</p>
+              <p className="text-xs text-gray-400">Totale spese cantiere</p>
               <p className="text-2xl font-bold text-gray-900">{fmt(totale + costoManodopera)}</p>
             </div>
             <Receipt size={24} className="text-gray-300" />
@@ -1755,9 +1755,12 @@ function SpeseSection({ cantiereId, canWrite }) {
         </div>
       )}
 
-      {spese.length === 0 && !showForm ? (
-        <div className="card text-center py-8 text-gray-400"><Receipt size={32} className="mx-auto mb-2 opacity-30" /><p>Nessuna spesa registrata</p><p className="text-xs mt-1">Registra le spese man mano che le sostieni — allega foto della bolla o PDF della fattura</p></div>
-      ) : spese.map(s => (
+      {spese.length === 0 && costoManodopera === 0 && !showForm && (
+        <div className="card text-center py-8 text-gray-400"><Receipt size={32} className="mx-auto mb-2 opacity-30" /><p>Nessuna spesa registrata</p><p className="text-xs mt-1">Registra le spese man mano che le sostieni — allega foto della bolla o PDF della fattura. Le ore manodopera compaiono qui in automatico.</p></div>
+      )}
+
+      {spese.length > 0 && <p className="text-xs font-bold text-gray-500 uppercase tracking-wide pt-1">Materiali / fornitori</p>}
+      {spese.map(s => (
         <div key={s.id} className="card space-y-1.5">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
@@ -1801,6 +1804,36 @@ function SpeseSection({ cantiereId, canWrite }) {
           </div>
         </div>
       ))}
+
+      {/* Manodopera — le ore registrate sono spese a tutti gli effetti */}
+      {costoManodopera > 0 && (
+        <>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide pt-2">
+            Manodopera <span className="font-normal text-gray-400">· gestione nella sezione Ore Manodopera</span>
+          </p>
+          {oreMano.map(o => (
+            <div key={`ore-${o.id}`} className="card space-y-1 bg-gray-50/60">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-gray-900 truncate">{o.operaio_nome}</p>
+                    {o.extra_preventivo && <span className="text-[10px] font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">⚠ Extra prev.</span>}
+                  </div>
+                  <div className="flex gap-2 text-xs text-gray-400 flex-wrap">
+                    <span>{o.ore}h {o.tariffa_oraria > 0 ? `× €${o.tariffa_oraria}/h` : '— nessuna tariffa'}</span>
+                    {o.data && <span>{fmtD(o.data)}</span>}
+                    {o.attivita && <span className="italic truncate">{o.attivita}</span>}
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="font-bold text-gray-900">{fmt(o.totale)}</p>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">manodopera</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }
