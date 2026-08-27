@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle, Clock, UserCheck, Pencil, MapPin, ShoppingCart, Package, Table, ChevronDown, ChevronUp } from 'lucide-react'
+import { Euro, TrendingUp, TrendingDown, FileText, BarChart2, Plus, Trash2, X, Upload, ExternalLink, Camera, ClipboardList, Receipt, Edit2, CheckCircle2, Download, Sparkles, Loader2, AlertCircle, Clock, UserCheck, Pencil, MapPin, HardHat, Table, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -20,23 +20,13 @@ const STATO_SAL = { bozza:{label:'Bozza',bg:'bg-gray-100 text-gray-600'}, emesso
 const CATEGORIE_VOCE = ['Materiali','Manodopera','Nolo','Servizi','Sicurezza','Altro']
 
 const SEZIONI = [
-  ['riepilogo', 'Riepilogo', BarChart2],
-  ['computo',   'Computo',   ClipboardList],
-  ['spese',     'Spese',     Receipt],
-  ['ordini',    'Ordini',    ShoppingCart],
-  ['bolle',     'DDT',       Package],
-  ['fatture',   'Fatture',   FileText],
-  ['sal',       'SAL',       TrendingUp],
-  ['ore',       'Ore Extra', Clock],
+  ['riepilogo',      'Riepilogo',            BarChart2],
+  ['computo',        'Computo',              ClipboardList],
+  ['prev_artigiani', 'Preventivi Artigiani', HardHat],
+  ['spese',          'Spese',                Receipt],
+  ['ore',            'Ore Manodopera',       Clock],
+  ['sal',            'SAL',                  TrendingUp],
 ]
-
-const STATI_ORDINE = {
-  bozza:      { label: 'Bozza',      bg: 'bg-gray-100 text-gray-600' },
-  inviato:    { label: 'Inviato',    bg: 'bg-blue-100 text-blue-700' },
-  confermato: { label: 'Confermato', bg: 'bg-indigo-100 text-indigo-700' },
-  evaso:      { label: 'Evaso ✓',   bg: 'bg-green-100 text-green-700' },
-  annullato:  { label: 'Annullato',  bg: 'bg-red-100 text-red-600' },
-}
 
 export default function EconomiaTab({ cantiereId }) {
   const { utente } = useAuth()
@@ -91,17 +81,11 @@ export default function EconomiaTab({ cantiereId }) {
       </div>
       {!isDL && (
         <>
+          <div style={{ display: sezione === 'prev_artigiani' ? 'block' : 'none' }}>
+            <PreventiviArtigianiSection cantiereId={cantiereId} canWrite={canWrite} />
+          </div>
           <div style={{ display: sezione === 'spese' ? 'block' : 'none' }}>
             <SpeseSection cantiereId={cantiereId} canWrite={canWrite} />
-          </div>
-          <div style={{ display: sezione === 'ordini' ? 'block' : 'none' }}>
-            <OrdiniSection cantiereId={cantiereId} canWrite={canWrite} />
-          </div>
-          <div style={{ display: sezione === 'bolle' ? 'block' : 'none' }}>
-            <BolleSection cantiereId={cantiereId} canWrite={canWrite} />
-          </div>
-          <div style={{ display: sezione === 'fatture' ? 'block' : 'none' }}>
-            <FattureSection cantiereId={cantiereId} canWrite={canWrite} />
           </div>
         </>
       )}
@@ -194,33 +178,77 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
         </div>
       )}
 
-      {/* Cards */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* ─── FASCIA 1 — PREVISIONALE (computo × preventivi artigiani) ─── */}
+      {isDL ? (
         <div className="card">
           <p className="text-xs text-gray-400 mb-1">Valore lavoro</p>
           <p className="text-lg font-bold text-steelex-orange">{fmt(rv.budget_preventivo)}</p>
           <p className="text-xs text-gray-400">+ IVA: {fmt(rv.budget_iva)}</p>
         </div>
-        {!isDL && (
-          <div className="card">
-            <p className="text-xs text-gray-400 mb-1">Totale speso</p>
-            <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_speso)}</p>
-            <p className="text-xs text-gray-400">{Math.round(percSpeso)}% del budget</p>
+      ) : (
+        <div className="card space-y-3 border-2 border-steelex-orange/20 bg-orange-50/30">
+          <p className="text-xs font-semibold text-steelex-orange uppercase tracking-wide">Previsionale</p>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Ricavo computo</p>
+              <p className="text-base font-bold text-gray-900">{fmt(rv.budget_preventivo)}</p>
+              <p className="text-[10px] text-gray-400">+ IVA: {fmt(rv.budget_iva)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Preventivi artigiani</p>
+              <p className="text-base font-bold text-gray-900">− {fmt(rv.preventivi_artigiani_totale)}</p>
+              <p className="text-[10px] text-gray-400">costo manodopera esterna</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Margine atteso</p>
+              <p className={`text-base font-bold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_previsionale)}</p>
+              <p className={`text-[10px] font-semibold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(rv.margine_previsionale_perc ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</p>
+            </div>
           </div>
-        )}
-        {!isDL && (
-          <div className="card">
-            <p className="text-xs text-gray-400 mb-1">Margine atteso</p>
-            <p className={`text-lg font-bold ${marginePositivo ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_atteso)}</p>
-            <p className="text-xs text-gray-400">{rv.budget_preventivo > 0 ? Math.round((rv.margine_atteso / rv.budget_preventivo)*100) : 0}%</p>
+          {rv.preventivi_artigiani_totale === 0 && (
+            <p className="text-[11px] text-gray-400 border-t border-orange-200 pt-2">
+              Nessun preventivo artigiano registrato — il margine atteso non tiene ancora conto dei costi di manodopera esterna.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ─── FASCIA 2 — CONTEGGI FINALI ─── */}
+      {!isDL && (
+        <div className="card space-y-3">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Conteggi finali</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Totale speso</p>
+              <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_speso)}</p>
+              <p className="text-xs text-gray-400">{Math.round(percSpeso)}% del budget</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Margine reale</p>
+              <p className={`text-lg font-bold ${marginePositivo ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_atteso)}</p>
+              <p className="text-xs text-gray-400">{rv.budget_preventivo > 0 ? Math.round((rv.margine_atteso / rv.budget_preventivo)*100) : 0}% · ricavo − speso</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Incassato</p>
+              <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_sal_pagati)}</p>
+              <p className="text-xs text-gray-400">SAL emessi: {fmt(rv.totale_sal_emessi)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Da incassare</p>
+              <p className="text-lg font-bold text-blue-600">{fmt(rv.da_incassare)}</p>
+              <p className="text-xs text-gray-400">SAL emessi non pagati</p>
+            </div>
           </div>
-        )}
-        <div className={isDL ? 'card col-span-2' : 'card'}>
+        </div>
+      )}
+
+      {isDL && (
+        <div className="card">
           <p className="text-xs text-gray-400 mb-1">Da incassare</p>
           <p className="text-lg font-bold text-blue-600">{fmt(rv.da_incassare)}</p>
           <p className="text-xs text-gray-400">Incassato: {fmt(rv.totale_sal_pagati)}</p>
         </div>
-      </div>
+      )}
 
       {/* Barra budget — solo admin/capo */}
       {!isDL && rv.budget_preventivo > 0 && (
@@ -1765,13 +1793,13 @@ function OreExtraSection({ cantiereId, canWrite }) {
 
       {canWrite && (
         <button onClick={() => setShowForm(!showForm)} className="btn-primary w-full flex items-center justify-center gap-2">
-          <Plus size={16} /> Registra ore extra
+          <Plus size={16} /> Registra ore manodopera
         </button>
       )}
 
       {showForm && (
         <div className="card space-y-3">
-          <div className="flex items-center justify-between"><h3 className="font-bold">Nuove Ore Extra</h3><button onClick={() => setShowForm(false)}><X size={16}/></button></div>
+          <div className="flex items-center justify-between"><h3 className="font-bold">Nuove ore manodopera</h3><button onClick={() => setShowForm(false)}><X size={16}/></button></div>
           <input className="input-field" placeholder="Nome operaio *" value={form.operaio_nome} onChange={e => set('operaio_nome',e.target.value)} autoFocus />
           <div className="grid grid-cols-2 gap-2">
             <div><label className="text-xs text-gray-500 block mb-1">Ore *</label>
@@ -1797,7 +1825,7 @@ function OreExtraSection({ cantiereId, canWrite }) {
       {oreList.length === 0 && !showForm ? (
         <div className="card text-center py-8 text-gray-400">
           <Clock size={32} className="mx-auto mb-2 opacity-30" />
-          <p>Nessuna ora extra registrata</p>
+          <p>Nessuna ora manodopera registrata</p>
           <p className="text-xs mt-1">Le ore vengono aggiunte automaticamente dalle note vocali nel Diario</p>
         </div>
       ) : oreList.map(o => (
@@ -1859,356 +1887,164 @@ function OreExtraSection({ cantiereId, canWrite }) {
   )
 }
 
-/* ─── ORDINI ACQUISTO ─── */
-function OrdiniSection({ cantiereId, canWrite }) {
-  const qc = useQueryClient()
-  const vuotoOrdine = { fornitore_nome: '', descrizione: '', categoria: 'materiali', importo: '', iva_perc: '22', data_ordine: '', data_consegna_prevista: '', note: '', stato: 'bozza' }
-  const [form, setForm] = useState(vuotoOrdine)
-  const [editId, setEditId] = useState(null)
-  const [apriForm, setApriForm] = useState(false)
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  const { data: ordini = [], isLoading } = useQuery(['ordini', cantiereId], () => api.get(`/cantieri/${cantiereId}/ordini`).then(r => r.data), { staleTime: 0 })
-
-  const crea = useMutation(body => api.post(`/cantieri/${cantiereId}/ordini`, body), {
-    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoOrdine); toast.success('Ordine creato') }
-  })
-  const aggiorna = useMutation(({ id, body }) => api.put(`/cantieri/${cantiereId}/ordini/${id}`, body), {
-    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoOrdine); toast.success('Ordine aggiornato') }
-  })
-  const cambiaStato = useMutation(({ id, stato }) => api.patch(`/cantieri/${cantiereId}/ordini/${id}/stato?stato=${stato}`), {
-    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]) }
-  })
-  const elimina = useMutation(id => api.delete(`/cantieri/${cantiereId}/ordini/${id}`), {
-    onSuccess: () => { qc.invalidateQueries(['ordini', cantiereId]); toast.success('Ordine eliminato') }
-  })
-
-  const salva = () => {
-    const body = { ...form, importo: parseFloat(form.importo) || 0, iva_perc: parseFloat(form.iva_perc) || 22, data_ordine: form.data_ordine || undefined, data_consegna_prevista: form.data_consegna_prevista || undefined }
-    if (!body.fornitore_nome || !body.descrizione || !body.importo) { toast.error('Fornitore, descrizione e importo obbligatori'); return }
-    editId ? aggiorna.mutate({ id: editId, body }) : crea.mutate(body)
-  }
-
-  const apriModifica = (o) => {
-    setEditId(o.id)
-    setForm({ fornitore_nome: o.fornitore_nome, descrizione: o.descrizione, categoria: o.categoria, importo: String(o.importo), iva_perc: String(o.iva_perc || 22), data_ordine: o.data_ordine || '', data_consegna_prevista: o.data_consegna_prevista || '', note: o.note || '', stato: o.stato })
-    setApriForm(true)
-  }
-
-  const totaleOrdini = ordini.reduce((s, o) => s + (o.importo_totale || 0), 0)
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs text-gray-400">Totale ordinato (IVA incl.)</p>
-          <p className="text-xl font-bold text-gray-900">{fmt(totaleOrdini)}</p>
-        </div>
-        {canWrite && (
-          <button onClick={() => { setApriForm(!apriForm); setEditId(null); setForm(vuotoOrdine) }} className="btn-primary flex items-center gap-2">
-            <Plus size={15}/> Nuovo Ordine
-          </button>
-        )}
-      </div>
-
-      {apriForm && (
-        <div className="card space-y-3 border-2 border-steelex-orange/30">
-          <h3 className="font-bold text-sm text-gray-800">{editId ? 'Modifica Ordine' : 'Nuovo Ordine Acquisto'}</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="col-span-2"><label className="label-field">Fornitore *</label><input className="input-field" value={form.fornitore_nome} onChange={e => set('fornitore_nome', e.target.value)} placeholder="Nome fornitore"/></div>
-            <div className="col-span-2"><label className="label-field">Descrizione *</label><input className="input-field" value={form.descrizione} onChange={e => set('descrizione', e.target.value)} placeholder="Cosa si ordina"/></div>
-            <div><label className="label-field">Categoria</label>
-              <select className="input-field" value={form.categoria} onChange={e => set('categoria', e.target.value)}>
-                {CATEGORIE.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div><label className="label-field">Stato</label>
-              <select className="input-field" value={form.stato} onChange={e => set('stato', e.target.value)}>
-                {Object.entries(STATI_ORDINE).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
-            </div>
-            <div><label className="label-field">Importo netto (€) *</label><input type="number" className="input-field" value={form.importo} onChange={e => set('importo', e.target.value)} placeholder="0.00"/></div>
-            <div><label className="label-field">IVA %</label><input type="number" className="input-field" value={form.iva_perc} onChange={e => set('iva_perc', e.target.value)} placeholder="22"/></div>
-            <div><label className="label-field">Data ordine</label><input type="date" className="input-field" value={form.data_ordine} onChange={e => set('data_ordine', e.target.value)}/></div>
-            <div><label className="label-field">Consegna prevista</label><input type="date" className="input-field" value={form.data_consegna_prevista} onChange={e => set('data_consegna_prevista', e.target.value)}/></div>
-            <div className="col-span-2"><label className="label-field">Note</label><textarea className="input-field resize-none" rows={2} value={form.note} onChange={e => set('note', e.target.value)}/></div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={salva} className="btn-primary flex-1">{editId ? 'Aggiorna' : 'Crea Ordine'}</button>
-            <button onClick={() => { setApriForm(false); setEditId(null); setForm(vuotoOrdine) }} className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600">Annulla</button>
-          </div>
-        </div>
-      )}
-
-      {isLoading ? <div className="text-center py-8 text-gray-400">Caricamento...</div> : ordini.length === 0 ? (
-        <div className="card text-center py-10 text-gray-400">
-          <ShoppingCart size={32} className="mx-auto mb-2 opacity-30"/>
-          <p className="font-medium">Nessun ordine registrato</p>
-          <p className="text-xs mt-1">Traccia gli ordini ai fornitori per questo cantiere</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {ordini.map(o => {
-            const statoInfo = STATI_ORDINE[o.stato] || STATI_ORDINE.bozza
-            return (
-              <div key={o.id} className="card space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-gray-900 truncate">{o.descrizione}</p>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${statoInfo.bg}`}>{statoInfo.label}</span>
-                      {o.categoria && <span className={`text-[10px] px-2 py-0.5 rounded-full ${CAT_COLORI[o.categoria] || 'bg-gray-100 text-gray-500'}`}>{o.categoria}</span>}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5">{o.fornitore_nome}</p>
-                    <div className="flex gap-3 text-xs text-gray-400 mt-1 flex-wrap">
-                      {o.data_ordine && <span>📅 {fmtD(o.data_ordine)}</span>}
-                      {o.data_consegna_prevista && <span>🚚 Consegna: {fmtD(o.data_consegna_prevista)}</span>}
-                    </div>
-                    {o.note && <p className="text-xs text-gray-500 italic mt-1">{o.note}</p>}
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="font-bold text-gray-900">{fmt(o.importo_totale)}</p>
-                    <p className="text-[10px] text-gray-400">netto {fmt(o.importo)} + IVA {o.iva_perc}%</p>
-                  </div>
-                </div>
-                {canWrite && (
-                  <div className="flex items-center gap-2 border-t border-gray-50 pt-2">
-                    <select className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
-                      value={o.stato}
-                      onChange={e => cambiaStato.mutate({ id: o.id, stato: e.target.value })}>
-                      {Object.entries(STATI_ORDINE).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
-                    </select>
-                    <button onClick={() => apriModifica(o)} className="p-1 text-gray-400 hover:text-blue-500"><Edit2 size={14}/></button>
-                    <button onClick={() => confirm('Eliminare ordine?') && elimina.mutate(o.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14}/></button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
+/* ─── PREVENTIVI ARTIGIANI ─── */
+const STATO_PREV_ART = {
+  ricevuto:  { label: 'Ricevuto',    bg: 'bg-blue-100 text-blue-700' },
+  accettato: { label: 'Accettato ✓', bg: 'bg-green-100 text-green-700' },
+  rifiutato: { label: 'Rifiutato',   bg: 'bg-red-100 text-red-600' },
 }
 
-/* ─── BOLLE DDT ─── */
-function BolleSection({ cantiereId, canWrite }) {
+function PreventiviArtigianiSection({ cantiereId, canWrite }) {
   const qc = useQueryClient()
-  const vuotoBolla = { fornitore_nome: '', numero_bolla: '', data: '', importo_stimato: '', descrizione: '', ordine_id: '', note: '' }
-  const [form, setForm] = useState(vuotoBolla)
+  const vuoto = { artigiano_nome: '', lavorazione: '', descrizione: '', importo: '', stato: 'ricevuto', data: '', note: '' }
+  const [form, setForm] = useState(vuoto)
   const [editId, setEditId] = useState(null)
   const [apriForm, setApriForm] = useState(false)
+  const [uploadingFor, setUploadingFor] = useState(null)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const { data: bolle = [], isLoading } = useQuery(['bolle', cantiereId], () => api.get(`/cantieri/${cantiereId}/bolle`).then(r => r.data), { staleTime: 0 })
-  const { data: ordini = [] } = useQuery(['ordini', cantiereId], () => api.get(`/cantieri/${cantiereId}/ordini`).then(r => r.data), { staleTime: 60000 })
-
-  const crea = useMutation(body => api.post(`/cantieri/${cantiereId}/bolle`, body), {
-    onSuccess: () => { qc.invalidateQueries(['bolle', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoBolla); toast.success('Bolla registrata') }
-  })
-  const aggiorna = useMutation(({ id, body }) => api.put(`/cantieri/${cantiereId}/bolle/${id}`, body), {
-    onSuccess: () => { qc.invalidateQueries(['bolle', cantiereId]); setApriForm(false); setEditId(null); setForm(vuotoBolla); toast.success('Bolla aggiornata') }
-  })
-  const elimina = useMutation(id => api.delete(`/cantieri/${cantiereId}/bolle/${id}`), {
-    onSuccess: () => { qc.invalidateQueries(['bolle', cantiereId]); toast.success('Bolla eliminata') }
-  })
-  const uploadFoto = async (bollaId, file) => {
-    const fd = new FormData(); fd.append('file', file)
-    try {
-      await api.post(`/cantieri/${cantiereId}/bolle/${bollaId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      qc.invalidateQueries(['bolle', cantiereId]); toast.success('Foto caricata')
-    } catch { toast.error('Errore upload foto') }
-  }
-
-  const salva = () => {
-    const body = {
-      fornitore_nome: form.fornitore_nome, numero_bolla: form.numero_bolla || undefined,
-      data: form.data || undefined, importo_stimato: form.importo_stimato ? parseFloat(form.importo_stimato) : undefined,
-      descrizione: form.descrizione || undefined, ordine_id: form.ordine_id ? parseInt(form.ordine_id) : undefined,
-      note: form.note || undefined,
-    }
-    if (!body.fornitore_nome) { toast.error('Fornitore obbligatorio'); return }
-    editId ? aggiorna.mutate({ id: editId, body }) : crea.mutate(body)
-  }
-
-  const apriModifica = (b) => {
-    setEditId(b.id)
-    setForm({ fornitore_nome: b.fornitore_nome, numero_bolla: b.numero_bolla || '', data: b.data || '', importo_stimato: b.importo_stimato ? String(b.importo_stimato) : '', descrizione: b.descrizione || '', ordine_id: b.ordine_id ? String(b.ordine_id) : '', note: b.note || '' })
-    setApriForm(true)
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs text-gray-400">{bolle.length} bolle di consegna registrate</p>
-          <p className="text-xl font-bold text-gray-900">{bolle.filter(b => b.stato === 'aperta').length} aperte · {bolle.filter(b => b.stato === 'fatturata').length} fatturate</p>
-        </div>
-        {canWrite && (
-          <button onClick={() => { setApriForm(!apriForm); setEditId(null); setForm(vuotoBolla) }} className="btn-primary flex items-center gap-2">
-            <Plus size={15}/> Nuova DDT
-          </button>
-        )}
-      </div>
-
-      {apriForm && (
-        <div className="card space-y-3 border-2 border-steelex-orange/30">
-          <h3 className="font-bold text-sm text-gray-800">{editId ? 'Modifica DDT' : 'Nuova Bolla di Consegna'}</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="col-span-2"><label className="label-field">Fornitore *</label><input className="input-field" value={form.fornitore_nome} onChange={e => set('fornitore_nome', e.target.value)} placeholder="Nome fornitore"/></div>
-            <div><label className="label-field">N° Bolla / DDT</label><input className="input-field" value={form.numero_bolla} onChange={e => set('numero_bolla', e.target.value)} placeholder="es. DDT-2025-001"/></div>
-            <div><label className="label-field">Data consegna</label><input type="date" className="input-field" value={form.data} onChange={e => set('data', e.target.value)}/></div>
-            <div><label className="label-field">Importo stimato (€)</label><input type="number" className="input-field" value={form.importo_stimato} onChange={e => set('importo_stimato', e.target.value)} placeholder="0.00"/></div>
-            <div><label className="label-field">Collega a Ordine</label>
-              <select className="input-field" value={form.ordine_id} onChange={e => set('ordine_id', e.target.value)}>
-                <option value="">— nessun ordine —</option>
-                {ordini.map(o => <option key={o.id} value={o.id}>{o.fornitore_nome} — {o.descrizione.slice(0,30)}</option>)}
-              </select>
-            </div>
-            <div className="col-span-2"><label className="label-field">Descrizione materiali consegnati</label><textarea className="input-field resize-none" rows={2} value={form.descrizione} onChange={e => set('descrizione', e.target.value)} placeholder="es. Lastre cartongesso 12.5mm — 80 pz"/></div>
-            <div className="col-span-2"><label className="label-field">Note</label><input className="input-field" value={form.note} onChange={e => set('note', e.target.value)}/></div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={salva} className="btn-primary flex-1">{editId ? 'Aggiorna' : 'Registra DDT'}</button>
-            <button onClick={() => { setApriForm(false); setEditId(null); setForm(vuotoBolla) }} className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600">Annulla</button>
-          </div>
-        </div>
-      )}
-
-      {isLoading ? <div className="text-center py-8 text-gray-400">Caricamento...</div> : bolle.length === 0 ? (
-        <div className="card text-center py-10 text-gray-400">
-          <Package size={32} className="mx-auto mb-2 opacity-30"/>
-          <p className="font-medium">Nessuna bolla di consegna</p>
-          <p className="text-xs mt-1">Registra le DDT ricevute dai fornitori</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {bolle.map(b => {
-            const ordine = ordini.find(o => o.id === b.ordine_id)
-            return (
-              <div key={b.id} className="card space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-gray-900">{b.fornitore_nome}</p>
-                      {b.numero_bolla && <span className="text-xs text-gray-500 font-mono">{b.numero_bolla}</span>}
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${b.stato === 'aperta' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                        {b.stato === 'aperta' ? '📦 Aperta' : '✓ Fatturata'}
-                      </span>
-                    </div>
-                    {b.descrizione && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{b.descrizione}</p>}
-                    <div className="flex gap-3 text-xs text-gray-400 mt-1 flex-wrap">
-                      {b.data && <span>📅 {fmtD(b.data)}</span>}
-                      {ordine && <span>🔗 Ordine: {ordine.fornitore_nome}</span>}
-                    </div>
-                    {b.note && <p className="text-xs text-gray-400 italic">{b.note}</p>}
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    {b.importo_stimato && <p className="font-bold text-gray-900">{fmt(b.importo_stimato)}</p>}
-                    {b.foto_url && (
-                      <a href={b.foto_url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 flex items-center gap-0.5 justify-end mt-1">
-                        <Camera size={10}/> Foto
-                      </a>
-                    )}
-                  </div>
-                </div>
-                {canWrite && (
-                  <div className="flex items-center gap-2 border-t border-gray-50 pt-2">
-                    <label className="text-xs px-2 py-1 bg-gray-100 rounded-lg cursor-pointer hover:bg-gray-200 flex items-center gap-1 flex-shrink-0">
-                      <Camera size={12}/> Foto DDT
-                      <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => e.target.files[0] && uploadFoto(b.id, e.target.files[0])}/>
-                    </label>
-                    <div className="flex-1"/>
-                    <button onClick={() => apriModifica(b)} className="p-1 text-gray-400 hover:text-blue-500"><Edit2 size={14}/></button>
-                    <button onClick={() => confirm('Eliminare DDT?') && elimina.mutate(b.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14}/></button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ─── FATTURE FORNITORI ─── */
-function FattureSection({ cantiereId, canWrite }) {
-  const qc = useQueryClient()
-  const { utente } = useAuth()
-  const [form, setForm] = useState({ fornitore_nome: '', numero_fattura: '', descrizione: '', importo_netto: '', iva_perc: '22', data_fattura: '', data_scadenza: '' })
-  const [apriForm, setApriForm] = useState(false)
-
-  const { data: fatture = [], isLoading } = useQuery(
-    ['fatture', cantiereId],
-    () => api.get(`/cantieri/${cantiereId}/fatture`).then(r => r.data),
+  const { data: lista = [], isLoading } = useQuery(
+    ['preventivi-artigiani', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/preventivi-artigiani`).then(r => r.data),
     { staleTime: 0 }
   )
-  const crea = useMutation(body => api.post(`/cantieri/${cantiereId}/fatture`, body), {
-    onSuccess: () => { qc.invalidateQueries(['fatture', cantiereId]); setApriForm(false); toast.success('Fattura aggiunta') }
+
+  const chiudi = () => { setApriForm(false); setEditId(null); setForm(vuoto) }
+  const invalida = () => { qc.invalidateQueries(['preventivi-artigiani', cantiereId]); qc.invalidateQueries(['economia', cantiereId]) }
+
+  const crea = useMutation(body => api.post(`/cantieri/${cantiereId}/preventivi-artigiani`, body), {
+    onSuccess: () => { invalida(); chiudi(); toast.success('Preventivo aggiunto') },
+    onError: e => toast.error(e.response?.data?.detail || 'Errore'),
   })
-  const autorizza = useMutation(id => api.post(`/cantieri/${cantiereId}/fatture/${id}/autorizza`), {
-    onSuccess: () => { qc.invalidateQueries(['fatture', cantiereId]); toast.success('Fattura autorizzata') }
+  const aggiorna = useMutation(({ id, body }) => api.put(`/cantieri/${cantiereId}/preventivi-artigiani/${id}`, body), {
+    onSuccess: () => { invalida(); chiudi(); toast.success('Aggiornato') },
+    onError: e => toast.error(e.response?.data?.detail || 'Errore'),
   })
-  const elimina = useMutation(id => api.delete(`/cantieri/${cantiereId}/fatture/${id}`), {
-    onSuccess: () => { qc.invalidateQueries(['fatture', cantiereId]); toast.success('Fattura eliminata') }
+  const cambiaStato = useMutation(({ id, stato }) => api.put(`/cantieri/${cantiereId}/preventivi-artigiani/${id}`, { stato }), {
+    onSuccess: invalida,
   })
-  const puoAutorizzare = ['admin','capo_cantiere','direzione_lavori','amministrazione'].includes(utente?.ruolo)
+  const elimina = useMutation(id => api.delete(`/cantieri/${cantiereId}/preventivi-artigiani/${id}`), {
+    onSuccess: () => { invalida(); toast.success('Eliminato') },
+  })
+
+  const uploadPdf = async (id, file) => {
+    setUploadingFor(id)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      await api.post(`/cantieri/${cantiereId}/preventivi-artigiani/${id}/pdf`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      invalida(); toast.success('PDF allegato')
+    } catch { toast.error('Errore upload') }
+    finally { setUploadingFor(null) }
+  }
+
+  const salva = () => {
+    const body = { ...form, importo: parseFloat(form.importo) || 0, data: form.data || null }
+    if (!body.artigiano_nome) { toast.error('Nome artigiano obbligatorio'); return }
+    editId ? aggiorna.mutate({ id: editId, body }) : crea.mutate(body)
+  }
+
+  const apriModifica = (p) => {
+    setEditId(p.id)
+    setForm({ artigiano_nome: p.artigiano_nome, lavorazione: p.lavorazione || '', descrizione: p.descrizione || '', importo: String(p.importo ?? ''), stato: p.stato || 'ricevuto', data: p.data || '', note: p.note || '' })
+    setApriForm(true)
+  }
+
+  const accettati = lista.filter(p => p.stato === 'accettato')
+  const base = accettati.length ? accettati : lista.filter(p => p.stato !== 'rifiutato')
+  const totaleBase = base.reduce((s, p) => s + (p.importo || 0), 0)
+
+  if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-orange-600 font-bold">{fatture.filter(f=>!f.autorizzata).length > 0 ? `⏳ ${fatture.filter(f=>!f.autorizzata).length} da autorizzare` : `${fatture.length} fatture`}</span>
-        {canWrite && <button onClick={()=>setApriForm(!apriForm)} className="flex items-center gap-1 px-3 py-2 bg-steelex-orange text-white rounded-lg text-sm font-medium"><Plus size={14}/> Nuova fattura</button>}
-      </div>
-      {apriForm && (
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-xs text-gray-500 mb-1 block">Fornitore *</label><input className="w-full border rounded-lg px-3 py-2 text-sm" value={form.fornitore_nome} onChange={e=>setForm(f=>({...f,fornitore_nome:e.target.value}))} /></div>
-            <div><label className="text-xs text-gray-500 mb-1 block">N° fattura</label><input className="w-full border rounded-lg px-3 py-2 text-sm" value={form.numero_fattura} onChange={e=>setForm(f=>({...f,numero_fattura:e.target.value}))} /></div>
-            <div><label className="text-xs text-gray-500 mb-1 block">Imponibile €</label><input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.importo_netto} onChange={e=>setForm(f=>({...f,importo_netto:e.target.value}))} /></div>
-            <div><label className="text-xs text-gray-500 mb-1 block">IVA %</label><input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.iva_perc} onChange={e=>setForm(f=>({...f,iva_perc:e.target.value}))} /></div>
-            <div><label className="text-xs text-gray-500 mb-1 block">Data fattura</label><input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.data_fattura} onChange={e=>setForm(f=>({...f,data_fattura:e.target.value}))} /></div>
-            <div><label className="text-xs text-gray-500 mb-1 block">Scadenza pagamento</label><input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.data_scadenza} onChange={e=>setForm(f=>({...f,data_scadenza:e.target.value}))} /></div>
+    <div className="space-y-3">
+      <MiniRiepilogoLive cantiereId={cantiereId} />
+
+      {lista.length > 0 && (
+        <div className="card flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-400">
+              Costo manodopera esterna previsto {accettati.length ? '(preventivi accettati)' : '(esclusi i rifiutati)'}
+            </p>
+            <p className="text-xl font-bold text-gray-900">{fmt(totaleBase)}</p>
           </div>
-          <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Descrizione (opzionale)" value={form.descrizione} onChange={e=>setForm(f=>({...f,descrizione:e.target.value}))} />
+          <HardHat size={24} className="text-gray-300" />
+        </div>
+      )}
+
+      {canWrite && (
+        <button onClick={() => { setApriForm(!apriForm); setEditId(null); setForm(vuoto) }}
+          className="btn-primary w-full flex items-center justify-center gap-2">
+          <Plus size={16} /> Nuovo preventivo artigiano
+        </button>
+      )}
+
+      {apriForm && (
+        <div className="card space-y-3 border-2 border-steelex-orange/30">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm text-gray-800">{editId ? 'Modifica preventivo' : 'Nuovo preventivo artigiano'}</h3>
+            <button onClick={chiudi}><X size={16} /></button>
+          </div>
+          <input className="input-field" placeholder="Artigiano / ditta *" value={form.artigiano_nome} onChange={e => set('artigiano_nome', e.target.value)} autoFocus />
+          <div className="grid grid-cols-2 gap-2">
+            <input className="input-field" placeholder="Lavorazione (es. Cartongesso)" value={form.lavorazione} onChange={e => set('lavorazione', e.target.value)} />
+            <input type="number" className="input-field" placeholder="Importo € *" value={form.importo} onChange={e => set('importo', e.target.value)} />
+            <select className="input-field" value={form.stato} onChange={e => set('stato', e.target.value)}>
+              {Object.entries(STATO_PREV_ART).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+            <input type="date" className="input-field" value={form.data} onChange={e => set('data', e.target.value)} />
+          </div>
+          <textarea className="input-field h-12 resize-none text-sm" placeholder="Descrizione / dettaglio" value={form.descrizione} onChange={e => set('descrizione', e.target.value)} />
+          <textarea className="input-field h-12 resize-none text-sm" placeholder="Note..." value={form.note} onChange={e => set('note', e.target.value)} />
           <div className="flex gap-2">
-            <button onClick={()=>setApriForm(false)} className="flex-1 px-3 py-2 border rounded-lg text-sm">Annulla</button>
-            <button onClick={()=>crea.mutate({...form,importo_netto:parseFloat(form.importo_netto)||0,iva_perc:parseFloat(form.iva_perc)||22,data_fattura:form.data_fattura||null,data_scadenza:form.data_scadenza||null})}
-              disabled={!form.fornitore_nome||!form.importo_netto}
-              className="flex-1 px-3 py-2 bg-steelex-orange text-white rounded-lg text-sm font-medium disabled:opacity-50">Aggiungi</button>
+            <button onClick={chiudi} className="btn-secondary flex-1">Annulla</button>
+            <button onClick={salva} disabled={!form.artigiano_nome || crea.isLoading || aggiorna.isLoading} className="btn-primary flex-1">
+              {editId ? 'Aggiorna' : 'Aggiungi'}
+            </button>
           </div>
         </div>
       )}
-      {isLoading && <div className="text-center py-4 text-gray-400">Caricamento...</div>}
-      {!isLoading && fatture.length === 0 && !apriForm && (
-        <div className="text-center py-8 text-gray-400"><FileText size={32} className="mx-auto mb-2 opacity-30"/><p>Nessuna fattura fornitore</p></div>
-      )}
-      {fatture.map(f => (
-        <div key={f.id} className={`rounded-xl border p-3 space-y-1 ${f.autorizzata ? 'border-green-300 bg-green-50' : 'border-orange-300 bg-orange-50'}`}>
+
+      {lista.length === 0 && !apriForm ? (
+        <div className="card text-center py-8 text-gray-400">
+          <HardHat size={32} className="mx-auto mb-2 opacity-30" />
+          <p>Nessun preventivo artigiano</p>
+          <p className="text-xs mt-1">Registra i preventivi ricevuti dai subappaltatori — il previsionale del riepilogo li incrocia col computo cliente</p>
+        </div>
+      ) : lista.map(p => (
+        <div key={p.id} className="card space-y-2">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900 truncate">{f.fornitore_nome}</p>
-              {f.numero_fattura && <p className="text-xs text-gray-500">N° {f.numero_fattura}</p>}
-              {f.descrizione && <p className="text-xs text-gray-600 italic">{f.descrizione}</p>}
-              <div className="flex gap-2 text-xs text-gray-400 mt-0.5">
-                {f.data_fattura && <span>{f.data_fattura}</span>}
-                {f.data_scadenza && <span>scad. {f.data_scadenza}</span>}
+              <p className="font-semibold text-gray-900 truncate">{p.artigiano_nome}</p>
+              {p.lavorazione && <p className="text-xs text-steelex-orange font-medium">{p.lavorazione}</p>}
+              {p.descrizione && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{p.descrizione}</p>}
+              <div className="flex gap-2 text-xs text-gray-400 mt-0.5 flex-wrap">
+                {p.data && <span>{fmtD(p.data)}</span>}
+                {p.note && <span className="italic">{p.note}</span>}
               </div>
             </div>
-            <div className="text-right flex-shrink-0">
-              <p className="font-bold text-gray-900">{fmt(f.importo_totale||f.importo_netto)}</p>
-              <p className="text-xs text-gray-400">IVA {f.iva_perc}%</p>
-            </div>
+            <p className="font-bold text-gray-900 flex-shrink-0">{fmt(p.importo)}</p>
           </div>
-          <div className="flex items-center justify-between pt-1">
-            {f.autorizzata ? (
-              <span className="text-xs text-green-700 font-medium">✓ Autorizzata {f.autorizzata_da_nome ? `da ${f.autorizzata_da_nome}` : ''}</span>
-            ) : puoAutorizzare ? (
-              <button onClick={()=>autorizza.mutate(f.id)} className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg font-medium">Autorizza</button>
+          <div className="flex items-center justify-between gap-2 border-t border-gray-50 pt-2">
+            {canWrite ? (
+              <select value={p.stato} onChange={e => cambiaStato.mutate({ id: p.id, stato: e.target.value })}
+                className={`text-xs px-2 py-1 rounded-full font-medium border-0 cursor-pointer ${STATO_PREV_ART[p.stato]?.bg || 'bg-gray-100'}`}>
+                {Object.entries(STATO_PREV_ART).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
             ) : (
-              <span className="text-xs text-orange-600 font-medium">⏳ In attesa autorizzazione</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${STATO_PREV_ART[p.stato]?.bg}`}>{STATO_PREV_ART[p.stato]?.label}</span>
             )}
-            {canWrite && <button onClick={()=>confirm('Eliminare fattura?')&&elimina.mutate(f.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13}/></button>}
+            <div className="flex items-center gap-1">
+              {p.pdf_url && <a href={p.pdf_url} target="_blank" rel="noreferrer" className="p-1 text-blue-500"><ExternalLink size={14} /></a>}
+              {canWrite && <>
+                <label className={`p-1 text-gray-400 hover:text-steelex-orange cursor-pointer ${uploadingFor === p.id ? 'opacity-50' : ''}`} title="Allega PDF preventivo">
+                  {uploadingFor === p.id ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  <input type="file" accept=".pdf,.jpg,.png" className="hidden" disabled={uploadingFor === p.id}
+                    onChange={e => e.target.files[0] && uploadPdf(p.id, e.target.files[0])} />
+                </label>
+                <button onClick={() => apriModifica(p)} className="p-1 text-gray-400 hover:text-steelex-orange"><Edit2 size={14} /></button>
+                <button onClick={() => confirm('Eliminare?') && elimina.mutate(p.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+              </>}
+            </div>
           </div>
         </div>
       ))}

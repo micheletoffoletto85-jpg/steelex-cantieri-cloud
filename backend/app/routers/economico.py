@@ -93,23 +93,30 @@ def _blocca_cliente(user: Utente):
 # ─── RIEPILOGO ────────────────────────────────────────────────────────────────
 
 class RiepilogoOut(BaseModel):
-    budget_preventivo: float     # totale preventivo accettato (IVA esclusa)
+    budget_preventivo: float     # totale preventivo accettato (IVA esclusa) = ricavo previsionale
     budget_iva: float            # con IVA
     totale_speso: float          # somma spese registrate
-    margine_atteso: float        # budget - totale_speso
+    margine_atteso: float        # budget - totale_speso (margine consuntivo)
     totale_sal_emessi: float     # SAL emessi + pagati
     totale_sal_pagati: float     # SAL incassati
     da_incassare: float
     spese_per_categoria: dict
+    # ─── Previsionale (fascia in alto del riepilogo) ───
+    preventivi_artigiani_totale: float = 0.0   # somma preventivi artigiani considerati
+    margine_previsionale: float = 0.0          # ricavo computo - preventivi artigiani
+    margine_previsionale_perc: float = 0.0     # % sul ricavo computo
 
 @router.get("/{cantiere_id}/economia")
 def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     _check(cantiere_id, db, user)
     _economia_o_dl(user)
 
+    from app.models.preventivo_artigiano import PreventivoArtigiano
+
     preventivi = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).all()
     spese = db.query(Spesa).filter(Spesa.cantiere_id == cantiere_id).all()
     sal_list = db.query(SAL).filter(SAL.cantiere_id == cantiere_id).all()
+    prev_art = db.query(PreventivoArtigiano).filter(PreventivoArtigiano.cantiere_id == cantiere_id).all()
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
 
     # Usa i preventivi accettati; se nessuno accettato, somma tutti
@@ -127,6 +134,13 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         cat = s.categoria or "altro"
         cat_totali[cat] = cat_totali.get(cat, 0) + s.importo
 
+    # Preventivi artigiani: usa gli accettati; se nessuno accettato, tutti tranne i rifiutati
+    pa_accettati = [p for p in prev_art if (p.stato or "") == "accettato"]
+    pa_base = pa_accettati if pa_accettati else [p for p in prev_art if (p.stato or "") != "rifiutato"]
+    prev_art_totale = sum(p.importo or 0 for p in pa_base)
+    margine_prev = budget - prev_art_totale
+    margine_prev_perc = round(margine_prev / budget * 100, 1) if budget > 0 else 0.0
+
     if _is_dl(user):
         return RiepilogoOut(
             budget_preventivo=budget,
@@ -137,6 +151,9 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
             totale_sal_pagati=sal_pagati,
             da_incassare=sal_emessi - sal_pagati,
             spese_per_categoria={},
+            preventivi_artigiani_totale=0,
+            margine_previsionale=0,
+            margine_previsionale_perc=0,
         )
     return RiepilogoOut(
         budget_preventivo=budget,
@@ -147,6 +164,9 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         totale_sal_pagati=sal_pagati,
         da_incassare=sal_emessi - sal_pagati,
         spese_per_categoria=cat_totali,
+        preventivi_artigiani_totale=prev_art_totale,
+        margine_previsionale=margine_prev,
+        margine_previsionale_perc=margine_prev_perc,
     )
 
 
@@ -401,6 +421,86 @@ def elimina_spesa(cantiere_id: int, spesa_id: int, db: Session = Depends(get_db)
     s = db.query(Spesa).filter(Spesa.id == spesa_id, Spesa.cantiere_id == cantiere_id).first()
     if not s: raise HTTPException(404, "Non trovata")
     db.delete(s); db.commit()
+
+
+# ─── PREVENTIVI ARTIGIANI ─────────────────────────────────────────────────────
+
+class PrevArtOut(BaseModel):
+    id: int; cantiere_id: int; artigiano_nome: str; lavorazione: Optional[str]
+    descrizione: Optional[str]; importo: float; stato: str; data: Optional[date]
+    pdf_url: Optional[str]; note: Optional[str]; creato_il: Optional[datetime]
+    class Config: from_attributes = True
+
+class PrevArtCreate(BaseModel):
+    artigiano_nome: str
+    lavorazione: Optional[str] = None
+    descrizione: Optional[str] = None
+    importo: float = 0.0
+    stato: str = "ricevuto"
+    data: Optional[date] = None
+    note: Optional[str] = None
+
+class PrevArtUpdate(BaseModel):
+    artigiano_nome: Optional[str] = None
+    lavorazione: Optional[str] = None
+    descrizione: Optional[str] = None
+    importo: Optional[float] = None
+    stato: Optional[str] = None
+    data: Optional[date] = None
+    note: Optional[str] = None
+
+
+@router.get("/{cantiere_id}/preventivi-artigiani", response_model=List[PrevArtOut])
+def lista_prev_artigiani(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    from app.models.preventivo_artigiano import PreventivoArtigiano
+    return (db.query(PreventivoArtigiano)
+              .filter(PreventivoArtigiano.cantiere_id == cantiere_id)
+              .order_by(PreventivoArtigiano.creato_il.desc()).all())
+
+
+@router.post("/{cantiere_id}/preventivi-artigiani", response_model=PrevArtOut, status_code=201)
+def crea_prev_artigiano(cantiere_id: int, body: PrevArtCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    from app.models.preventivo_artigiano import PreventivoArtigiano
+    p = PreventivoArtigiano(cantiere_id=cantiere_id, creato_da=user.id, **body.model_dump())
+    db.add(p); db.commit(); db.refresh(p)
+    return p
+
+
+@router.put("/{cantiere_id}/preventivi-artigiani/{prev_id}", response_model=PrevArtOut)
+def aggiorna_prev_artigiano(cantiere_id: int, prev_id: int, body: PrevArtUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    from app.models.preventivo_artigiano import PreventivoArtigiano
+    p = db.query(PreventivoArtigiano).filter(PreventivoArtigiano.id == prev_id, PreventivoArtigiano.cantiere_id == cantiere_id).first()
+    if not p: raise HTTPException(404, "Non trovato")
+    for k, v in body.model_dump(exclude_none=True).items():
+        setattr(p, k, v)
+    db.commit(); db.refresh(p)
+    return p
+
+
+@router.post("/{cantiere_id}/preventivi-artigiani/{prev_id}/pdf", response_model=PrevArtOut)
+async def upload_pdf_prev_artigiano(cantiere_id: int, prev_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    from app.models.preventivo_artigiano import PreventivoArtigiano
+    p = db.query(PreventivoArtigiano).filter(PreventivoArtigiano.id == prev_id, PreventivoArtigiano.cantiere_id == cantiere_id).first()
+    if not p: raise HTTPException(404, "Non trovato")
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    contenuto = await file.read()
+    url, _ = salva_file(contenuto, f"preventivi-artigiani/{cantiere_id}", ext)
+    p.pdf_url = url
+    db.commit(); db.refresh(p)
+    return p
+
+
+@router.delete("/{cantiere_id}/preventivi-artigiani/{prev_id}", status_code=204)
+def elimina_prev_artigiano(cantiere_id: int, prev_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _check(cantiere_id, db, user); _solo_economia(user)
+    from app.models.preventivo_artigiano import PreventivoArtigiano
+    p = db.query(PreventivoArtigiano).filter(PreventivoArtigiano.id == prev_id, PreventivoArtigiano.cantiere_id == cantiere_id).first()
+    if not p: raise HTTPException(404, "Non trovato")
+    db.delete(p); db.commit()
 
 
 # ─── AUTORIZZAZIONE FATTURE ───────────────────────────────────────────────────
