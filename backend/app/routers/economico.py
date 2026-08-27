@@ -107,9 +107,10 @@ class RiepilogoOut(BaseModel):
     margine_obiettivo: Optional[float] = None   # % margine sul fatturato concordato col commerciale
     margine_reale_perc: float = 0.0             # margine_atteso / budget * 100
     # ─── Previsionale (fascia in alto del riepilogo) ───
-    preventivi_artigiani_totale: float = 0.0   # somma preventivi artigiani considerati
-    margine_previsionale: float = 0.0          # ricavo computo - preventivi artigiani
-    margine_previsionale_perc: float = 0.0     # % sul ricavo computo
+    costo_previsto: float = 0.0                # costo pianificato nel computo base (somma costi voci)
+    preventivi_artigiani_totale: float = 0.0   # somma preventivi artigiani ricevuti (confronto)
+    margine_previsionale: float = 0.0          # ricavo computo base - costo previsto
+    margine_previsionale_perc: float = 0.0     # % sul ricavo computo (= margine sul fatturato)
 
 @router.get("/{cantiere_id}/economia")
 def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
@@ -136,6 +137,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     budget     = sum(p.subtotale for p in base_use) or (cantiere.budget or 0)
     budget_iva = sum(p.totale    for p in base_use) or budget
     budget_extra = round(sum(p.subtotale for p in extra_prevs), 2)
+    costo_previsto = round(sum(p.costo_totale or 0 for p in base_use), 2)
 
     costo_manodopera = round(sum(o.totale or 0 for o in ore_mano), 2)
     costo_manodopera_extra = round(sum(o.totale or 0 for o in ore_mano if o.extra_preventivo), 2)
@@ -154,7 +156,9 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     pa_accettati = [p for p in prev_art if (p.stato or "") == "accettato"]
     pa_base = pa_accettati if pa_accettati else [p for p in prev_art if (p.stato or "") != "rifiutato"]
     prev_art_totale = sum(p.importo or 0 for p in pa_base)
-    margine_prev = budget - prev_art_totale
+    # Margine previsionale = ricavo del computo base − costo pianificato nel computo base.
+    # I preventivi artigiani sono un confronto/rifinitura, non un secondo costo da sottrarre.
+    margine_prev = budget - costo_previsto
     margine_prev_perc = round(margine_prev / budget * 100, 1) if budget > 0 else 0.0
     margine_atteso = budget - totale_speso
     margine_reale_perc = round(margine_atteso / budget * 100, 1) if budget > 0 else 0.0
@@ -173,6 +177,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
             costo_manodopera=0,
             costo_manodopera_extra=0,
             budget_extra=budget_extra,
+            costo_previsto=0,
             margine_obiettivo=margine_obiettivo,
             margine_reale_perc=0,
             preventivi_artigiani_totale=0,
@@ -191,6 +196,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         costo_manodopera=costo_manodopera,
         costo_manodopera_extra=costo_manodopera_extra,
         budget_extra=budget_extra,
+        costo_previsto=costo_previsto,
         margine_obiettivo=margine_obiettivo,
         margine_reale_perc=margine_reale_perc,
         preventivi_artigiani_totale=prev_art_totale,

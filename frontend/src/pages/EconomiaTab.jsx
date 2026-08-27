@@ -196,30 +196,35 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
         </div>
       ) : (
         <div className="card space-y-3 border-2 border-steelex-orange/20 bg-orange-50/30">
-          <p className="text-xs font-semibold text-steelex-orange uppercase tracking-wide">Previsionale</p>
+          <p className="text-xs font-semibold text-steelex-orange uppercase tracking-wide">Previsionale — computo base</p>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <p className="text-xs text-gray-400 mb-0.5">Ricavo computo base</p>
+              <p className="text-xs text-gray-400 mb-0.5">Ricavo (prezzo cliente)</p>
               <p className="text-base font-bold text-gray-900">{fmt(rv.budget_preventivo)}</p>
               <p className="text-[10px] text-gray-400">+ IVA: {fmt(rv.budget_iva)}</p>
-              {rv.budget_extra > 0 && <p className="text-[10px] text-orange-600">+ extra prev. {fmt(rv.budget_extra)}</p>}
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-0.5">Preventivi artigiani</p>
-              <p className="text-base font-bold text-gray-900">− {fmt(rv.preventivi_artigiani_totale)}</p>
-              <p className="text-[10px] text-gray-400">costo manodopera esterna</p>
+              <p className="text-xs text-gray-400 mb-0.5">Costo previsto</p>
+              <p className="text-base font-bold text-gray-900">− {fmt(rv.costo_previsto)}</p>
+              <p className="text-[10px] text-gray-400">somma costi delle voci</p>
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-0.5">Margine atteso</p>
               <p className={`text-base font-bold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_previsionale)}</p>
-              <p className={`text-[10px] font-semibold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(rv.margine_previsionale_perc ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</p>
+              <p className={`text-[10px] font-semibold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(rv.margine_previsionale_perc ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 })}% sul fatturato</p>
             </div>
           </div>
-          {rv.preventivi_artigiani_totale === 0 && (
-            <p className="text-[11px] text-gray-400 border-t border-orange-200 pt-2">
-              Nessun preventivo artigiano registrato — il margine atteso non tiene ancora conto dei costi di manodopera esterna.
-            </p>
-          )}
+          <div className="border-t border-orange-200 pt-2 text-[11px] text-gray-500 space-y-0.5">
+            {(rv.costo_previsto ?? 0) === 0 && (
+              <p className="text-amber-600">⚠️ Nel computo non ci sono costi (modalità prezzi diretti) — il margine previsionale non è calcolabile finché non inserisci i costi delle voci.</p>
+            )}
+            {rv.preventivi_artigiani_totale > 0 && (
+              <p>Confronto: preventivi artigiani ricevuti <strong>{fmt(rv.preventivi_artigiani_totale)}</strong> {(rv.costo_previsto ?? 0) > 0 && <>vs manodopera nel computo</>}</p>
+            )}
+            {rv.budget_extra > 0 && (
+              <p className="text-orange-600">Extra preventivi (a parte): {fmt(rv.budget_extra)}</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -240,7 +245,7 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
             <div>
               <p className="text-xs text-gray-400 mb-1">Margine reale</p>
               <p className={`text-lg font-bold ${marginePositivo ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_atteso)}</p>
-              <p className="text-xs text-gray-400">{rv.budget_preventivo > 0 ? Math.round((rv.margine_atteso / rv.budget_preventivo)*100) : 0}% · ricavo − speso</p>
+              <p className="text-xs text-gray-400">{(rv.margine_reale_perc ?? 0).toLocaleString('it-IT',{maximumFractionDigits:1})}% sul fatturato · ricavo − speso</p>
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-1">Incassato</p>
@@ -354,6 +359,9 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
   const importInputRef = useRef(null)
   const [ricarico_globale, setRicaricoGlobale] = useState('')
   const [modalita, setModalita] = useState('costo') // 'costo' = costo+ricarico | 'cliente' = prezzi cliente diretti
+  const [modoPrezzo, setModoPrezzo] = useState('ricarico') // 'ricarico' (markup sul costo) | 'margine' (% sul prezzo)
+  const ricDaMarg = (m) => { m = Math.min(parseFloat(m)||0, 99.9); return m > 0 ? m/(100-m)*100 : 0 }
+  const margDaRic = (r) => { r = parseFloat(r)||0; return r > 0 ? r/(100+r)*100 : 0 }
   const [showPaste, setShowPaste] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteRighe, setPasteRighe] = useState(null)   // righe grezze dopo incolla
@@ -365,18 +373,19 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
   const computiBase = preventivi.filter(p => (p.tipo || 'base') !== 'extra')
   const preventiviExtra = preventivi.filter(p => (p.tipo || 'base') === 'extra')
 
-  const chiudi = () => { setShowForm(false); setEditId(null); setVoci([]); setBase({ numero:'',data_preventivo:'',iva_perc:22,acconto_perc:30,note:'' }); setRicaricoGlobale(''); setModalita('costo'); setVociImportate(null); setRigheSelezionate(null) }
+  const chiudi = () => { setShowForm(false); setEditId(null); setVoci([]); setBase({ numero:'',data_preventivo:'',iva_perc:22,acconto_perc:30,note:'' }); setRicaricoGlobale(''); setModalita('costo'); setModoPrezzo('ricarico'); setVociImportate(null); setRigheSelezionate(null) }
 
   const applicaRicaricoGlobale = () => {
-    const ric = parseFloat(ricarico_globale) || 0
-    if (ric <= 0) { toast.error('Inserisci una percentuale valida'); return }
+    const inp = parseFloat(ricarico_globale) || 0
+    if (inp <= 0) { toast.error('Inserisci una percentuale valida'); return }
+    const ric = modoPrezzo === 'margine' ? parseFloat(ricDaMarg(inp).toFixed(2)) : inp
     setVoci(vv => vv.map(v => {
       const costo = v.costo_unitario || 0
       const qt = v.qt || 1
       const prezzoCliente = parseFloat((costo * (1 + ric / 100)).toFixed(2))
       return { ...v, ricarico_perc: ric, prezzo_unitario: prezzoCliente, totale_costo: parseFloat((costo * qt).toFixed(2)), totale_cliente: parseFloat((prezzoCliente * qt).toFixed(2)) }
     }))
-    toast.success(`Ricarico ${ric}% applicato a tutte le voci`)
+    toast.success(modoPrezzo === 'margine' ? `Margine ${inp}% applicato (ricarico ${ric.toFixed(1)}%)` : `Ricarico ${ric}% applicato a tutte le voci`)
   }
 
   const apriModifica = (p) => {
@@ -421,11 +430,18 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
         up.totale_cliente = parseFloat((prezzoC * qt).toFixed(2))
       }
     } else {
-      // Modalità costo + ricarico
-      if (['costo_unitario','ricarico_perc','qt'].includes(k)) {
+      // Modalità costo + ricarico/margine. Si memorizza sempre il ricarico (markup sul costo);
+      // 'margine_perc' è solo un modo diverso di digitarlo (m = % sul prezzo di vendita).
+      if (['costo_unitario','ricarico_perc','margine_perc','qt'].includes(k)) {
         const costo = k==='costo_unitario' ? parseFloat(val)||0 : up.costo_unitario
-        const ric   = k==='ricarico_perc'  ? parseFloat(val)||0 : up.ricarico_perc
         const qt    = k==='qt'             ? parseFloat(val)||1 : up.qt
+        let ric = up.ricarico_perc || 0
+        if (k==='ricarico_perc') ric = parseFloat(val)||0
+        if (k==='margine_perc') {
+          const m = Math.min(parseFloat(val)||0, 99.9)
+          ric = m > 0 ? parseFloat((m/(100-m)*100).toFixed(2)) : 0
+        }
+        up.ricarico_perc   = parseFloat(ric.toFixed ? ric.toFixed(2) : ric)
         up.prezzo_unitario = parseFloat((costo*(1+ric/100)).toFixed(2))
         up.totale_costo    = parseFloat((costo*qt).toFixed(2))
         up.totale_cliente  = parseFloat((up.prezzo_unitario*qt).toFixed(2))
@@ -887,7 +903,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
               <button onClick={() => setModalita('costo')}
                 className={`py-2.5 px-3 rounded-xl text-xs font-medium border-2 transition-colors text-left ${modalita==='costo' ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
                 <p className="font-bold">💰 Costo + ricarico</p>
-                <p className="text-gray-400 font-normal mt-0.5">Inserisci i costi e applica il tuo margine</p>
+                <p className="text-gray-400 font-normal mt-0.5">Inserisci i costi, l'app calcola il prezzo cliente</p>
               </button>
               <button onClick={() => setModalita('cliente')}
                 className={`py-2.5 px-3 rounded-xl text-xs font-medium border-2 transition-colors text-left ${modalita==='cliente' ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
@@ -896,16 +912,40 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
               </button>
             </div>
 
-            {/* Pannello ricarico globale — solo in modalità costo */}
+            {/* Ragiono in ricarico o in margine — solo modalità costo */}
+            {modalita === 'costo' && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-gray-400">Ragiono in:</span>
+                <button onClick={() => setModoPrezzo('ricarico')}
+                  className={`px-2.5 py-1 rounded-lg font-medium ${modoPrezzo==='ricarico' ? 'bg-steelex-orange text-white' : 'bg-gray-100 text-gray-500'}`}>
+                  Ricarico sul costo
+                </button>
+                <button onClick={() => setModoPrezzo('margine')}
+                  className={`px-2.5 py-1 rounded-lg font-medium ${modoPrezzo==='margine' ? 'bg-steelex-orange text-white' : 'bg-gray-100 text-gray-500'}`}>
+                  Margine sul prezzo
+                </button>
+              </div>
+            )}
+
+            {/* Pannello % globale — solo in modalità costo */}
             {modalita === 'costo' && voci.length > 0 && (
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="text-xs font-semibold text-steelex-orange block mb-1">Ricarico globale %</label>
+                  <label className="text-xs font-semibold text-steelex-orange block mb-1">
+                    {modoPrezzo === 'margine' ? 'Margine globale %' : 'Ricarico globale %'}
+                  </label>
                   <input type="number" min="0" max="999" step="1" placeholder="es. 35"
                     className="input-field py-1.5 text-sm"
                     value={ricarico_globale}
                     onChange={e => setRicaricoGlobale(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && applicaRicaricoGlobale()} />
+                  {ricarico_globale && (
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      {modoPrezzo === 'margine'
+                        ? `= ricarico ${ricDaMarg(ricarico_globale).toLocaleString('it-IT',{maximumFractionDigits:1})}% sul costo`
+                        : `= margine ${margDaRic(ricarico_globale).toLocaleString('it-IT',{maximumFractionDigits:1})}% sul prezzo`}
+                    </p>
+                  )}
                 </div>
                 <button onClick={applicaRicaricoGlobale}
                   className="btn-primary py-1.5 px-4 text-sm flex-shrink-0 whitespace-nowrap">
@@ -953,7 +993,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
                       <th className="p-2 text-right font-semibold text-gray-500 w-[7%]">Qt</th>
                       {modalita === 'costo' ? <>
                         <th className="p-2 text-right font-semibold text-gray-500 w-[10%]">Costo €</th>
-                        <th className="p-2 text-right font-semibold text-gray-500 w-[8%]">Ric. %</th>
+                        <th className="p-2 text-right font-semibold text-gray-500 w-[8%]">{modoPrezzo === 'margine' ? 'Marg. %' : 'Ric. %'}</th>
                         <th className="p-2 text-right font-semibold text-gray-500 w-[10%]">Pr. cliente</th>
                       </> : <>
                         <th className="p-2 text-right font-semibold text-gray-500 w-[13%]">Prezzo cliente €</th>
@@ -991,8 +1031,16 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
                               value={v.costo_unitario} onChange={e => aggiornaVoce(v.id,'costo_unitario',e.target.value)} />
                           </td>
                           <td className="p-1">
-                            <input type="number" className="w-full bg-transparent border-0 outline-none text-xs text-right text-gray-700 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
-                              value={v.ricarico_perc} onChange={e => aggiornaVoce(v.id,'ricarico_perc',e.target.value)} />
+                            {modoPrezzo === 'margine' ? (
+                              <input type="number" title="Margine % sul prezzo di vendita"
+                                className="w-full bg-transparent border-0 outline-none text-xs text-right text-gray-700 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                                value={Number(margDaRic(v.ricarico_perc).toFixed(1))}
+                                onChange={e => aggiornaVoce(v.id,'margine_perc',e.target.value)} />
+                            ) : (
+                              <input type="number" title="Ricarico % sul costo"
+                                className="w-full bg-transparent border-0 outline-none text-xs text-right text-gray-700 px-1 py-1 rounded hover:bg-white focus:bg-white focus:ring-1 focus:ring-orange-300"
+                                value={v.ricarico_perc} onChange={e => aggiornaVoce(v.id,'ricarico_perc',e.target.value)} />
+                            )}
                           </td>
                           <td className="p-1 text-right pr-2 font-medium text-steelex-orange">
                             {(v.prezzo_unitario||0).toFixed(2)}
@@ -1034,7 +1082,16 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
             <div className="bg-gray-50 rounded-xl p-3 space-y-1 text-sm border-t">
               {modalita === 'costo' && <>
                 <div className="flex justify-between text-gray-500"><span>Costo totale (riservato)</span><span>{fmt(costoTot)}</span></div>
-                <div className="flex justify-between"><span>Margine</span><span className={margine>=0?'text-green-600 font-medium':'text-red-600'}>{fmt(margine)} ({costoTot>0?Math.round((margine/costoTot)*100):0}%)</span></div>
+                <div className="flex justify-between">
+                  <span>Margine</span>
+                  <span className={margine>=0?'text-green-600 font-medium':'text-red-600'}>
+                    {fmt(margine)} · {subtotale>0?(margine/subtotale*100).toLocaleString('it-IT',{maximumFractionDigits:1}):0}% sul prezzo
+                  </span>
+                </div>
+                <div className="flex justify-between text-gray-400 text-xs">
+                  <span>Ricarico medio sul costo</span>
+                  <span>{costoTot>0?(margine/costoTot*100).toLocaleString('it-IT',{maximumFractionDigits:1}):0}%</span>
+                </div>
               </>}
               <div className="flex justify-between border-t pt-1 text-steelex-orange font-bold text-base"><span>TOTALE NETTO</span><span>{fmt(subtotale)}</span></div>
               <div className="flex justify-between text-gray-400 text-xs"><span>+ IVA {ivaPerc}%</span><span>{fmt(subtotale*ivaPerc/100)}</span></div>
@@ -1099,8 +1156,8 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
             <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(_pSubtotale(p))}</p><p className="text-xs text-gray-400">+ IVA {p.iva_perc}%: {fmt(_pTotale(p) - _pSubtotale(p))}</p></div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
-            {!isDL && <div><span className="text-gray-400 block">Costo base</span><span className="font-medium">{fmt(p.costo_totale)}</span></div>}
-            {!isDL && <div><span className="text-gray-400 block">Margine</span><span className={`font-medium ${(_pSubtotale(p)-p.costo_totale)>=0?'text-green-600':'text-red-600'}`}>{fmt(_pSubtotale(p)-p.costo_totale)}</span></div>}
+            {!isDL && <div><span className="text-gray-400 block">Costo previsto</span><span className="font-medium">{fmt(p.costo_totale)}</span></div>}
+            {!isDL && <div><span className="text-gray-400 block">Margine</span><span className={`font-medium ${(_pSubtotale(p)-p.costo_totale)>=0?'text-green-600':'text-red-600'}`}>{fmt(_pSubtotale(p)-p.costo_totale)}{_pSubtotale(p)>0 && <span className="text-gray-400 font-normal"> · {((_pSubtotale(p)-p.costo_totale)/_pSubtotale(p)*100).toLocaleString('it-IT',{maximumFractionDigits:1})}%</span>}</span></div>}
             <div><span className="text-gray-400 block">Acc. ricevuto</span><span className="font-medium text-blue-600">{fmt(p.acconto_ricevuto)}</span></div>
           </div>
           <div className="flex items-center justify-between gap-2">
