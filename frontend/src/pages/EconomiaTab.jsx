@@ -1376,6 +1376,7 @@ function SpeseSection({ cantiereId, canWrite }) {
   const totale = spese.reduce((s,sp) => s+sp.importo, 0)
   const { data: oreMano = [] } = useQuery(['ore-extra', cantiereId], () => api.get(`/cantieri/${cantiereId}/ore-extra`).then(r => r.data), { staleTime: 0 })
   const costoManodopera = oreMano.reduce((s,o) => s + (o.totale || 0), 0)
+  const costoManodoperaExtra = oreMano.filter(o => o.extra_preventivo).reduce((s,o) => s + (o.totale || 0), 0)
 
   const createMutation = useMutation(
     d => api.post(`/cantieri/${cantiereId}/spese`, d),
@@ -1459,22 +1460,32 @@ function SpeseSection({ cantiereId, canWrite }) {
     <div className="space-y-3">
       <MiniRiepilogoLive cantiereId={cantiereId} />
       {(spese.length > 0 || costoManodopera > 0) && (
-        <div className="card space-y-1.5">
+        <div className="card space-y-2">
           <div className="flex items-center justify-between">
-            <div><p className="text-xs text-gray-400">Totale spese registrate</p><p className="text-xl font-bold text-gray-900">{fmt(totale)}</p></div>
+            <div>
+              <p className="text-xs text-gray-400">Costo commessa (materiali + manodopera)</p>
+              <p className="text-2xl font-bold text-gray-900">{fmt(totale + costoManodopera)}</p>
+            </div>
             <Receipt size={24} className="text-gray-300" />
           </div>
-          {costoManodopera > 0 && (
-            <div className="flex items-center justify-between border-t border-gray-100 pt-1.5 text-xs">
-              <span className="text-gray-500">+ Manodopera (ore rapportini/cantiere)</span>
-              <span className="font-semibold text-gray-700">{fmt(costoManodopera)}</span>
+          <div className="border-t border-gray-100 pt-1.5 space-y-1 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">Materiali / fornitori {spese.length > 0 ? `(${spese.length})` : ''}</span>
+              <span className="font-medium text-gray-700">{fmt(totale)}</span>
             </div>
-          )}
-          {costoManodopera > 0 && (
-            <div className="flex items-center justify-between text-xs font-bold text-steelex-orange">
-              <span>Costo commessa totale</span><span>{fmt(totale + costoManodopera)}</span>
-            </div>
-          )}
+            {costoManodopera > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Manodopera (ore registrate)</span>
+                <span className="font-medium text-gray-700">{fmt(costoManodopera)}</span>
+              </div>
+            )}
+            {costoManodoperaExtra > 0 && (
+              <div className="flex items-center justify-between text-orange-600">
+                <span className="pl-3">di cui extra preventivo</span>
+                <span className="font-medium">{fmt(costoManodoperaExtra)}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
