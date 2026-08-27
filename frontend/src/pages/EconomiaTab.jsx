@@ -1778,23 +1778,23 @@ function OreExtraSection({ cantiereId, canWrite }) {
   const ricalcola = async () => {
     try {
       const r = await api.post(`/cantieri/${cantiereId}/ore-extra/ricalcola`)
-      qc.invalidateQueries(['ore-extra', cantiereId]); qc.invalidateQueries(['economia', cantiereId])
+      qc.invalidateQueries(['ore-extra', cantiereId]); qc.invalidateQueries(['economia', cantiereId]); qc.invalidateQueries(['preventivi', cantiereId])
       toast.success(`${r.data.collegate} collegate · ${r.data.valorizzate} valorizzate`)
     } catch { toast.error('Errore ricalcolo') }
   }
 
   const createMutation = useMutation(
     d => api.post(`/cantieri/${cantiereId}/ore-extra`, d),
-    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); setShowForm(false); cancelEdit(); toast.success('Ore registrate!') },
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); qc.invalidateQueries(['preventivi',cantiereId]); setShowForm(false); cancelEdit(); toast.success('Ore registrate!') },
       onError: e => toast.error(e.response?.data?.detail||'Errore') }
   )
   const updateMutation = useMutation(
     ({id,data}) => api.put(`/cantieri/${cantiereId}/ore-extra/${id}`, data),
-    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); toast.success('Aggiornato') } }
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); qc.invalidateQueries(['preventivi',cantiereId]); toast.success('Aggiornato') } }
   )
   const deleteMutation = useMutation(
     id => api.delete(`/cantieri/${cantiereId}/ore-extra/${id}`),
-    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); toast.success('Eliminato') } }
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); qc.invalidateQueries(['preventivi',cantiereId]); toast.success('Eliminato') } }
   )
 
   if (isLoading) return <div className="text-center py-8 text-gray-400">Caricamento...</div>
