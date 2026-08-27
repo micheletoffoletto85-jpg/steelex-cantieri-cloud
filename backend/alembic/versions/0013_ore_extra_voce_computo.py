@@ -21,7 +21,7 @@ def _has_col(bind, table, col):
 def upgrade():
     bind = op.get_bind()
     if not _has_col(bind, "ore_extra", "voce_extra_id"):
-        op.add_column("ore_extra", sa.Column("voce_extra_id", sa.Integer(), nullable=True))
+        op.add_column("ore_extra", sa.Column("voce_extra_id", sa.BigInteger(), nullable=True))
 
 
 def downgrade():

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Text, JSON, Float, Boolean
+from sqlalchemy import Column, Integer, BigInteger, String, Date, DateTime, ForeignKey, Text, JSON, Float, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -55,8 +55,9 @@ class OreExtra(Base):
     extra_preventivo = Column(Boolean, default=False)
     extra_preventivo_nota = Column(Text, nullable=True)
     # id della voce creata nel computo quando la riga è segnata extra preventivo
-    # (per aggiornarla/rimuoverla se la riga cambia o viene de-selezionata)
-    voce_extra_id = Column(Integer, nullable=True)
+    # (per aggiornarla/rimuoverla se la riga cambia o viene de-selezionata).
+    # BIGINT: gli id voce sono timestamp in ms (~1.8e12), fuori range per INTEGER
+    voce_extra_id = Column(BigInteger, nullable=True)
     creato_da = Column(Integer, ForeignKey("utenti.id"))
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 
