@@ -264,6 +264,22 @@ def _preventivo_extra_auto(db: Session, cantiere_id: int, crea: bool = True):
         note="Preventivo extra generato dalle ore manodopera segnate extra preventivo",
     )
     db.add(ex); db.flush()
+    # Migra qui le voci EXTRA (manodopera) eventualmente finite nei computi base
+    # (versioni precedenti le aggiungevano lì)
+    from sqlalchemy.orm.attributes import flag_modified
+    raccolte = []
+    for p in db.query(PreventivoCantiere).filter(
+        PreventivoCantiere.cantiere_id == cantiere_id, PreventivoCantiere.id != ex.id
+    ).all():
+        voci = list(p.voci or [])
+        tenere = [v for v in voci if not str(v.get("descrizione", "")).startswith("⚠ EXTRA (manodopera)")]
+        if len(tenere) != len(voci):
+            raccolte.extend([v for v in voci if str(v.get("descrizione", "")).startswith("⚠ EXTRA (manodopera)")])
+            _ricalcola(p, tenere, p.iva_perc, p.acconto_perc)
+            flag_modified(p, "voci")
+    if raccolte:
+        _ricalcola(ex, raccolte, ex.iva_perc, ex.acconto_perc)
+        flag_modified(ex, "voci")
     return ex
 
 
