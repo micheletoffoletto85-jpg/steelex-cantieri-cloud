@@ -34,6 +34,7 @@ class Cantiere(Base):
     data_fine_prevista = Column(Date)
     data_fine_reale = Column(Date)
     budget = Column(Float, default=0.0)
+    margine_obiettivo = Column(Float, nullable=True)  # % di margine sul fatturato concordato col commerciale
     note = Column(Text)
     responsabile_id = Column(Integer, ForeignKey("utenti.id"))
     creato_il = Column(DateTime(timezone=True), server_default=func.now())

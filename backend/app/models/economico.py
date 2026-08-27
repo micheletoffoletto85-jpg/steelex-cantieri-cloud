@@ -143,6 +143,10 @@ class PreventivoCantiere(Base):
     stato = Column(Enum(StatoPreventivo, native_enum=False), default=StatoPreventivo.bozza)
     pdf_url = Column(String)
     note = Column(Text)
+    # "base" = computo contrattuale; "extra" = preventivo per lavori extra (fuori contratto)
+    tipo = Column(String(10), default="base")
+    parent_id = Column(Integer, ForeignKey("preventivi.id", ondelete="SET NULL"), nullable=True)  # per gli extra: il computo base di riferimento
+    auto = Column(Boolean, default=False)   # extra gestito in automatico dalle ore manodopera
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 
     cantiere = relationship("Cantiere", back_populates="preventivi")

@@ -121,11 +121,20 @@ function MiniRiepilogoLive({ cantiereId }) {
 
 /* ─── RIEPILOGO ─── */
 function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
+  const qc = useQueryClient()
   const { data: rv, isLoading, dataUpdatedAt } = useQuery(
     ['economia', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/economia`).then(r => r.data),
     { staleTime: 0, refetchInterval: 20000, refetchOnMount: 'always' }
   )
+  const [editObiettivo, setEditObiettivo] = useState(false)
+  const [obiettivoVal, setObiettivoVal] = useState('')
+  const salvaObiettivo = async () => {
+    try {
+      await api.put(`/cantieri/${cantiereId}/margine-obiettivo`, { margine_obiettivo: obiettivoVal === '' ? null : parseFloat(obiettivoVal) })
+      qc.invalidateQueries(['economia', cantiereId]); setEditObiettivo(false); toast.success('Obiettivo aggiornato')
+    } catch { toast.error('Errore') }
+  }
   const { data: preventivi = [] } = useQuery(
     ['preventivi', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data),
@@ -190,9 +199,10 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
           <p className="text-xs font-semibold text-steelex-orange uppercase tracking-wide">Previsionale</p>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <p className="text-xs text-gray-400 mb-0.5">Ricavo computo</p>
+              <p className="text-xs text-gray-400 mb-0.5">Ricavo computo base</p>
               <p className="text-base font-bold text-gray-900">{fmt(rv.budget_preventivo)}</p>
               <p className="text-[10px] text-gray-400">+ IVA: {fmt(rv.budget_iva)}</p>
+              {rv.budget_extra > 0 && <p className="text-[10px] text-orange-600">+ extra prev. {fmt(rv.budget_extra)}</p>}
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-0.5">Preventivi artigiani</p>
@@ -254,6 +264,45 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
         </div>
       )}
 
+      {/* Obiettivo margine — concordato col commerciale, per cantiere */}
+      {!isDL && (
+        <div className="card space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Obiettivo margine</p>
+            {!editObiettivo && (
+              <button onClick={() => { setObiettivoVal(rv.margine_obiettivo ?? ''); setEditObiettivo(true) }}
+                className="text-xs text-steelex-orange hover:underline flex items-center gap-1"><Pencil size={11}/> {rv.margine_obiettivo != null ? 'Modifica' : 'Imposta'}</button>
+            )}
+          </div>
+          {editObiettivo ? (
+            <div className="flex items-center gap-2">
+              <input type="number" step="1" min="0" max="99" autoFocus placeholder="es. 35"
+                className="input-field py-1.5 text-sm w-28" value={obiettivoVal} onChange={e => setObiettivoVal(e.target.value)} />
+              <span className="text-sm text-gray-400">% sul fatturato</span>
+              <button onClick={salvaObiettivo} className="btn-primary py-1.5 px-3 text-sm">Salva</button>
+              <button onClick={() => setEditObiettivo(false)} className="text-xs text-gray-400">Annulla</button>
+            </div>
+          ) : rv.margine_obiettivo != null ? (
+            <div className="flex items-end gap-4">
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{rv.margine_obiettivo}%</p>
+                <p className="text-[10px] text-gray-400">obiettivo</p>
+              </div>
+              <div>
+                <p className={`text-xl font-bold ${(rv.margine_previsionale_perc ?? 0) >= (rv.margine_obiettivo ?? 0) ? 'text-green-600' : 'text-red-600'}`}>{(rv.margine_previsionale_perc ?? 0).toLocaleString('it-IT',{maximumFractionDigits:1})}%</p>
+                <p className="text-[10px] text-gray-400">previsionale</p>
+              </div>
+              <div>
+                <p className={`text-xl font-bold ${(rv.margine_reale_perc ?? 0) >= (rv.margine_obiettivo ?? 0) ? 'text-green-600' : 'text-red-600'}`}>{(rv.margine_reale_perc ?? 0).toLocaleString('it-IT',{maximumFractionDigits:1})}%</p>
+                <p className="text-[10px] text-gray-400">attuale</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">Non impostato — concordalo col commerciale per confrontarlo con il margine reale.</p>
+          )}
+        </div>
+      )}
+
       {/* Barra budget — solo admin/capo */}
       {!isDL && rv.budget_preventivo > 0 && (
         <div className="card space-y-2">
@@ -312,6 +361,9 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
   // ruoli: 'desc' | 'um' | 'qt' | 'prezzo' | 'tot' | 'ignora'
 
   const { data: preventivi = [], isLoading } = useQuery(['preventivi', cantiereId], () => api.get(`/cantieri/${cantiereId}/preventivi`).then(r => r.data), { staleTime: 0 })
+  const [tipoNuovo, setTipoNuovo] = useState('base')   // 'base' | 'extra' per il form
+  const computiBase = preventivi.filter(p => (p.tipo || 'base') !== 'extra')
+  const preventiviExtra = preventivi.filter(p => (p.tipo || 'base') === 'extra')
 
   const chiudi = () => { setShowForm(false); setEditId(null); setVoci([]); setBase({ numero:'',data_preventivo:'',iva_perc:22,acconto_perc:30,note:'' }); setRicaricoGlobale(''); setModalita('costo'); setVociImportate(null); setRigheSelezionate(null) }
 
@@ -615,8 +667,12 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
       {canWrite && !showForm && (
         <div className="space-y-2">
           <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setShowForm(true)} className="btn-primary flex-1 flex items-center justify-center gap-2 min-w-[140px]">
+            <button onClick={() => { setTipoNuovo('base'); setShowForm(true) }} className="btn-primary flex-1 flex items-center justify-center gap-2 min-w-[140px]">
               <Plus size={16} /> Nuovo Computo
+            </button>
+            <button onClick={() => { setTipoNuovo('extra'); setShowForm(true) }}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium border flex-shrink-0 bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100">
+              <Plus size={13}/> Extra preventivo
             </button>
             <button onClick={() => { setShowPaste(v => !v); setPasteText('') }}
               className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium border flex-shrink-0 transition-colors ${showPaste ? 'bg-green-100 border-green-400 text-green-800' : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'}`}>
@@ -812,7 +868,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
       {showForm && (
         <div className="card space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold">{editId ? 'Modifica Computo' : 'Nuovo Computo'}</h3>
+            <h3 className="font-bold">{editId ? 'Modifica' : (tipoNuovo === 'extra' ? 'Nuovo Extra preventivo' : 'Nuovo Computo')}</h3>
             <button onClick={chiudi}><X size={16} /></button>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -992,6 +1048,7 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
             <button onClick={() => {
                 const payload = {
                   ...base,
+                  tipo: editId ? undefined : tipoNuovo,
                   data_preventivo: base.data_preventivo || null,  // stringa vuota → null
                   iva_perc: base.iva_perc === '' ? 22 : (parseFloat(base.iva_perc) ?? 22),
                   acconto_perc: parseFloat(base.acconto_perc) || 30,
@@ -1023,21 +1080,22 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
         </div>
       )}
 
-      {preventivi.length > 1 && !showForm && (
-        <div className="bg-steelex-orange/10 rounded-xl px-4 py-3 flex justify-between items-center border border-steelex-orange/20">
-          <span className="text-sm font-semibold text-gray-700">Totale tutti i computi</span>
-          <div className="text-right">
-            <p className="text-lg font-bold text-steelex-orange">{fmt(preventivi.reduce((s,p)=>s+_pSubtotale(p),0))}</p>
-            <p className="text-xs text-gray-400">+ IVA: {fmt(preventivi.reduce((s,p)=>s+(_pTotale(p)-_pSubtotale(p)),0))}</p>
-          </div>
-        </div>
-      )}
-      {preventivi.length === 0 && !showForm ? (
+      {preventivi.length === 0 && !showForm && (
         <div className="card text-center py-8 text-gray-400"><ClipboardList size={32} className="mx-auto mb-2 opacity-30" /><p>Nessun computo</p><p className="text-xs mt-1">Inserisci le voci di costo con il tuo ricarico per creare il preventivo cliente</p></div>
-      ) : preventivi.map(p => (
+      )}
+
+      {(() => {
+        const renderPrev = (p) => (
         <div key={p.id} className="card space-y-2">
           <div className="flex items-start justify-between">
-            <div><p className="font-bold">{p.numero || 'Computo'}</p>{p.data && <p className="text-xs text-gray-400">{fmtD(p.data)}</p>}</div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-bold">{p.numero || (p.tipo === 'extra' ? 'Extra' : 'Computo')}</p>
+                {p.tipo === 'extra' && <span className="text-[10px] font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">EXTRA</span>}
+                {p.auto && <span className="text-[10px] text-gray-400">auto · dalle ore manodopera</span>}
+              </div>
+              {p.data && <p className="text-xs text-gray-400">{fmtD(p.data)}</p>}
+            </div>
             <div className="text-right"><p className="text-xl font-bold text-steelex-orange">{fmt(_pSubtotale(p))}</p><p className="text-xs text-gray-400">+ IVA {p.iva_perc}%: {fmt(_pTotale(p) - _pSubtotale(p))}</p></div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
@@ -1139,7 +1197,26 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
             </div>
           )}
         </div>
-      ))}
+        )
+        return (
+          <>
+            {computiBase.length > 0 && (
+              <div className="flex items-center justify-between pt-1">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Computo base</p>
+                <p className="text-sm font-bold text-steelex-orange">{fmt(computiBase.reduce((sm,p)=>sm+_pSubtotale(p),0))}</p>
+              </div>
+            )}
+            {computiBase.map(renderPrev)}
+            {preventiviExtra.length > 0 && (
+              <div className="flex items-center justify-between pt-3">
+                <p className="text-xs font-bold text-orange-600 uppercase tracking-wide">Extra preventivi</p>
+                <p className="text-sm font-bold text-orange-600">{fmt(preventiviExtra.reduce((sm,p)=>sm+_pSubtotale(p),0))}</p>
+              </div>
+            )}
+            {preventiviExtra.map(renderPrev)}
+          </>
+        )
+      })()}
     </div>
   )
 }
