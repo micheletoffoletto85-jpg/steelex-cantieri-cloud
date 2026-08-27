@@ -107,7 +107,9 @@ class RiepilogoOut(BaseModel):
     margine_obiettivo: Optional[float] = None   # % margine sul fatturato concordato col commerciale
     margine_reale_perc: float = 0.0             # margine_atteso / budget * 100
     # ─── Previsionale (fascia in alto del riepilogo) ───
-    costo_previsto: float = 0.0                # costo pianificato nel computo base (somma costi voci)
+    costo_previsto: float = 0.0                # costo previsto (dal computo o dai preventivi artigiani)
+    costo_previsto_fonte: str = "nessuno"      # "computo" | "preventivi_artigiani" | "nessuno"
+    costo_totale_computo: float = 0.0          # somma costi voci del computo base (anche se = ricavo)
     preventivi_artigiani_totale: float = 0.0   # somma preventivi artigiani ricevuti (confronto)
     margine_previsionale: float = 0.0          # ricavo computo base - costo previsto
     margine_previsionale_perc: float = 0.0     # % sul ricavo computo (= margine sul fatturato)
@@ -137,7 +139,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     budget     = sum(p.subtotale for p in base_use) or (cantiere.budget or 0)
     budget_iva = sum(p.totale    for p in base_use) or budget
     budget_extra = round(sum(p.subtotale for p in extra_prevs), 2)
-    costo_previsto = round(sum(p.costo_totale or 0 for p in base_use), 2)
+    costo_totale_computo = round(sum(p.costo_totale or 0 for p in base_use), 2)
 
     costo_manodopera = round(sum(o.totale or 0 for o in ore_mano), 2)
     costo_manodopera_extra = round(sum(o.totale or 0 for o in ore_mano if o.extra_preventivo), 2)
@@ -155,11 +157,17 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     # Preventivi artigiani: usa gli accettati; se nessuno accettato, tutti tranne i rifiutati
     pa_accettati = [p for p in prev_art if (p.stato or "") == "accettato"]
     pa_base = pa_accettati if pa_accettati else [p for p in prev_art if (p.stato or "") != "rifiutato"]
-    prev_art_totale = sum(p.importo or 0 for p in pa_base)
-    # Margine previsionale = ricavo del computo base − costo pianificato nel computo base.
-    # I preventivi artigiani sono un confronto/rifinitura, non un secondo costo da sottrarre.
-    margine_prev = budget - costo_previsto
-    margine_prev_perc = round(margine_prev / budget * 100, 1) if budget > 0 else 0.0
+    prev_art_totale = round(sum(p.importo or 0 for p in pa_base), 2)
+    # Costo previsto: dal computo se ha un vero dettaglio costi (costo < ricavo),
+    # altrimenti dai preventivi artigiani ricevuti, altrimenti sconosciuto.
+    if budget > 0 and 0 < costo_totale_computo < budget * 0.98:
+        costo_previsto, costo_previsto_fonte = costo_totale_computo, "computo"
+    elif prev_art_totale > 0:
+        costo_previsto, costo_previsto_fonte = prev_art_totale, "preventivi_artigiani"
+    else:
+        costo_previsto, costo_previsto_fonte = 0.0, "nessuno"
+    margine_prev = (budget - costo_previsto) if costo_previsto_fonte != "nessuno" else 0.0
+    margine_prev_perc = round(margine_prev / budget * 100, 1) if (budget > 0 and costo_previsto_fonte != "nessuno") else 0.0
     margine_atteso = budget - totale_speso
     margine_reale_perc = round(margine_atteso / budget * 100, 1) if budget > 0 else 0.0
     margine_obiettivo = cantiere.margine_obiettivo if cantiere else None
@@ -177,7 +185,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
             costo_manodopera=0,
             costo_manodopera_extra=0,
             budget_extra=budget_extra,
-            costo_previsto=0,
+            costo_previsto=0, costo_previsto_fonte="nessuno", costo_totale_computo=0,
             margine_obiettivo=margine_obiettivo,
             margine_reale_perc=0,
             preventivi_artigiani_totale=0,
@@ -196,7 +204,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         costo_manodopera=costo_manodopera,
         costo_manodopera_extra=costo_manodopera_extra,
         budget_extra=budget_extra,
-        costo_previsto=costo_previsto,
+        costo_previsto=costo_previsto, costo_previsto_fonte=costo_previsto_fonte, costo_totale_computo=costo_totale_computo,
         margine_obiettivo=margine_obiettivo,
         margine_reale_perc=margine_reale_perc,
         preventivi_artigiani_totale=prev_art_totale,
@@ -329,8 +337,6 @@ def sync_voce_extra_ore(db: Session, ore, ricarico_perc: float = 0.0) -> bool:
         desc += f": {nota}"
     elif ore.attivita:
         desc += f": {ore.attivita}"
-    prezzo = round(costo * (1 + ricarico_perc / 100), 2)
-
     # se la voce era in un altro preventivo (es. base, da una versione precedente) toglila
     if ore.voce_extra_id:
         for p in db.query(PreventivoCantiere).filter(
@@ -344,17 +350,22 @@ def sync_voce_extra_ore(db: Session, ore, ricarico_perc: float = 0.0) -> bool:
 
     voci = list(ex.voci or [])
     esistente = next((v for v in voci if v.get("id") == ore.voce_extra_id), None) if ore.voce_extra_id else None
+    # se la voce esiste già e ha un ricarico impostato a mano, NON azzerarlo: aggiorna solo il costo
+    ric = ricarico_perc
+    if esistente and esistente.get("ricarico_perc"):
+        ric = float(esistente["ricarico_perc"])
+    prezzo = round(costo * (1 + ric / 100), 2)
     if esistente:
         esistente.update({
             "descrizione": desc, "qt": 1, "um": "ore",
-            "costo_unitario": costo, "totale_costo": costo,
+            "costo_unitario": costo, "totale_costo": costo, "ricarico_perc": round(ric, 2),
             "prezzo_unitario": prezzo, "totale_cliente": prezzo,
         })
     else:
         vid = int(datetime.now().timestamp() * 1000)
         voci.append({
             "id": vid, "descrizione": desc, "categoria": "Manodopera", "qt": 1, "um": "ore",
-            "costo_unitario": costo, "ricarico_perc": round(ricarico_perc, 2),
+            "costo_unitario": costo, "ricarico_perc": round(ric, 2),
             "prezzo_unitario": prezzo, "totale_costo": costo, "totale_cliente": prezzo,
         })
         ore.voce_extra_id = vid

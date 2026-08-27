@@ -197,29 +197,41 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
       ) : (
         <div className="card space-y-3 border-2 border-steelex-orange/20 bg-orange-50/30">
           <p className="text-xs font-semibold text-steelex-orange uppercase tracking-wide">Previsionale — computo base</p>
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Ricavo (prezzo cliente)</p>
-              <p className="text-base font-bold text-gray-900">{fmt(rv.budget_preventivo)}</p>
-              <p className="text-[10px] text-gray-400">+ IVA: {fmt(rv.budget_iva)}</p>
+          {rv.costo_previsto_fonte === 'nessuno' ? (
+            <div className="space-y-2">
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Ricavo (prezzo cliente)</p>
+                  <p className="text-lg font-bold text-gray-900">{fmt(rv.budget_preventivo)}</p>
+                </div>
+                <p className="text-xs text-gray-400">IVA {rv.budget_iva > rv.budget_preventivo ? fmt(rv.budget_iva - rv.budget_preventivo) : '0'}</p>
+              </div>
+              <p className="text-[11px] text-amber-600 border-t border-orange-200 pt-2">
+                ⚠️ Margine previsionale non calcolabile: il computo non ha i costi delle voci (inserito a prezzi diretti) e non ci sono preventivi artigiani. Inserisci i costi nel computo <strong>oppure</strong> registra i preventivi degli artigiani.
+              </p>
             </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Costo previsto</p>
-              <p className="text-base font-bold text-gray-900">− {fmt(rv.costo_previsto)}</p>
-              <p className="text-[10px] text-gray-400">somma costi delle voci</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Ricavo (prezzo cliente)</p>
+                <p className="text-base font-bold text-gray-900">{fmt(rv.budget_preventivo)}</p>
+                <p className="text-[10px] text-gray-400">IVA: {rv.budget_iva > rv.budget_preventivo ? fmt(rv.budget_iva - rv.budget_preventivo) : '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Costo previsto</p>
+                <p className="text-base font-bold text-gray-900">− {fmt(rv.costo_previsto)}</p>
+                <p className="text-[10px] text-gray-400">{rv.costo_previsto_fonte === 'computo' ? 'costi nel computo' : 'da preventivi artigiani'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Margine atteso</p>
+                <p className={`text-base font-bold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_previsionale)}</p>
+                <p className={`text-[10px] font-semibold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(rv.margine_previsionale_perc ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 })}% sul fatturato</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Margine atteso</p>
-              <p className={`text-base font-bold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(rv.margine_previsionale)}</p>
-              <p className={`text-[10px] font-semibold ${(rv.margine_previsionale ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(rv.margine_previsionale_perc ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 })}% sul fatturato</p>
-            </div>
-          </div>
+          )}
           <div className="border-t border-orange-200 pt-2 text-[11px] text-gray-500 space-y-0.5">
-            {(rv.costo_previsto ?? 0) === 0 && (
-              <p className="text-amber-600">⚠️ Nel computo non ci sono costi (modalità prezzi diretti) — il margine previsionale non è calcolabile finché non inserisci i costi delle voci.</p>
-            )}
-            {rv.preventivi_artigiani_totale > 0 && (
-              <p>Confronto: preventivi artigiani ricevuti <strong>{fmt(rv.preventivi_artigiani_totale)}</strong> {(rv.costo_previsto ?? 0) > 0 && <>vs manodopera nel computo</>}</p>
+            {rv.preventivi_artigiani_totale > 0 && rv.costo_previsto_fonte === 'computo' && (
+              <p>Confronto: preventivi artigiani ricevuti <strong>{fmt(rv.preventivi_artigiani_totale)}</strong> · costi nel computo <strong>{fmt(rv.costo_totale_computo)}</strong></p>
             )}
             {rv.budget_extra > 0 && (
               <p className="text-orange-600">Extra preventivi (a parte): {fmt(rv.budget_extra)}</p>
