@@ -1721,20 +1721,26 @@ function SALSection({ cantiereId, canWrite, isDL = false }) {
   )
 }
 
-/* ─── ORE EXTRA ─── */
+/* ─── ORE MANODOPERA ─── */
 function OreExtraSection({ cantiereId, canWrite }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
-  const [form, setForm] = useState({ operaio_nome:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'' })
+  const [form, setForm] = useState({ operaio_nome:'', utente_id:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'' })
   const set = (k,v) => setForm(f => ({...f,[k]:v}))
+
+  const { data: operatori = [] } = useQuery('operatori', () => api.get('/rapportini/operatori').then(r => r.data), { staleTime: 5*60*1000 })
 
   const startEdit = (o) => {
     setEditId(o.id)
-    setForm({ operaio_nome: o.operaio_nome||'', ore: o.ore||'', attivita: o.attivita||'', tariffa_oraria: o.tariffa_oraria||'', data: o.data||'', note: o.note||'' })
+    setForm({ operaio_nome: o.operaio_nome||'', utente_id: o.utente_id ?? '', ore: o.ore||'', attivita: o.attivita||'', tariffa_oraria: o.tariffa_oraria||'', data: o.data||'', note: o.note||'' })
     setShowForm(false)
   }
-  const cancelEdit = () => { setEditId(null); setForm({ operaio_nome:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'' }) }
+  const cancelEdit = () => { setEditId(null); setForm({ operaio_nome:'', utente_id:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'' }) }
+  const onPickOperatore = (id) => {
+    const op = operatori.find(o => String(o.id) === String(id))
+    setForm(f => ({ ...f, utente_id: id, operaio_nome: op ? op.nome : f.operaio_nome }))
+  }
 
   const { data: oreList = [], isLoading } = useQuery(
     ['ore-extra', cantiereId],
@@ -1744,15 +1750,24 @@ function OreExtraSection({ cantiereId, canWrite }) {
 
   const totaleOre = oreList.reduce((s,o) => s + o.ore, 0)
   const totaleCosto = oreList.filter(o => !o.approvato).reduce((s,o) => s + (o.totale || 0), 0)
+  const senzaCosto = oreList.filter(o => !o.approvato && !(o.totale > 0)).length
+
+  const ricalcola = async () => {
+    try {
+      const r = await api.post(`/cantieri/${cantiereId}/ore-extra/ricalcola`)
+      qc.invalidateQueries(['ore-extra', cantiereId]); qc.invalidateQueries(['economia', cantiereId])
+      toast.success(`${r.data.aggiornate} righe valorizzate`)
+    } catch { toast.error('Errore ricalcolo') }
+  }
 
   const createMutation = useMutation(
     d => api.post(`/cantieri/${cantiereId}/ore-extra`, d),
-    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); setShowForm(false); setForm({operaio_nome:'',ore:'',attivita:'',tariffa_oraria:'',data:'',note:''}); toast.success('Ore registrate!') },
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); setShowForm(false); cancelEdit(); toast.success('Ore registrate!') },
       onError: e => toast.error(e.response?.data?.detail||'Errore') }
   )
   const updateMutation = useMutation(
     ({id,data}) => api.put(`/cantieri/${cantiereId}/ore-extra/${id}`, data),
-    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); toast.success('Aggiornato') } }
+    { onSuccess: () => { qc.invalidateQueries(['ore-extra',cantiereId]); qc.invalidateQueries(['economia',cantiereId]); toast.success('Aggiornato') } }
   )
   const deleteMutation = useMutation(
     id => api.delete(`/cantieri/${cantiereId}/ore-extra/${id}`),
@@ -1779,8 +1794,15 @@ function OreExtraSection({ cantiereId, canWrite }) {
         </div>
       )}
 
+      {canWrite && senzaCosto > 0 && (
+        <button onClick={ricalcola}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100">
+          <Loader2 size={13} /> {senzaCosto} righe senza costo — ricalcola tariffe da operatore / default
+        </button>
+      )}
+
       {canWrite && (
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary w-full flex items-center justify-center gap-2">
+        <button onClick={() => { setShowForm(!showForm); cancelEdit() }} className="btn-primary w-full flex items-center justify-center gap-2">
           <Plus size={16} /> Registra ore manodopera
         </button>
       )}
@@ -1788,11 +1810,18 @@ function OreExtraSection({ cantiereId, canWrite }) {
       {showForm && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between"><h3 className="font-bold">Nuove ore manodopera</h3><button onClick={() => setShowForm(false)}><X size={16}/></button></div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Operatore</label>
+            <select className="input-field" value={form.utente_id} onChange={e => onPickOperatore(e.target.value)}>
+              <option value="">— nessuno (nome libero) —</option>
+              {operatori.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+            </select>
+          </div>
           <input className="input-field" placeholder="Nome operaio *" value={form.operaio_nome} onChange={e => set('operaio_nome',e.target.value)} autoFocus />
           <div className="grid grid-cols-2 gap-2">
             <div><label className="text-xs text-gray-500 block mb-1">Ore *</label>
               <input type="number" step="0.5" min="0" className="input-field" placeholder="es. 3.5" value={form.ore} onChange={e => set('ore',e.target.value)} /></div>
-            <div><label className="text-xs text-gray-500 block mb-1">Tariffa €/h</label>
+            <div><label className="text-xs text-gray-500 block mb-1">Tariffa €/h {form.utente_id && !form.tariffa_oraria ? '(auto da operatore)' : ''}</label>
               <input type="number" className="input-field" placeholder="es. 28" value={form.tariffa_oraria} onChange={e => set('tariffa_oraria',e.target.value)} /></div>
           </div>
           <input className="input-field" placeholder="Attività svolta" value={form.attivita} onChange={e => set('attivita',e.target.value)} />
@@ -1804,7 +1833,7 @@ function OreExtraSection({ cantiereId, canWrite }) {
           )}
           <div className="flex gap-2">
             <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">Annulla</button>
-            <button onClick={() => createMutation.mutate({...form, ore:parseFloat(form.ore)||0, tariffa_oraria:parseFloat(form.tariffa_oraria)||0, data:form.data||null})}
+            <button onClick={() => createMutation.mutate({...form, utente_id: form.utente_id ? parseInt(form.utente_id) : null, ore:parseFloat(form.ore)||0, tariffa_oraria:parseFloat(form.tariffa_oraria)||0, data:form.data||null})}
               disabled={!form.operaio_nome||!form.ore} className="btn-primary flex-1">Registra</button>
           </div>
         </div>
@@ -1822,12 +1851,16 @@ function OreExtraSection({ cantiereId, canWrite }) {
             /* ── Form modifica inline ── */
             <div className="space-y-2">
               <div className="flex items-center justify-between"><p className="font-bold text-sm">Modifica ore</p><button onClick={cancelEdit}><X size={14}/></button></div>
+              <select className="input-field" value={form.utente_id} onChange={e => onPickOperatore(e.target.value)}>
+                <option value="">— nessun operatore collegato —</option>
+                {operatori.map(op => <option key={op.id} value={op.id}>{op.nome}</option>)}
+              </select>
               <input className="input-field" placeholder="Nome operaio *" value={form.operaio_nome} onChange={e => set('operaio_nome',e.target.value)} />
               <div className="grid grid-cols-2 gap-2">
                 <div><label className="text-xs text-gray-500 block mb-1">Ore</label>
                   <input type="number" step="0.5" min="0" className="input-field" value={form.ore} onChange={e => set('ore',e.target.value)} /></div>
                 <div><label className="text-xs text-gray-500 block mb-1">Tariffa €/h</label>
-                  <input type="number" className="input-field" value={form.tariffa_oraria} onChange={e => set('tariffa_oraria',e.target.value)} /></div>
+                  <input type="number" className="input-field" placeholder="auto da operatore" value={form.tariffa_oraria} onChange={e => set('tariffa_oraria',e.target.value)} /></div>
               </div>
               <input className="input-field" placeholder="Attività svolta" value={form.attivita} onChange={e => set('attivita',e.target.value)} />
               <input type="date" className="input-field" value={form.data} onChange={e => set('data',e.target.value)} />
@@ -1836,7 +1869,7 @@ function OreExtraSection({ cantiereId, canWrite }) {
               )}
               <div className="flex gap-2">
                 <button onClick={cancelEdit} className="btn-secondary flex-1">Annulla</button>
-                <button onClick={() => updateMutation.mutate({ id: o.id, data: {...form, ore: parseFloat(form.ore)||0, tariffa_oraria: parseFloat(form.tariffa_oraria)||0, data: form.data||null }}, { onSuccess: cancelEdit })}
+                <button onClick={() => updateMutation.mutate({ id: o.id, data: {...form, utente_id: form.utente_id ? parseInt(form.utente_id) : null, ore: parseFloat(form.ore)||0, tariffa_oraria: parseFloat(form.tariffa_oraria)||0, data: form.data||null }}, { onSuccess: cancelEdit })}
                   disabled={!form.operaio_nome||!form.ore} className="btn-primary flex-1">Salva</button>
               </div>
             </div>

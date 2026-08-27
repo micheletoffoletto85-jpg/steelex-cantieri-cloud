@@ -176,6 +176,14 @@ def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[in
 _RUOLI_OPERATIVI_MATCH = ("operativo", "artigiano", "capo_cantiere", "capo_cantiere_sub")
 
 
+def _query_operatori(db: Session):
+    """Utenti con ruolo operativo. `ruolo` in produzione è un enum nativo Postgres
+    (senza il valore 'operativo'): il confronto diretto con una lista di stringhe
+    solleva 'invalid input value for enum'. Il cast a testo lo evita."""
+    from sqlalchemy import String as _Str
+    return db.query(Utente).filter(Utente.ruolo.cast(_Str).in_(_RUOLI_OPERATIVI_MATCH))
+
+
 def _candidati_operatori(db: Session, cantiere_id: Optional[int]) -> list:
     """Utenti candidati per l'abbinamento di un collega citato: prima il team del
     cantiere, poi tutti gli utenti con ruolo operativo."""
@@ -185,7 +193,7 @@ def _candidati_operatori(db: Session, cantiere_id: Optional[int]) -> list:
         for u in (c.artigiani if c else []):
             if u.id not in visti:
                 visti.add(u.id); cand.append(u)
-    for u in db.query(Utente).filter(Utente.ruolo.in_(_RUOLI_OPERATIVI_MATCH)).all():
+    for u in _query_operatori(db).all():
         if u.id not in visti:
             visti.add(u.id); cand.append(u)
     return cand
@@ -637,10 +645,7 @@ def lista_operatori(db: Session = Depends(get_db), user: Utente = Depends(get_cu
     """Elenco utenti con ruolo operativo — per abbinare a mano i colleghi citati nei rapportini."""
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
-    us = db.query(Utente).filter(
-        Utente.ruolo.in_(_RUOLI_OPERATIVI_MATCH),
-        Utente.attivo == True,
-    ).order_by(Utente.cognome, Utente.nome).all()
+    us = _query_operatori(db).filter(Utente.attivo == True).order_by(Utente.cognome, Utente.nome).all()
     return [{"id": u.id, "nome": f"{u.nome} {u.cognome}", "ruolo": str(u.ruolo)} for u in us]
 
 
@@ -936,8 +941,11 @@ def modifica_rapportino(
         ore_extra_row = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
         if ore_extra_row:
             if r.ore_lavorate and r.ore_lavorate > 0:
+                tariffa = ore_extra_row.tariffa_oraria or _costo_orario(r.operativo)
                 ore_extra_row.ore = float(r.ore_lavorate)
-                ore_extra_row.totale = round(ore_extra_row.ore * (ore_extra_row.tariffa_oraria or 0), 2)
+                ore_extra_row.tariffa_oraria = tariffa
+                ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
+                ore_extra_row.totale = round(ore_extra_row.ore * tariffa, 2)
             else:
                 db.delete(ore_extra_row)
                 r.ore_extra_id = None
@@ -1050,15 +1058,21 @@ def rianalizza_rapportino(
         if ore_extra_row:
             if r.ore_lavorate and r.ore_lavorate > 0:
                 ore_extra_row.ore = float(r.ore_lavorate)
-                ore_extra_row.totale = round(ore_extra_row.ore * (ore_extra_row.tariffa_oraria or 0), 2)
+                tariffa = ore_extra_row.tariffa_oraria or _costo_orario(r.operativo)
+                ore_extra_row.tariffa_oraria = tariffa
+                ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
+                ore_extra_row.totale = round(ore_extra_row.ore * tariffa, 2)
             else:
                 db.delete(ore_extra_row)
                 r.ore_extra_id = None
     elif r.diario_id and r.cantiere_id and r.ore_lavorate and r.ore_lavorate > 0:
+        tariffa = _costo_orario(r.operativo)
         ore_extra_row = OreExtra(
             cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
-            ore=float(r.ore_lavorate), attivita=r.riassunto or "", tariffa_oraria=0.0,
-            totale=0.0, data=data_obj, approvato=True, creato_da=r.operativo_id,
+            utente_id=r.operativo_id,
+            ore=float(r.ore_lavorate), attivita=r.riassunto or "", tariffa_oraria=tariffa,
+            totale=round(float(r.ore_lavorate) * tariffa, 2), data=data_obj,
+            approvato=False, creato_da=r.operativo_id,
         )
         db.add(ore_extra_row); db.flush()
         r.ore_extra_id = ore_extra_row.id

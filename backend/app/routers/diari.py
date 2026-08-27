@@ -792,6 +792,18 @@ def _ore_out(ore: OreExtra) -> dict:
     return d
 
 
+def _tariffa_operatore(db: Session, utente_id, fallback_default: bool = True) -> float:
+    """Costo orario di un operatore: il suo costo_orario se impostato, altrimenti
+    COSTO_ORARIO_DEFAULT. Senza operatore torna 0."""
+    if utente_id:
+        u = db.query(Utente).filter(Utente.id == utente_id).first()
+        if u and u.costo_orario and u.costo_orario > 0:
+            return float(u.costo_orario)
+        if fallback_default:
+            return float(getattr(settings, "COSTO_ORARIO_DEFAULT", 0) or 0)
+    return 0.0
+
+
 @ore_router.get("", response_model=List[OreExtraOut])
 def lista_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     righe = db.query(OreExtra).filter(OreExtra.cantiere_id == cantiere_id).order_by(OreExtra.data.desc()).all()
@@ -802,11 +814,9 @@ def lista_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
 def crea_ore(cantiere_id: int, body: OreExtraCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     dati = body.model_dump(exclude={"data"})
     # Se collegata a un operatore e non è stata passata una tariffa, usa il suo costo orario
-    tariffa = body.tariffa_oraria
+    tariffa = body.tariffa_oraria or 0.0
     if body.utente_id and not tariffa:
-        op_u = db.query(Utente).filter(Utente.id == body.utente_id).first()
-        if op_u and op_u.costo_orario:
-            tariffa = float(op_u.costo_orario)
+        tariffa = _tariffa_operatore(db, body.utente_id)
     dati["tariffa_oraria"] = tariffa
     ore = OreExtra(
         cantiere_id=cantiere_id,
@@ -825,11 +835,39 @@ def crea_ore(cantiere_id: int, body: OreExtraCreate, db: Session = Depends(get_d
 def aggiorna_ore(cantiere_id: int, ore_id: int, body: OreExtraUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     ore = db.query(OreExtra).filter(OreExtra.id == ore_id, OreExtra.cantiere_id == cantiere_id).first()
     if not ore: raise HTTPException(404, "Non trovato")
-    for k, v in body.model_dump(exclude_none=True).items():
+    dati = body.model_dump(exclude_none=True)
+    for k, v in dati.items():
         setattr(ore, k, v)
+    # Se si collega un operatore e non c'è una tariffa esplicita, prendi il suo costo orario
+    if ore.utente_id and not (dati.get("tariffa_oraria") or ore.tariffa_oraria):
+        ore.tariffa_oraria = _tariffa_operatore(db, ore.utente_id)
     ore.totale = round((ore.ore or 0) * (ore.tariffa_oraria or 0), 2)
     db.commit(); db.refresh(ore)
     return _ore_out(ore)
+
+
+@ore_router.post("/ricalcola")
+def ricalcola_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Riassegna la tariffa alle righe ore senza costo: usa il costo orario dell'operatore
+    collegato, altrimenti prova ad abbinare il nome, altrimenti COSTO_ORARIO_DEFAULT."""
+    from app.routers.rapportini import _match_operatore
+    righe = db.query(OreExtra).filter(
+        OreExtra.cantiere_id == cantiere_id,
+        (OreExtra.totale == None) | (OreExtra.totale == 0) | (OreExtra.tariffa_oraria == None) | (OreExtra.tariffa_oraria == 0),
+    ).all()
+    aggiornate = 0
+    for o in righe:
+        if not o.utente_id:
+            uid = _match_operatore(db, o.operaio_nome, cantiere_id)
+            if uid:
+                o.utente_id = uid
+        tariffa = _tariffa_operatore(db, o.utente_id) if o.utente_id else float(getattr(settings, "COSTO_ORARIO_DEFAULT", 0) or 0)
+        if tariffa > 0 and (o.ore or 0) > 0:
+            o.tariffa_oraria = tariffa
+            o.totale = round(float(o.ore) * tariffa, 2)
+            aggiornate += 1
+    db.commit()
+    return {"aggiornate": aggiornate, "totali_esaminate": len(righe)}
 
 
 @ore_router.delete("/{ore_id}", status_code=204)
