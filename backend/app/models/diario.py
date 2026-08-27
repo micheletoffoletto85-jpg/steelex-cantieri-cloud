@@ -54,6 +54,9 @@ class OreExtra(Base):
     # per tutta la nota diario
     extra_preventivo = Column(Boolean, default=False)
     extra_preventivo_nota = Column(Text, nullable=True)
+    # id della voce creata nel computo quando la riga è segnata extra preventivo
+    # (per aggiornarla/rimuoverla se la riga cambia o viene de-selezionata)
+    voce_extra_id = Column(Integer, nullable=True)
     creato_da = Column(Integer, ForeignKey("utenti.id"))
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 

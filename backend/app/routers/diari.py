@@ -826,9 +826,20 @@ def crea_ore(cantiere_id: int, body: OreExtraCreate, db: Session = Depends(get_d
         **dati,
     )
     db.add(ore)
+    db.flush()
+    _sync_voce_extra(db, ore)
     db.commit()
     db.refresh(ore)
     return _ore_out(ore)
+
+
+def _sync_voce_extra(db: Session, ore: OreExtra) -> None:
+    """Allinea la voce nel computo per una riga ore segnata extra preventivo."""
+    try:
+        from app.routers.economico import sync_voce_extra_ore
+        sync_voce_extra_ore(db, ore)
+    except Exception:
+        pass
 
 
 @ore_router.put("/{ore_id}", response_model=OreExtraOut)
@@ -838,12 +849,27 @@ def aggiorna_ore(cantiere_id: int, ore_id: int, body: OreExtraUpdate, db: Sessio
     dati = body.model_dump(exclude_none=True)
     for k, v in dati.items():
         setattr(ore, k, v)
-    # Se si collega un operatore e non c'è una tariffa esplicita, prendi il suo costo orario
+    if body.extra_preventivo is False:   # exclude_none non passa il False
+        ore.extra_preventivo = False
+    # Se si collega un operatore e non c'e una tariffa esplicita, prendi il suo costo orario
     if ore.utente_id and not (dati.get("tariffa_oraria") or ore.tariffa_oraria):
         ore.tariffa_oraria = _tariffa_operatore(db, ore.utente_id)
     ore.totale = round((ore.ore or 0) * (ore.tariffa_oraria or 0), 2)
+    db.flush()
+    _sync_voce_extra(db, ore)
     db.commit(); db.refresh(ore)
     return _ore_out(ore)
+
+
+@ore_router.delete("/{ore_id}", status_code=204)
+def elimina_ore(cantiere_id: int, ore_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    ore = db.query(OreExtra).filter(OreExtra.id == ore_id, OreExtra.cantiere_id == cantiere_id).first()
+    if not ore: raise HTTPException(404, "Non trovato")
+    if ore.voce_extra_id:
+        ore.extra_preventivo = False
+        db.flush()
+        _sync_voce_extra(db, ore)
+    db.delete(ore); db.commit()
 
 
 @ore_router.post("/ricalcola")
@@ -870,15 +896,11 @@ def ricalcola_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente 
                 o.tariffa_oraria = tariffa
                 o.totale = round(float(o.ore) * tariffa, 2)
                 valorizzate += 1
-        # il vecchio flag approvato non ha più senso: le ore contano sempre
+        # il vecchio flag approvato non ha piu senso: le ore contano sempre
         if o.approvato:
             o.approvato = False
+        if o.extra_preventivo or o.voce_extra_id:
+            db.flush()
+            _sync_voce_extra(db, o)
     db.commit()
     return {"aggiornate": valorizzate + linkate, "valorizzate": valorizzate, "collegate": linkate}
-
-
-@ore_router.delete("/{ore_id}", status_code=204)
-def elimina_ore(cantiere_id: int, ore_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    ore = db.query(OreExtra).filter(OreExtra.id == ore_id, OreExtra.cantiere_id == cantiere_id).first()
-    if not ore: raise HTTPException(404, "Non trovato")
-    db.delete(ore); db.commit()

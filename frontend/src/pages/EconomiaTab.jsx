@@ -223,7 +223,8 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
               <p className="text-lg font-bold text-gray-900">{fmt(rv.totale_speso)}</p>
               <p className="text-xs text-gray-400">
                 {Math.round(percSpeso)}% del budget
-                {rv.costo_manodopera > 0 && <> · di cui manodopera {fmt(rv.costo_manodopera)}</>}
+                {rv.costo_manodopera > 0 && <> · manodopera {fmt(rv.costo_manodopera)}</>}
+                {rv.costo_manodopera_extra > 0 && <span className="text-orange-600"> · di cui extra prev. {fmt(rv.costo_manodopera_extra)}</span>}
               </p>
             </div>
             <div>
@@ -1227,6 +1228,8 @@ function SpeseSection({ cantiereId, canWrite }) {
   const setPinOpt = (pinId, k, v) => setPinComputoOpts(o => ({ ...o, [pinId]: { ...getPinOpt(pinId), [k]: v } }))
 
   const totale = spese.reduce((s,sp) => s+sp.importo, 0)
+  const { data: oreMano = [] } = useQuery(['ore-extra', cantiereId], () => api.get(`/cantieri/${cantiereId}/ore-extra`).then(r => r.data), { staleTime: 0 })
+  const costoManodopera = oreMano.reduce((s,o) => s + (o.totale || 0), 0)
 
   const createMutation = useMutation(
     d => api.post(`/cantieri/${cantiereId}/spese`, d),
@@ -1309,10 +1312,23 @@ function SpeseSection({ cantiereId, canWrite }) {
   return (
     <div className="space-y-3">
       <MiniRiepilogoLive cantiereId={cantiereId} />
-      {spese.length > 0 && (
-        <div className="card flex items-center justify-between">
-          <div><p className="text-xs text-gray-400">Totale spese registrate</p><p className="text-xl font-bold text-gray-900">{fmt(totale)}</p></div>
-          <Receipt size={24} className="text-gray-300" />
+      {(spese.length > 0 || costoManodopera > 0) && (
+        <div className="card space-y-1.5">
+          <div className="flex items-center justify-between">
+            <div><p className="text-xs text-gray-400">Totale spese registrate</p><p className="text-xl font-bold text-gray-900">{fmt(totale)}</p></div>
+            <Receipt size={24} className="text-gray-300" />
+          </div>
+          {costoManodopera > 0 && (
+            <div className="flex items-center justify-between border-t border-gray-100 pt-1.5 text-xs">
+              <span className="text-gray-500">+ Manodopera (ore rapportini/cantiere)</span>
+              <span className="font-semibold text-gray-700">{fmt(costoManodopera)}</span>
+            </div>
+          )}
+          {costoManodopera > 0 && (
+            <div className="flex items-center justify-between text-xs font-bold text-steelex-orange">
+              <span>Costo commessa totale</span><span>{fmt(totale + costoManodopera)}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -1726,17 +1742,18 @@ function OreExtraSection({ cantiereId, canWrite }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
-  const [form, setForm] = useState({ operaio_nome:'', utente_id:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'' })
+  const VUOTO = { operaio_nome:'', utente_id:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'', extra_preventivo:false, extra_preventivo_nota:'' }
+  const [form, setForm] = useState(VUOTO)
   const set = (k,v) => setForm(f => ({...f,[k]:v}))
 
   const { data: operatori = [] } = useQuery('operatori', () => api.get('/rapportini/operatori').then(r => r.data), { staleTime: 5*60*1000 })
 
   const startEdit = (o) => {
     setEditId(o.id)
-    setForm({ operaio_nome: o.operaio_nome||'', utente_id: o.utente_id ?? '', ore: o.ore||'', attivita: o.attivita||'', tariffa_oraria: o.tariffa_oraria||'', data: o.data||'', note: o.note||'' })
+    setForm({ operaio_nome: o.operaio_nome||'', utente_id: o.utente_id ?? '', ore: o.ore||'', attivita: o.attivita||'', tariffa_oraria: o.tariffa_oraria||'', data: o.data||'', note: o.note||'', extra_preventivo: !!o.extra_preventivo, extra_preventivo_nota: o.extra_preventivo_nota||'' })
     setShowForm(false)
   }
-  const cancelEdit = () => { setEditId(null); setForm({ operaio_nome:'', utente_id:'', ore:'', attivita:'', tariffa_oraria:'', data:'', note:'' }) }
+  const cancelEdit = () => { setEditId(null); setForm(VUOTO) }
   const onPickOperatore = (id) => {
     const op = operatori.find(o => String(o.id) === String(id))
     setForm(f => ({ ...f, utente_id: id, operaio_nome: op ? op.nome : f.operaio_nome }))
@@ -1750,7 +1767,13 @@ function OreExtraSection({ cantiereId, canWrite }) {
 
   const totaleOre = oreList.reduce((s,o) => s + o.ore, 0)
   const totaleCosto = oreList.reduce((s,o) => s + (o.totale || 0), 0)
+  const totaleExtra = oreList.filter(o => o.extra_preventivo).reduce((s,o) => s + (o.totale || 0), 0)
   const daSistemare = oreList.filter(o => !(o.totale > 0) || !o.utente_id).length
+
+  const toggleExtra = (o) => {
+    const nuovo = !o.extra_preventivo
+    updateMutation.mutate({ id: o.id, data: { extra_preventivo: nuovo, extra_preventivo_nota: nuovo ? (o.extra_preventivo_nota || o.attivita || null) : null } })
+  }
 
   const ricalcola = async () => {
     try {
@@ -1789,7 +1812,9 @@ function OreExtraSection({ cantiereId, canWrite }) {
           <div className="card text-center">
             <p className="text-xs text-gray-400">Costo manodopera</p>
             <p className="text-xl font-bold text-gray-900">{fmt(totaleCosto)}</p>
-            <p className="text-[10px] text-gray-400">incluso nel Totale speso</p>
+            <p className="text-[10px] text-gray-400">
+              nel Totale speso{totaleExtra > 0 && <span className="text-orange-600"> · extra prev. {fmt(totaleExtra)}</span>}
+            </p>
           </div>
         </div>
       )}
@@ -1864,12 +1889,21 @@ function OreExtraSection({ cantiereId, canWrite }) {
               </div>
               <input className="input-field" placeholder="Attività svolta" value={form.attivita} onChange={e => set('attivita',e.target.value)} />
               <input type="date" className="input-field" value={form.data} onChange={e => set('data',e.target.value)} />
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
+                <input type="checkbox" className="w-3.5 h-3.5 accent-orange-500"
+                  checked={!!form.extra_preventivo} onChange={e => set('extra_preventivo', e.target.checked)} />
+                ⚠ Extra preventivo (aggiunge una voce al computo)
+              </label>
+              {form.extra_preventivo && (
+                <input className="input-field text-sm" placeholder="Nota extra preventivo (opzionale)"
+                  value={form.extra_preventivo_nota || ''} onChange={e => set('extra_preventivo_nota', e.target.value)} />
+              )}
               {form.ore && form.tariffa_oraria && (
                 <p className="text-sm text-center text-steelex-orange font-semibold">Totale: {fmt(parseFloat(form.ore||0)*parseFloat(form.tariffa_oraria||0))}</p>
               )}
               <div className="flex gap-2">
                 <button onClick={cancelEdit} className="btn-secondary flex-1">Annulla</button>
-                <button onClick={() => updateMutation.mutate({ id: o.id, data: {...form, utente_id: form.utente_id ? parseInt(form.utente_id) : null, ore: parseFloat(form.ore)||0, tariffa_oraria: parseFloat(form.tariffa_oraria)||0, data: form.data||null }}, { onSuccess: cancelEdit })}
+                <button onClick={() => updateMutation.mutate({ id: o.id, data: {...form, utente_id: form.utente_id ? parseInt(form.utente_id) : null, ore: parseFloat(form.ore)||0, tariffa_oraria: parseFloat(form.tariffa_oraria)||0, data: form.data||null, extra_preventivo: !!form.extra_preventivo, extra_preventivo_nota: form.extra_preventivo ? (form.extra_preventivo_nota || null) : null }}, { onSuccess: cancelEdit })}
                   disabled={!form.operaio_nome||!form.ore} className="btn-primary flex-1">Salva</button>
               </div>
             </div>
@@ -1883,15 +1917,27 @@ function OreExtraSection({ cantiereId, canWrite }) {
                   {o.utente_nome
                     ? <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">→ {o.utente_nome}</span>
                     : <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">operatore non collegato</span>}
+                  {o.extra_preventivo && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">⚠ Extra preventivo</span>}
                 </div>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {o.ore}h {o.tariffa_oraria > 0 ? `× €${o.tariffa_oraria}/h` : '— nessuna tariffa'} {o.data ? `— ${fmtD(o.data)}` : ''}
                 </p>
                 {o.attivita && <p className="text-xs text-gray-600 italic">{o.attivita}</p>}
+                {o.extra_preventivo && (
+                  <p className="text-xs text-orange-600 mt-0.5">
+                    Aggiunta al computo {o.voce_extra_id ? '✓' : '(nessun computo)'}{o.extra_preventivo_nota ? ` — ${o.extra_preventivo_nota}` : ''}
+                  </p>
+                )}
               </div>
               <div className="text-right flex-shrink-0">
                 {o.totale > 0 && <p className="font-bold text-gray-900">{fmt(o.totale)}</p>}
                 <div className="flex gap-1 mt-1 justify-end">
+                  {canWrite && (
+                    <button onClick={() => toggleExtra(o)} title={o.extra_preventivo ? 'Rimuovi da extra preventivo' : 'Segna come extra preventivo'}
+                      className={`p-1 rounded transition-colors ${o.extra_preventivo ? 'text-orange-600' : 'text-gray-300 hover:text-orange-500'}`}>
+                      <AlertCircle size={14} />
+                    </button>
+                  )}
                   {canWrite && <button onClick={() => startEdit(o)} className="p-1 text-gray-400 hover:text-blue-500"><Pencil size={13}/></button>}
                   {canWrite && <button onClick={() => confirm('Eliminare?') && deleteMutation.mutate(o.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13}/></button>}
                 </div>

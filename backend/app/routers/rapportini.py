@@ -242,6 +242,15 @@ def _costo_orario(u: Optional[Utente]) -> float:
     return float(getattr(settings, "COSTO_ORARIO_DEFAULT", 0) or 0)
 
 
+def _sync_voce_extra_ore_safe(db: Session, ore) -> None:
+    """Se la riga ore è extra preventivo, crea/aggiorna la voce nel computo."""
+    try:
+        from app.routers.economico import sync_voce_extra_ore
+        sync_voce_extra_ore(db, ore)
+    except Exception:
+        pass
+
+
 def _colleghi_risolti(db: Session, r: RapportinoOperativo) -> list:
     """Lista colleghi_ore arricchita con utente_id (memorizzato o abbinato al volo) e
     utente_nome, per la UI admin."""
@@ -694,6 +703,10 @@ def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: 
         OreExtra.id.notin_(ref_ids),
     ).all()
     for oe in vecchie:
+        if oe.voce_extra_id:            # togli la voce dal computo prima di cancellare la riga
+            oe.extra_preventivo = False
+            db.flush()
+            _sync_voce_extra_ore_safe(db, oe)
         db.delete(oe)
     # Le righe registro-ore-personale dei colleghi legate a questo rapportino
     # (quella dell'operativo, r.ore_lavorate_id, resta)
@@ -715,20 +728,25 @@ def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: 
         uid = c.get("utente_id") or _match_operatore(db, nome, cantiere_id)
         u = db.query(Utente).filter(Utente.id == uid).first() if uid else None
         tariffa = _costo_orario(u) if u else 0.0
-        db.add(OreExtra(
+        c_extra = bool(c.get("extra_preventivo", r.extra_preventivo))
+        riga = OreExtra(
             cantiere_id=cantiere_id, diario_id=r.diario_id, operaio_nome=nome,
             utente_id=(u.id if u else None),
             ore=ore, attivita=r.riassunto or "",
             tariffa_oraria=tariffa, totale=round(ore * tariffa, 2),
             data=data_obj, approvato=False, creato_da=r.operativo_id,
-        ))
+            extra_preventivo=c_extra,
+            extra_preventivo_nota=(r.extra_preventivo_nota if c_extra else None),
+        )
+        db.add(riga); db.flush()
+        _sync_voce_extra_ore_safe(db, riga)
         if u:
             db.add(OreLavorate(
                 utente_id=u.id, data=data_obj, ore=ore,
                 descrizione=(r.riassunto or "Rapportino di cantiere") + f" — citato da {r.operativo.nome if r.operativo else 'collega'}",
                 rapportino_id=r.id,
             ))
-        colleghi_norm.append({"nome": nome, "ore": ore_raw, "utente_id": (u.id if u else None)})
+        colleghi_norm.append({"nome": nome, "ore": ore_raw, "utente_id": (u.id if u else None), "extra_preventivo": c_extra})
 
     # Memorizza gli abbinamenti risolti così restano stabili tra una modifica e l'altra
     r.colleghi_ore = colleghi_norm
@@ -834,10 +852,13 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
             totale         = round(ore_val * tariffa_op, 2),
             data           = data_obj,
             approvato      = False,
+            extra_preventivo = bool(r.extra_preventivo),
+            extra_preventivo_nota = r.extra_preventivo_nota if r.extra_preventivo else None,
             creato_da      = r.operativo_id,
         )
         db.add(ore_extra_row); db.flush()
         r.ore_extra_id = ore_extra_row.id
+        _sync_voce_extra_ore_safe(db, ore_extra_row)
 
         # Aggiorna anche il registro ore personale dell'operativo — così non deve
         # inserirle a mano una seconda volta nella sezione "Ore lavorate"

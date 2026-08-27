@@ -101,7 +101,8 @@ class RiepilogoOut(BaseModel):
     totale_sal_pagati: float     # SAL incassati
     da_incassare: float
     spese_per_categoria: dict
-    costo_manodopera: float = 0.0   # ore manodopera valorizzate (già incluse in totale_speso)
+    costo_manodopera: float = 0.0        # ore manodopera valorizzate (incluse in totale_speso)
+    costo_manodopera_extra: float = 0.0  # di cui segnate extra preventivo (aggiunte anche al computo)
     # ─── Previsionale (fascia in alto del riepilogo) ───
     preventivi_artigiani_totale: float = 0.0   # somma preventivi artigiani considerati
     margine_previsionale: float = 0.0          # ricavo computo - preventivi artigiani
@@ -131,6 +132,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     budget_iva = sum(p.totale    for p in prev_base) or budget
 
     costo_manodopera = round(sum(o.totale or 0 for o in ore_mano), 2)
+    costo_manodopera_extra = round(sum(o.totale or 0 for o in ore_mano if o.extra_preventivo), 2)
     totale_speso = sum(s.importo for s in spese) + costo_manodopera
     sal_emessi = sum(s.importo for s in sal_list if s.stato in ("emesso","pagato"))
     sal_pagati = sum(s.importo for s in sal_list if s.stato == "pagato")
@@ -160,6 +162,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
             da_incassare=sal_emessi - sal_pagati,
             spese_per_categoria={},
             costo_manodopera=0,
+            costo_manodopera_extra=0,
             preventivi_artigiani_totale=0,
             margine_previsionale=0,
             margine_previsionale_perc=0,
@@ -174,6 +177,7 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         da_incassare=sal_emessi - sal_pagati,
         spese_per_categoria=cat_totali,
         costo_manodopera=costo_manodopera,
+        costo_manodopera_extra=costo_manodopera_extra,
         preventivi_artigiani_totale=prev_art_totale,
         margine_previsionale=margine_prev,
         margine_previsionale_perc=margine_prev_perc,
@@ -221,6 +225,59 @@ def _ricalcola(prev, voci, iva_perc, acconto_perc):
     prev.totale = totale
     prev.acconto_perc = acconto_perc
     prev.acconto_importo = round(totale * acconto_perc / 100, 2)
+
+def sync_voce_extra_ore(db: Session, ore, ricarico_perc: float = 0.0) -> bool:
+    """Tiene allineata la voce nel computo per una riga ore manodopera segnata extra
+    preventivo:
+      - extra_preventivo True, nessuna voce → la crea (costo = totale ore, + ricarico)
+      - extra_preventivo True, voce esistente → ne aggiorna importo/descrizione
+      - extra_preventivo False, voce esistente → la rimuove
+    Sceglie il preventivo accettato, altrimenti il più recente. Ritorna False se non
+    c'è nessun computo su cui agire."""
+    from sqlalchemy.orm.attributes import flag_modified
+    if not (ore.voce_extra_id or ore.extra_preventivo):
+        return False
+    preventivi = (db.query(PreventivoCantiere)
+                    .filter(PreventivoCantiere.cantiere_id == ore.cantiere_id)
+                    .order_by(PreventivoCantiere.creato_il.desc()).all())
+    prev = next((p for p in preventivi if p.stato == "accettato"),
+                preventivi[0] if preventivi else None)
+    if not prev:
+        return False
+    voci = list(prev.voci or [])
+    costo = round(float(ore.totale or 0), 2)
+    nota = (ore.extra_preventivo_nota or "").strip()
+    desc = f"⚠ EXTRA (manodopera) — {ore.operaio_nome}"
+    if nota:
+        desc += f": {nota}"
+    elif ore.attivita:
+        desc += f": {ore.attivita}"
+
+    if ore.extra_preventivo:
+        prezzo = round(costo * (1 + ricarico_perc / 100), 2)
+        voce_esistente = next((v for v in voci if v.get("id") == ore.voce_extra_id), None) if ore.voce_extra_id else None
+        if voce_esistente:
+            voce_esistente.update({
+                "descrizione": desc, "qt": 1, "um": "ore",
+                "costo_unitario": costo, "totale_costo": costo,
+                "prezzo_unitario": prezzo, "totale_cliente": prezzo,
+            })
+        else:
+            vid = int(datetime.now().timestamp() * 1000)
+            voci.append({
+                "id": vid, "descrizione": desc, "categoria": "Manodopera", "qt": 1, "um": "ore",
+                "costo_unitario": costo, "ricarico_perc": round(ricarico_perc, 2),
+                "prezzo_unitario": prezzo, "totale_costo": costo, "totale_cliente": prezzo,
+            })
+            ore.voce_extra_id = vid
+    else:
+        voci = [v for v in voci if v.get("id") != ore.voce_extra_id]
+        ore.voce_extra_id = None
+
+    _ricalcola(prev, voci, prev.iva_perc, prev.acconto_perc)
+    flag_modified(prev, "voci")
+    return True
+
 
 @router.get("/{cantiere_id}/preventivi")
 def lista_preventivi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):

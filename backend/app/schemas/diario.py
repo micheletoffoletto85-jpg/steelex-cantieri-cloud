@@ -40,6 +40,7 @@ class OreExtraOut(BaseModel):
     note: Optional[str] = None
     extra_preventivo: Optional[bool] = False
     extra_preventivo_nota: Optional[str] = None
+    voce_extra_id: Optional[int] = None
     creato_il: Optional[datetime] = None
 
     class Config:
