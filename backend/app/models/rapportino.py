@@ -37,6 +37,10 @@ class RapportinoOperativo(Base):
     colleghi_ore      = Column(JSON, default=list)
     lavorazioni       = Column(JSON, default=list)   # ["posa cartongesso", ...]
     materiali         = Column(JSON, default=list)   # ["cartongesso 12.5mm", ...]
+    # Materiali già riversati nelle Spese del cantiere direttamente dal rapportino
+    # — [{"materiale": "...", "spesa_id": 12, "importo": 0.0}] — per sapere quali
+    # sono già stati contabilizzati e non ri-registrarli
+    materiali_spese   = Column(JSON, default=list)
     criticita         = Column(Text, nullable=True)
     spese_extra       = Column(JSON, default=list)   # [{"descrizione": "...", "importo": 0}]
     riassunto         = Column(Text)

@@ -295,6 +295,7 @@ def _rap_dict(r: RapportinoOperativo, db: Optional[Session] = None) -> dict:
         "extra_preventivo_nota": r.extra_preventivo_nota,
         "lavorazioni": r.lavorazioni or [],
         "materiali": r.materiali or [],
+        "materiali_spese": r.materiali_spese or [],
         "criticita": r.criticita,
         "spese_extra": r.spese_extra or [],
         "riassunto": r.riassunto,
@@ -1013,6 +1014,86 @@ def modifica_rapportino(
         _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)
 
     db.commit()
+    return _rap_dict(r, db)
+
+
+class MaterialeSpesaBody(BaseModel):
+    materiale: str
+    importo: float
+    fornitore: Optional[str] = None
+    data: Optional[str] = None   # YYYY-MM-DD; default = data_lavoro del rapportino
+
+
+@router.post("/{rapportino_id}/materiale-spesa")
+def materiale_in_spesa(
+    rapportino_id: int,
+    body: MaterialeSpesaBody,
+    db: Session = Depends(get_db),
+    user: Utente = Depends(get_current_user),
+):
+    """Admin: registra un materiale del rapportino come Spesa del cantiere collegato.
+    Tiene traccia in materiali_spese così il materiale non viene ri-contabilizzato."""
+    if user.ruolo not in RUOLI_ADMIN:
+        raise HTTPException(403)
+    r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
+    if not r:
+        raise HTTPException(404)
+    if not r.cantiere_id:
+        raise HTTPException(400, "Assegna prima il rapportino a un cantiere")
+
+    materiale = (body.materiale or "").strip()
+    if not materiale:
+        raise HTTPException(422, "Materiale mancante")
+    if body.importo is None or body.importo < 0:
+        raise HTTPException(422, "Importo non valido")
+
+    from app.models.economico import Spesa
+    from sqlalchemy.orm.attributes import flag_modified
+
+    data_spesa = None
+    for src in (body.data, r.data_lavoro):
+        if src:
+            try:
+                data_spesa = date_today.fromisoformat(src)
+                break
+            except Exception:
+                pass
+
+    autore = f"{r.operativo.nome} {r.operativo.cognome}".strip() if r.operativo else "operativo"
+    nota = f"Da rapportino #{r.id} di {autore}"
+    if r.data_lavoro:
+        nota += f" del {r.data_lavoro}"
+
+    s = Spesa(
+        cantiere_id=r.cantiere_id,
+        descrizione=materiale,
+        fornitore=((body.fornitore or "").strip() or None),
+        categoria="materiali",
+        importo=float(body.importo),
+        data=data_spesa,
+        note=nota,
+        creato_da=user.id,
+    )
+    db.add(s)
+    db.flush()
+
+    riga = {"materiale": materiale, "spesa_id": s.id, "importo": float(body.importo)}
+    r.materiali_spese = list(r.materiali_spese or []) + [riga]
+    flag_modified(r, "materiali_spese")
+    db.commit()
+    db.refresh(r)
+
+    try:
+        notifica_cantiere(db, r.cantiere_id,
+            ruoli=["admin", "direzione_lavori"],
+            titolo="🧾 Spesa da rapportino",
+            corpo=f"{materiale} — €{float(body.importo):.2f} (rapportino #{r.id})",
+            escludi_id=user.id,
+            url=f"/cantieri/{r.cantiere_id}#economia",
+        )
+    except Exception:
+        pass
+
     return _rap_dict(r, db)
 
 
