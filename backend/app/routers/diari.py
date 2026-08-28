@@ -1062,6 +1062,16 @@ def leggi_chiusura(cantiere_id: int, db: Session = Depends(get_db), user: Utente
 
     data_fine = (c.data_ultimazione if c and c.data_ultimazione else cantiere.data_fine_reale)
     out = _chiusura_dict(c, cantiere)
+
+    # Se il verbale non è ancora stato compilato, pre-seleziona un set ragionevole di
+    # foto (quelle già condivise col cliente, altrimenti le prime dell'archivio) così
+    # il PDF non esce senza foto per dimenticanza.
+    if not (c and c.foto_ids):
+        suggerite = [f.id for f in foto if f.visibile_cliente] or [f.id for f in foto[:8]]
+        out["foto_ids"] = suggerite
+        if suggerite and not out.get("foto_copertina_id"):
+            out["foto_copertina_id"] = suggerite[0]
+
     out["contesto"] = {
         "cantiere_nome": cantiere.nome,
         "oggetto": cantiere.nome,

@@ -69,11 +69,16 @@ export default function ChiusuraTab({ cantiereId, utente }) {
 
   const salvaOra = (patch = {}) => {
     const src = { ...formRef.current, ...patch }
-    salvaMutation.mutate(toBody(src))
+    formRef.current = src
+    return salvaMutation.mutateAsync(toBody(src))
   }
 
   const aggiorna = (patch, salvaSubito = false) => {
-    setForm(f => ({ ...f, ...patch }))
+    setForm(f => {
+      const next = { ...f, ...patch }
+      formRef.current = next
+      return next
+    })
     setDirty(true)
     if (salvaSubito) salvaOra(patch)
   }
@@ -108,8 +113,10 @@ export default function ChiusuraTab({ cantiereId, utente }) {
   const [scaricando, setScaricando] = useState(false)
 
   const scaricaPdf = async () => {
-    if (dirty) { salvaOra(); await new Promise(res => setTimeout(res, 500)) }
     setScaricando(true)
+    if (data?.stato !== 'definitivo') {
+      try { await salvaOra() } catch { /* segnalato da salvaMutation */ }
+    }
     try {
       const resp = await api.post(`/cantieri/${cantiereId}/chiusura/genera-pdf`, null, { responseType: 'blob', timeout: 90000 })
       const url = URL.createObjectURL(resp.data)
@@ -134,15 +141,15 @@ export default function ChiusuraTab({ cantiereId, utente }) {
   const selezionate = form.foto_ids || []
 
   const toggleFoto = (id) => {
-    const next = selezionate.includes(id)
-      ? selezionate.filter(x => x !== id)
-      : [...selezionate, id]
+    const cur = formRef.current?.foto_ids || []
+    const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
     const patch = { foto_ids: next }
-    if (!next.includes(form.foto_copertina_id)) patch.foto_copertina_id = next[0] || null
+    if (!next.includes(formRef.current?.foto_copertina_id)) patch.foto_copertina_id = next[0] || null
     aggiorna(patch, true)
   }
   const setCopertina = (id) => {
-    const next = selezionate.includes(id) ? selezionate : [...selezionate, id]
+    const cur = formRef.current?.foto_ids || []
+    const next = cur.includes(id) ? cur : [...cur, id]
     aggiorna({ foto_ids: next, foto_copertina_id: id }, true)
   }
 
