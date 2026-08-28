@@ -668,6 +668,22 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
     } catch { toast.error('Errore generazione PDF') }
   }
 
+  const [scaricandoComputi, setScaricandoComputi] = useState(false)
+  const scaricaComputi = async () => {
+    setScaricandoComputi(true)
+    try {
+      const resp = await api.get(`/cantieri/${cantiereId}/preventivi/pdf-tutti`, { responseType: 'blob', timeout: 60000 })
+      const url = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = resp.headers['content-disposition']?.match(/filename="(.+)"/)?.[1] || 'computi.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      toast.error(e.response?.status === 404 ? 'Nessun computo da scaricare' : 'Errore download computi')
+    } finally { setScaricandoComputi(false) }
+  }
+
   const uploadPdf = async (prevId, file) => {
     setUploadingFor(prevId)
     try {
@@ -719,10 +735,10 @@ function ComputoSection({ cantiereId, canWrite, isDL = false }) {
               className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium border flex-shrink-0 transition-colors ${showPaste ? 'bg-green-100 border-green-400 text-green-800' : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'}`}>
               <ClipboardList size={13}/> Incolla da Excel
             </button>
-            <a href="/api/v1/cantieri/template-computo"
-              download className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 flex-shrink-0">
-              <Download size={13} /> Template
-            </a>
+            <button onClick={scaricaComputi} disabled={scaricandoComputi}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 flex-shrink-0 disabled:opacity-50">
+              {scaricandoComputi ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Scarica computi
+            </button>
           </div>
 
           {showPaste && (

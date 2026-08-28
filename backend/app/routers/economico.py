@@ -2017,31 +2017,17 @@ def _eur_it(x) -> str:
     return f"€ {s}"
 
 
-@router.get("/{cantiere_id}/preventivi/{prev_id}/genera-pdf")
-def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Genera PDF preventivo con il brand aziendale, pronto per il cliente."""
+def _flowables_preventivo(prev, cantiere) -> list:
+    """Costruisce i flowable reportlab di UN preventivo/computo (intestazione,
+    tabella voci, totali, firma). Riusato per il PDF singolo e per lo scarico
+    di tutti i computi in un unico file."""
     from xml.sax.saxutils import escape
-    from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import mm
     from reportlab.lib.utils import ImageReader
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, Image as RLImage
+    from reportlab.platypus import Table, TableStyle, Paragraph, Spacer, HRFlowable, Image as RLImage
     from reportlab.lib.enums import TA_RIGHT
-
-    cantiere = _check(cantiere_id, db, user)
-    _solo_economia(user)
-    prev = db.query(PreventivoCantiere).filter(
-        PreventivoCantiere.id == prev_id,
-        PreventivoCantiere.cantiere_id == cantiere_id
-    ).first()
-    if not prev:
-        raise HTTPException(404, "Preventivo non trovato")
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=15*mm, rightMargin=15*mm,
-                            topMargin=15*mm, bottomMargin=18*mm)
 
     PRIMARIO = colors.HexColor(PDF_BRAND["colore_primario"])
     SCURO    = colors.HexColor(PDF_BRAND["colore_scuro"])
@@ -2055,9 +2041,10 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
     style_right = ParagraphStyle("right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=9)
     style_note = ParagraphStyle("note", parent=styles["Normal"], fontSize=9, textColor=colors.grey)
     style_voce = ParagraphStyle("voce", parent=styles["Normal"], fontSize=8, leading=10)
-    style_voce_cat = ParagraphStyle("voce_cat", parent=styles["Normal"], fontSize=6.5, leading=8, textColor=colors.grey)
 
     story = []
+    is_extra = (prev.tipo or "base") == "extra"
+    numero = prev.numero or f"PRV-{prev.id:04d}"
 
     # Intestazione — logo se disponibile, altrimenti nome testuale
     logo_path = PDF_BRAND["logo"]
@@ -2075,12 +2062,14 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
     story.append(Paragraph(PDF_BRAND["sottotitolo"], style_sub))
     story.append(Spacer(1, 2*mm))
     story.append(HRFlowable(width="100%", thickness=2, color=PRIMARIO, spaceAfter=6))
+    if is_extra:
+        story.append(Paragraph("EXTRA PREVENTIVO — da fatturare a parte", style_label))
+        story.append(Spacer(1, 2*mm))
 
-    # Info preventivo
-    numero = prev.numero or f"PRV-{prev.id:04d}"
     data_str = prev.data.strftime("%d/%m/%Y") if prev.data else date.today().strftime("%d/%m/%Y")
+    etichetta = "EXTRA N°" if is_extra else "PREVENTIVO N°"
     info_data = [
-        [Paragraph(f"<b>PREVENTIVO N°</b> {escape(str(numero))}", style_label),
+        [Paragraph(f"<b>{etichetta}</b> {escape(str(numero))}", style_label),
          Paragraph(f"<b>Data:</b> {data_str}", style_right)],
         [Paragraph(f"<b>Cantiere:</b> {escape(cantiere.nome or '')}", style_label),
          Paragraph(f"<b>Validità:</b> {prev.validita_giorni} giorni", style_right)],
@@ -2095,11 +2084,9 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
     story.append(info_table)
     story.append(Spacer(1, 6*mm))
 
-    # Tabella voci
     story.append(Paragraph("COMPUTO METRICO ESTIMATIVO", style_label))
     story.append(Spacer(1, 2*mm))
 
-    # Descrizione come Paragraph → va a capo invece di sbordare sulle colonne vicine
     headers = ["#", "Descrizione", "Um", "Qt", "P. Unit.", "Totale"]
     col_widths = [9*mm, 89*mm, 13*mm, 13*mm, 27*mm, 29*mm]
     table_data = [headers]
@@ -2116,16 +2103,9 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
             desc += f'<br/><font size="6.5" color="#888888">{escape(cat)}</font>'
         prezzo = v.get("prezzo_cliente") or v.get("prezzo_unitario") or 0
         totale = v.get("totale_cliente") or 0
-        table_data.append([
-            str(i),
-            Paragraph(desc, style_voce),
-            v.get("um", "cad"),
-            qta_str,
-            _eur_it(prezzo),
-            _eur_it(totale),
-        ])
+        table_data.append([str(i), Paragraph(desc, style_voce), v.get("um", "cad"),
+                           qta_str, _eur_it(prezzo), _eur_it(totale)])
 
-    # Righe totali
     subtotale = prev.subtotale or 0
     totale_doc = prev.totale or 0
     table_data.append(["", "", "", "", "Imponibile", _eur_it(subtotale)])
@@ -2135,53 +2115,101 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
 
     n_voci = len(voci)
     voci_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-    ts = TableStyle([
-        # Header
+    voci_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), SCURO),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 9),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-        # Righe voci
         ("FONTSIZE", (0, 1), (-1, n_voci), 8),
         ("ROWBACKGROUNDS", (0, 1), (-1, n_voci), [colors.white, GRIGIO]),
         ("ALIGN", (3, 1), (-1, n_voci), "RIGHT"),
         ("ALIGN", (0, 1), (0, n_voci), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        # Righe totali
         ("FONTNAME", (0, n_voci + 1), (-1, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, n_voci + 1), (-1, -1), 9),
         ("ALIGN", (4, n_voci + 1), (5, -1), "RIGHT"),
         ("BACKGROUND", (0, n_voci + 3), (-1, n_voci + 3), PRIMARIO),
         ("TEXTCOLOR", (0, n_voci + 3), (-1, n_voci + 3), colors.white),
-        # Griglia
         ("GRID", (0, 0), (-1, n_voci), 0.3, colors.lightgrey),
         ("LINEABOVE", (0, n_voci + 1), (-1, n_voci + 1), 1, PRIMARIO),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ])
-    voci_table.setStyle(ts)
+    ]))
     story.append(voci_table)
     story.append(Spacer(1, 6*mm))
 
-    # Note
     if prev.note:
         story.append(Paragraph("<b>Note:</b>", style_label))
         story.append(Paragraph(escape(prev.note), style_note))
         story.append(Spacer(1, 4*mm))
 
-    # Piè di pagina firma
     story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
     story.append(Spacer(1, 4*mm))
-    firma_data = [
+    firma_table = Table([
         [Paragraph("Per accettazione:", style_label), Paragraph(PDF_BRAND["ragione_sociale"], style_label)],
         [Paragraph("_" * 35, style_small), Paragraph("_" * 35, style_small)],
         [Paragraph("Timbro e firma cliente", style_small), Paragraph("Firma", style_small)],
-    ]
-    firma_table = Table(firma_data, colWidths=["50%", "50%"])
+    ], colWidths=["50%", "50%"])
     story.append(firma_table)
+    return story
 
+
+@router.get("/{cantiere_id}/preventivi/pdf-tutti")
+def genera_pdf_tutti_computi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Un unico PDF con tutti i computi del cantiere: prima i base, poi gli extra."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, PageBreak
+
+    cantiere = _check(cantiere_id, db, user)
+    _solo_economia(user)
+    prevs = db.query(PreventivoCantiere).filter(
+        PreventivoCantiere.cantiere_id == cantiere_id).all()
+    if not prevs:
+        raise HTTPException(404, "Nessun computo per questo cantiere")
+    prevs.sort(key=lambda p: (1 if (p.tipo or "base") == "extra" else 0,
+                              p.numero or "", p.id))
+
+    story = []
+    for idx, p in enumerate(prevs):
+        if idx:
+            story.append(PageBreak())
+        story.extend(_flowables_preventivo(p, cantiere))
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=18*mm,
+                            title=f"Computi — {cantiere.nome}")
     doc.build(story)
+    buf.seek(0)
+    nome_file = f"computi_{(cantiere.nome or 'cantiere').replace(' ', '_')}.pdf"
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{nome_file}"'})
+
+
+@router.get("/{cantiere_id}/preventivi/{prev_id}/genera-pdf")
+def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Genera PDF preventivo con il brand aziendale, pronto per il cliente."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate
+
+    cantiere = _check(cantiere_id, db, user)
+    _solo_economia(user)
+    prev = db.query(PreventivoCantiere).filter(
+        PreventivoCantiere.id == prev_id,
+        PreventivoCantiere.cantiere_id == cantiere_id
+    ).first()
+    if not prev:
+        raise HTTPException(404, "Preventivo non trovato")
+
+    numero = prev.numero or f"PRV-{prev.id:04d}"
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=15*mm, rightMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=18*mm)
+    doc.build(_flowables_preventivo(prev, cantiere))
     buf.seek(0)
 
     nome_file = f"preventivo_{numero}_{cantiere.nome.replace(' ', '_')}.pdf"
