@@ -264,7 +264,7 @@ function VoceAITab({ cantiereId }) {
       const recorder = new MediaRecorder(stream, { mimeType: getSupportedMimeType() })
       chunksRef.current = []
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      recorder.onstop = () => elaboraAudio(stream)
+      recorder.onstop = () => elaboraAudio(stream, recorder)
       recorder.start()
       mediaRef.current = recorder
       setStato('recording')
@@ -280,13 +280,12 @@ function VoceAITab({ cantiereId }) {
     mediaRef.current?.stop()
   }
 
-  const elaboraAudio = async (stream) => {
+  const elaboraAudio = async (stream, recorder) => {
     stream.getTracks().forEach(t => t.stop())
     setStato('processing')
     try {
-      const mimeType = getSupportedMimeType()
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(chunksRef.current, { type: mimeType })
+      const ext = _extAudioReale(recorder)
+      const blob = new Blob(chunksRef.current, { type: recorder?.mimeType || 'audio/webm' })
       const fd = new FormData()
       fd.append('file', blob, `audio.${ext}`)
       const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
@@ -838,7 +837,7 @@ function MappeTab({ cantiereId }) {
       const recorder = new MediaRecorder(stream, { mimeType })
       pinChunksRef.current = []
       recorder.ondataavailable = e => { if (e.data.size > 0) pinChunksRef.current.push(e.data) }
-      recorder.onstop = () => elaboraPinAudio(stream)
+      recorder.onstop = () => elaboraPinAudio(stream, recorder)
       recorder.start()
       pinRecorderRef.current = recorder
       setPinRecStato('recording')
@@ -847,13 +846,12 @@ function MappeTab({ cantiereId }) {
     } catch { toast.error('Microfono non accessibile') }
   }
   const fermaPinRec = () => { clearInterval(pinTimerRef.current); pinRecorderRef.current?.stop() }
-  const elaboraPinAudio = async (stream) => {
+  const elaboraPinAudio = async (stream, recorder) => {
     stream.getTracks().forEach(t => t.stop())
     setPinRecStato('processing')
     try {
-      const mimeType = getSupportedMimeType()
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(pinChunksRef.current, { type: mimeType })
+      const ext = _extAudioReale(recorder)
+      const blob = new Blob(pinChunksRef.current, { type: recorder?.mimeType || 'audio/webm' })
       const fd = new FormData()
       fd.append('file', blob, `audio.${ext}`)
       const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
@@ -879,8 +877,8 @@ function MappeTab({ cantiereId }) {
         stream.getTracks().forEach(t => t.stop())
         setPinFormRecStato('processing')
         try {
-          const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-          const blob = new Blob(pinChunksRef.current, { type: mimeType })
+          const ext = _extAudioReale(recorder, mimeType)
+          const blob = new Blob(pinChunksRef.current, { type: recorder?.mimeType || mimeType })
           const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
           const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
           setPinForm(f => ({ ...f, nota: f.nota ? f.nota + ' ' + r.data.testo_italiano : r.data.testo_italiano }))
@@ -1439,6 +1437,15 @@ function getSupportedMimeType() {
   return types.find(t => MediaRecorder.isTypeSupported(t)) || 'audio/webm'
 }
 
+// recorder.mimeType riflette il codec reale scelto dal browser (utile su WebView/browser
+// mobili dove nessuno dei tipi di getSupportedMimeType() è supportato): usarlo per l'estensione
+// invece di ri-derivarla dalla stima pre-registrazione evita di taggare come .webm un file
+// che in realtà non lo è, causando 422 "Formato audio non supportato" da Whisper.
+function _extAudioReale(recorder, mimeTypeStimato) {
+  const tipoReale = recorder?.mimeType || mimeTypeStimato || 'audio/webm'
+  return tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('mp4') ? 'mp4' : 'webm'
+}
+
 /* ─── Riga ore extra editabile (dentro "Voci da contabilizzare" del diario) ─── */
 function VoceOreRow({ ore, cantiereId }) {
   const qc = useQueryClient()
@@ -1667,7 +1674,7 @@ function DiarioTab({ cantiereId, utente }) {
       const recorder = new MediaRecorder(stream, { mimeType })
       chunksRef.current = []
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      recorder.onstop = () => elaboraVoce(stream)
+      recorder.onstop = () => elaboraVoce(stream, recorder)
       recorder.start()
       mediaRef.current = recorder
       setRecStato('recording'); setRecSecondi(0)
@@ -1677,13 +1684,12 @@ function DiarioTab({ cantiereId, utente }) {
 
   const fermaRec = () => { clearInterval(timerRef.current); mediaRef.current?.stop() }
 
-  const elaboraVoce = async (stream) => {
+  const elaboraVoce = async (stream, recorder) => {
     stream.getTracks().forEach(t => t.stop())
     setRecStato('processing')
     try {
-      const mimeType = getSupportedMimeType()
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(chunksRef.current, { type: mimeType })
+      const ext = _extAudioReale(recorder)
+      const blob = new Blob(chunksRef.current, { type: recorder?.mimeType || 'audio/webm' })
       const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
       await api.post(`/cantieri/${cantiereId}/diari/voce`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       qc.invalidateQueries(['diari', cantiereId])
