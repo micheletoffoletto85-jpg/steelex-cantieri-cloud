@@ -96,7 +96,7 @@ class RiepilogoOut(BaseModel):
     budget_preventivo: float     # totale preventivo accettato (IVA esclusa) = ricavo previsionale
     budget_iva: float            # con IVA
     totale_speso: float          # somma spese registrate
-    margine_atteso: float        # budget - totale_speso (margine consuntivo)
+    margine_atteso: float        # (budget + extra preventivi) - totale_speso (margine consuntivo)
     totale_sal_emessi: float     # SAL emessi + pagati
     totale_sal_pagati: float     # SAL incassati
     da_incassare: float
@@ -105,7 +105,7 @@ class RiepilogoOut(BaseModel):
     costo_manodopera_extra: float = 0.0  # di cui segnate extra preventivo (aggiunte anche al computo)
     budget_extra: float = 0.0            # ricavo dei preventivi extra (IVA esclusa)
     margine_obiettivo: Optional[float] = None   # % margine sul fatturato concordato col commerciale
-    margine_reale_perc: float = 0.0             # margine_atteso / budget * 100
+    margine_reale_perc: float = 0.0             # margine_atteso / (budget + extra preventivi) * 100
     # ─── Previsionale (fascia in alto del riepilogo) ───
     costo_previsto: float = 0.0                # costo previsto (dal computo o dai preventivi artigiani)
     costo_previsto_fonte: str = "nessuno"      # "computo" | "preventivi_artigiani" | "nessuno"
@@ -168,8 +168,12 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         costo_previsto, costo_previsto_fonte = 0.0, "nessuno"
     margine_prev = (budget - costo_previsto) if costo_previsto_fonte != "nessuno" else 0.0
     margine_prev_perc = round(margine_prev / budget * 100, 1) if (budget > 0 and costo_previsto_fonte != "nessuno") else 0.0
-    margine_atteso = budget - totale_speso
-    margine_reale_perc = round(margine_atteso / budget * 100, 1) if budget > 0 else 0.0
+    # Ricavo consuntivo = preventivo base + extra preventivi: nel totale_speso
+    # rientrano già i costi extra (manodopera/spese segnate extra preventivo),
+    # quindi il ricavo che ci confrontiamo deve includere i relativi ricavi.
+    ricavo_consuntivo = budget + budget_extra
+    margine_atteso = ricavo_consuntivo - totale_speso
+    margine_reale_perc = round(margine_atteso / ricavo_consuntivo * 100, 1) if ricavo_consuntivo > 0 else 0.0
     margine_obiettivo = cantiere.margine_obiettivo if cantiere else None
 
     if _is_dl(user):

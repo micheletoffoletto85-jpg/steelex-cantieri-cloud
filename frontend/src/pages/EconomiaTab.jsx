@@ -160,8 +160,9 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
   // Utilizzo del budget COSTI: speso reale vs costo previsto (non vs il ricavo!)
   const budgetCosti = rv.costo_previsto || 0
   const percCosti = budgetCosti > 0 ? (rv.totale_speso / budgetCosti) * 100 : 0
-  // % del fatturato consumato dai costi
-  const percSuFatturato = rv.budget_preventivo > 0 ? Math.min((rv.totale_speso / rv.budget_preventivo) * 100, 100) : 0
+  // % del fatturato consumato dai costi (fatturato = preventivo base + extra preventivi)
+  const fatturatoTot = (rv.budget_preventivo || 0) + (rv.budget_extra || 0)
+  const percSuFatturato = fatturatoTot > 0 ? Math.min((rv.totale_speso / fatturatoTot) * 100, 100) : 0
   const marginePositivo = rv.margine_atteso >= 0
 
   return (
@@ -238,7 +239,7 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
               <p>Confronto: preventivi artigiani ricevuti <strong>{fmt(rv.preventivi_artigiani_totale)}</strong> · costi nel computo <strong>{fmt(rv.costo_totale_computo)}</strong></p>
             )}
             {rv.budget_extra > 0 && (
-              <p className="text-orange-600">Extra preventivi (a parte): {fmt(rv.budget_extra)}</p>
+              <p className="text-sm font-bold text-orange-600">Extra preventivi DA CONTEGGIARE A PARTE: {fmt(rv.budget_extra)}</p>
             )}
           </div>
         </div>
@@ -318,7 +319,11 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
                 <p className="text-[10px] text-gray-400">attuale</p>
               </div>
             </div>
-          ) : (
+          ) : null}
+          {rv.margine_obiettivo != null && !editObiettivo && rv.budget_extra > 0 && (
+            <p className="text-[10px] text-gray-400">Il margine attuale include anche i ricavi degli extra preventivi ({fmt(rv.budget_extra)}).</p>
+          )}
+          {rv.margine_obiettivo == null && !editObiettivo && (
             <p className="text-xs text-gray-400">Non impostato — concordalo col commerciale per confrontarlo con il margine reale.</p>
           )}
         </div>
