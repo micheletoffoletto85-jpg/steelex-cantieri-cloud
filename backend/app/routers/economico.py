@@ -2156,11 +2156,34 @@ async def import_spese_excel(
         "materiale": "materiali", "material": "materiali", "materials": "materiali",
         "mat": "materiali", "manodopera": "manodopera", "mano": "manodopera",
         "labor": "manodopera", "lavoro": "manodopera", "nolo": "nolo", "rent": "nolo",
-        "noleggio": "nolo", "servizi": "servizi", "services": "servizi",
-        "servizio": "servizi", "trasporto": "trasporto", "transport": "trasporto",
-        "logistica": "trasporto", "altro": "altro", "other": "altro",
-        "varie": "altro", "vario": "altro",
+        "noleggio": "nolo", "noleggi": "nolo", "nolegg": "nolo", "servizi": "servizi",
+        "services": "servizi", "servizio": "servizi", "trasporto": "trasporto",
+        "transport": "trasporto", "logistica": "trasporto", "altro": "altro",
+        "other": "altro", "varie": "altro", "vario": "altro",
     }
+    # Radici per il riconoscimento "sfumato" della categoria (gestisce troncature e
+    # varianti tipo "NOLEGGI", "MATERIALE ", "MANODOPERA FT 110", ecc.)
+    CAT_RADICI = [
+        ("material", "materiali"), ("manodoper", "manodopera"), ("noleg", "nolo"),
+        ("nolo", "nolo"), ("traspor", "trasporto"), ("serviz", "servizi"),
+        ("logisti", "trasporto"), ("varie", "altro"), ("altro", "altro"),
+    ]
+
+    def _norm_categoria(raw):
+        s = str(raw or "").strip().lower().rstrip(".").strip()
+        if not s:
+            return None
+        if s in CATEGORIE_VALIDE:
+            return s
+        if s in ALIAS_CATEGORIE:
+            return ALIAS_CATEGORIE[s]
+        prima = s.split()[0]
+        if prima in ALIAS_CATEGORIE:
+            return ALIAS_CATEGORIE[prima]
+        for radice, cat in CAT_RADICI:
+            if s.startswith(radice) or prima.startswith(radice):
+                return cat
+        return None
 
     # Righe da skippare (totali/subtotali/intestazioni ripetute)
     SKIP_DESC = {"totale", "totale generale", "subtotale", "totale parziale", "totale complessivo",
@@ -2215,6 +2238,29 @@ async def import_spese_excel(
 
     if header_row_idx is None:
         raise HTTPException(400, "Struttura file non riconosciuta. Il file deve avere colonne leggibili (Descrizione, Importo, ecc.)")
+
+    # Colonna categoria senza intestazione (o intestazione non riconosciuta): alcuni
+    # gestionali esportano il "tipo articolo" (MATERIALE / MANODOPERA / NOLEGGIO / …)
+    # in una colonna senza titolo. La individuiamo dai valori: la colonna i cui valori
+    # sono in prevalenza categorie note.
+    if "categoria" not in col_map:
+        dati_rows = [r for r in righe_raw[header_row_idx + 1:]
+                     if not all(v is None or str(v).strip() == "" for v in r)]
+        n_col = max((len(r) for r in dati_rows), default=0)
+        gia_usate = set(col_map.values())
+        best_j, best_score = None, 0.0
+        for j in range(n_col):
+            if j in gia_usate:
+                continue
+            valorizzate = [r[j] for r in dati_rows if j < len(r) and str(r[j]).strip()]
+            if len(valorizzate) < 3:
+                continue
+            match = sum(1 for v in valorizzate if _norm_categoria(v))
+            score = match / len(valorizzate)
+            if match >= 3 and score >= 0.5 and score > best_score:
+                best_j, best_score = j, score
+        if best_j is not None:
+            col_map["categoria"] = best_j
 
     import logging as _log
     _log.warning(f"[IMPORT-EXCEL] header_row={header_row_idx} col_map={col_map} totale_righe={len(righe_raw)}")
@@ -2272,9 +2318,8 @@ async def import_spese_excel(
                 except Exception:
                     pass
 
-        # Categoria
-        cat_raw = (val("categoria") or "altro").lower().strip()
-        categoria = ALIAS_CATEGORIE.get(cat_raw, "altro") if cat_raw not in CATEGORIE_VALIDE else cat_raw
+        # Categoria — riconoscimento sfumato (gestisce "MATERIALE ", "NOLEGGI", ecc.)
+        categoria = _norm_categoria(val("categoria")) or "altro"
 
         descrizione = val("descrizione") or "Spesa senza descrizione"
         fornitore = val("fornitore") or ""
@@ -2319,15 +2364,17 @@ async def conferma_import_spese_excel(
     _check(cantiere_id, db, user)
     _solo_economia(user)
 
+    _CAT_OK = {"materiali", "manodopera", "nolo", "servizi", "trasporto", "altro"}
     salvate = 0
     for r in righe:
         try:
             data_val = date.fromisoformat(r["data"]) if r.get("data") else date.today()
+            cat = str(r.get("categoria") or "altro").strip().lower()
             sp = Spesa(
                 cantiere_id=cantiere_id,
                 descrizione=r.get("descrizione", "")[:500],
                 fornitore=r.get("fornitore", "")[:255] or None,
-                categoria=r.get("categoria", "altro"),
+                categoria=cat if cat in _CAT_OK else "altro",
                 importo=float(r.get("importo", 0)),
                 data=data_val,
                 note=r.get("note", "")[:1000] or None,

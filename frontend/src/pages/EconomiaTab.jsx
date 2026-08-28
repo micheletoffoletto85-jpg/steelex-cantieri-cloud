@@ -1543,6 +1543,23 @@ function SpeseSection({ cantiereId, canWrite }) {
             <button onClick={() => setImportExcel(null)} className="text-gray-400 hover:text-gray-500"><X size={16}/></button>
           </div>
 
+          {/* Riepilogo per categoria + data documento comune */}
+          <div className="flex flex-wrap items-center gap-2">
+            {CATEGORIE.map(cat => {
+              const n = importExcel.righe.filter((r,i) => importExcel.selezionate.has(i) && r.categoria === cat).length
+              if (!n) return null
+              return <span key={cat} className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${CAT_COLORI[cat]}`}>{cat} {n}</span>
+            })}
+            <label className="ml-auto flex items-center gap-1.5 text-xs text-gray-500">
+              Data documento
+              <input type="date" className="border border-gray-200 rounded-lg px-2 py-1 text-xs"
+                onChange={e => {
+                  const d = e.target.value
+                  setImportExcel(prev => ({ ...prev, righe: prev.righe.map(r => ({ ...r, data: d || r.data })) }))
+                }} />
+            </label>
+          </div>
+
           {importExcel.errori?.length > 0 && (
             <div className="bg-yellow-50 rounded-lg p-2 text-xs text-yellow-700 space-y-0.5">
               {importExcel.errori.map((e,i) => <p key={i}>⚠️ {e}</p>)}
@@ -1583,7 +1600,14 @@ function SpeseSection({ cantiereId, canWrite }) {
                     <td className="px-2 py-1 text-gray-900 max-w-[160px] truncate">{r.descrizione}</td>
                     <td className="px-2 py-1 text-gray-500 max-w-[100px] truncate">{r.fornitore || '—'}</td>
                     <td className="px-2 py-1">
-                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${CAT_COLORI[r.categoria] || 'bg-gray-100 text-gray-500'}`}>{r.categoria}</span>
+                      <select value={r.categoria}
+                        onChange={e => {
+                          const cat = e.target.value
+                          setImportExcel(prev => ({ ...prev, righe: prev.righe.map((x,xi) => xi === i ? { ...x, categoria: cat } : x) }))
+                        }}
+                        className={`rounded-full text-[10px] font-medium border-0 px-1.5 py-0.5 focus:ring-1 focus:ring-steelex-orange ${CAT_COLORI[r.categoria] || 'bg-gray-100 text-gray-500'}`}>
+                        {CATEGORIE.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
                     </td>
                     <td className="px-2 py-1 text-right font-bold text-gray-900 whitespace-nowrap">{fmt(r.importo)}</td>
                   </tr>
