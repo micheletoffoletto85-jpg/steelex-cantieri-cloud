@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import MeteoMappa from '../components/MeteoMappa'
+import MaterialiUsati from '../components/MaterialiUsati'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
 import toast from 'react-hot-toast'
@@ -1564,6 +1565,10 @@ function DiarioTab({ cantiereId, utente }) {
     (diarioId) => api.put(`/cantieri/${cantiereId}/diari/${diarioId}/valida`),
     { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); toast.success('Voce diario pubblicata!') } }
   )
+  const materialeSpesaMutation = useMutation(
+    ({ rapportinoId, ...body }) => api.post(`/rapportini/${rapportinoId}/materiale-spesa`, body),
+    { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); qc.invalidateQueries(['economia', cantiereId]); qc.invalidateQueries(['spese', cantiereId]) } }
+  )
   const diariBozza = diari.filter(d => d.stato_validazione === 'bozza')
   const diariPubblicati = diari.filter(d => d.stato_validazione !== 'bozza')
   // Rapportini pending dell'utente corrente per questo cantiere (mostrati in trasparenza)
@@ -2048,6 +2053,21 @@ function DiarioTab({ cantiereId, utente }) {
               </div>
             ) : (
               d.attivita && <p className="text-sm text-gray-700 leading-relaxed">{d.attivita}</p>
+            )}
+
+            {/* Materiale usato — dal rapportino collegato; registrabile nelle Spese */}
+            {d.rapportino_id && (d.rapportino_materiali?.length > 0 || d.rapportino_materiale_extra) && (
+              <MaterialiUsati
+                source={{
+                  id: d.rapportino_id,
+                  materiali: d.rapportino_materiali,
+                  materiale_extra: d.rapportino_materiale_extra,
+                  materiali_spese: d.rapportino_materiali_spese,
+                  cantiere_id: d.cantiere_id,
+                }}
+                isAdmin={puoValidare}
+                onMaterialeSpesa={(rapportinoId, body) => materialeSpesaMutation.mutateAsync({ rapportinoId, ...body })}
+              />
             )}
 
             {/* Voci contabilizzabili: ore già registrate (dato live, editabile qui) +

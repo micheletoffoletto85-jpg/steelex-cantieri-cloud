@@ -837,6 +837,14 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
     db.add(diario); db.flush()
     r.diario_id = diario.id
 
+    # Le foto del rapportino entrano anche nell'archivio foto del cantiere (Tab Foto)
+    if tutte_foto:
+        try:
+            from app.routers.diari import _sync_foto_archivio
+            _sync_foto_archivio(db, cantiere_id, tutte_foto, autore_id=r.operativo_id, nota="Da rapportino")
+        except Exception:
+            pass
+
     # Calcolo automatico ore lavorate → registrazione diretta nella sezione ore del cantiere,
     # valorizzata col costo orario dell'operativo (entra nei costi del cantiere)
     if r.ore_lavorate and r.ore_lavorate > 0:

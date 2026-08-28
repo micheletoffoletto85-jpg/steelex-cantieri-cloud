@@ -87,6 +87,12 @@ class DiarioOut(DiarioBase):
     extra_preventivo: Optional[bool] = False
     extra_preventivo_nota: Optional[str] = None
     autore_nome: Optional[str] = None   # calcolato nel router
+    # Materiale usato — dal rapportino collegato (se la nota nasce da un rapportino);
+    # serve al Tab Diario per registrare i materiali nelle Spese senza aprire i Rapportini
+    rapportino_id: Optional[int] = None
+    rapportino_materiali: List[str] = []
+    rapportino_materiale_extra: Optional[str] = None
+    rapportino_materiali_spese: Optional[Any] = None
 
     class Config:
         from_attributes = True

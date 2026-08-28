@@ -27,17 +27,27 @@ def _diario_out(d: DiarioGiornaliero) -> dict:
         nome = f"{d.autore.nome} {d.autore.cognome}".strip() or d.autore.email
     out = DiarioOut.model_validate(d).model_dump()
     out["autore_nome"] = nome
+
+    # Rapportino collegato (se la nota nasce da un rapportino operativo) — usato
+    # sia per esporre le ore quando voci_estratte è vuoto sia per il materiale usato
+    from app.models.rapportino import RapportinoOperativo
+    rap = None
+    try:
+        from sqlalchemy.orm import object_session
+        sess = object_session(d)
+        if sess:
+            rap = sess.query(RapportinoOperativo).filter(RapportinoOperativo.diario_id == d.id).first()
+    except Exception:
+        pass
+
+    if rap is not None:
+        out["rapportino_id"] = rap.id
+        out["rapportino_materiali"] = rap.materiali or []
+        out["rapportino_materiale_extra"] = rap.materiale_extra
+        out["rapportino_materiali_spese"] = rap.materiali_spese or []
+
     # Se il diario ha voci_estratte vuote ma viene da un rapportino, esponi le ore
     if not out.get("voci_estratte"):
-        from app.models.rapportino import RapportinoOperativo
-        rap = None
-        try:
-            from sqlalchemy.orm import object_session
-            sess = object_session(d)
-            if sess:
-                rap = sess.query(RapportinoOperativo).filter(RapportinoOperativo.diario_id == d.id).first()
-        except Exception:
-            pass
         if rap and rap.ore_lavorate and rap.ore_lavorate > 0:
             op_nome = ""
             if rap.operativo:
@@ -50,6 +60,27 @@ def _diario_out(d: DiarioGiornaliero) -> dict:
                 "approvato": False,
             }]
     return out
+
+
+def _sync_foto_archivio(db: Session, cantiere_id: int, urls, autore_id=None, nota=None) -> int:
+    """Riversa nel Tab Foto del cantiere (foto_cantiere) le foto del diario non
+    ancora presenti. Il commit resta a carico del chiamante. Ritorna quante ne
+    ha aggiunte. Import locale di FotoCantiere: vedi nota nel modello."""
+    urls = [u for u in (urls or []) if u]
+    if not urls:
+        return 0
+    from app.models.foto_cantiere import FotoCantiere
+    esistenti = {u for (u,) in db.query(FotoCantiere.url).filter(FotoCantiere.cantiere_id == cantiere_id).all()}
+    ordine = db.query(func.max(FotoCantiere.ordine)).filter(FotoCantiere.cantiere_id == cantiere_id).scalar() or 0
+    aggiunte = 0
+    for u in urls:
+        if u in esistenti:
+            continue
+        ordine += 1
+        db.add(FotoCantiere(cantiere_id=cantiere_id, url=u, ordine=ordine, autore_id=autore_id, nota=nota))
+        esistenti.add(u)
+        aggiunte += 1
+    return aggiunte
 
 
 _RUOLI_BOZZA = {"artigiano", "fornitore"}
@@ -469,6 +500,11 @@ async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(
     urls = list(diario.foto_urls or [])
     urls.append(url)
     diario.foto_urls = urls
+    # La foto del diario entra anche nell'archivio foto del cantiere (Tab Foto)
+    try:
+        _sync_foto_archivio(db, cantiere_id, [url], autore_id=user.id, nota="Da diario")
+    except Exception:
+        pass
     db.commit()
     db.refresh(diario)
     try:
@@ -673,6 +709,18 @@ def lista_foto_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: U
     if not cantiere:
         raise HTTPException(404, "Cantiere non trovato")
     _check_accesso(cantiere, user)
+
+    # Auto-allineamento: le foto del diario che non sono ancora nell'archivio
+    # (storiche + quelle aggiunte prima di questa sync) vengono riversate qui.
+    if user.ruolo.value != "cliente":
+        try:
+            diari_foto = []
+            for (fu,) in db.query(DiarioGiornaliero.foto_urls).filter(DiarioGiornaliero.cantiere_id == cantiere_id).all():
+                diari_foto += list(fu or [])
+            if _sync_foto_archivio(db, cantiere_id, diari_foto, nota="Da diario"):
+                db.commit()
+        except Exception:
+            db.rollback()
 
     q = db.query(FotoCantiere).filter(FotoCantiere.cantiere_id == cantiere_id)
     if user.ruolo.value == "cliente":
