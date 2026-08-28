@@ -1296,12 +1296,33 @@ def genera_verbale_pdf(cantiere_id: int, db: Session = Depends(get_db), user: Ut
         indirizzo += f" ({cantiere.provincia})"
     numero = c.numero or "bozza"
 
+    # Logo aziendale per l'intestazione (stesso file dei preventivi); testo di ripiego
+    _logo_path = PDF_BRAND.get("logo")
+    _logo_reader = None
+    if _logo_path and os.path.exists(_logo_path):
+        try:
+            _logo_reader = ImageReader(_logo_path)
+        except Exception:
+            _logo_reader = None
+
+    def _brand_cell():
+        if _logo_reader:
+            try:
+                iw, ih = _logo_reader.getSize()
+                h = PDF_BRAND.get("logo_altezza_mm", 16) * mm
+                img = RLImage(_logo_path, width=iw * h / ih, height=h)
+                img.hAlign = "LEFT"
+                return img
+            except Exception:
+                pass
+        return Table([[Paragraph(PDF_BRAND["nome"], st_brand)],
+                      [Paragraph(PDF_BRAND["sottotitolo"], st_brand_s)]], style=[
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)])
+
     def masthead(pag, tot):
         tab = Table([[
-            Table([[Paragraph(PDF_BRAND["nome"], st_brand)],
-                   [Paragraph(PDF_BRAND["sottotitolo"], st_brand_s)]], style=[
-                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]),
+            _brand_cell(),
             Paragraph(f"Verbale n. <b>{escape(numero)}</b><br/>Cantiere <b>{escape(cantiere.nome or '')}</b>", st_meta),
         ]], colWidths=["58%", "42%"])
         tab.setStyle(TableStyle([
