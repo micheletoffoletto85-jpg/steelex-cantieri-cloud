@@ -952,3 +952,597 @@ def ricalcola_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente 
             _sync_voce_extra(db, o)
     db.commit()
     return {"aggiornate": valorizzate + linkate, "valorizzate": valorizzate, "collegate": linkate}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VERBALE DI CHIUSURA CANTIERE — documento relazionale (NON contabile)
+# Import di ChiusuraCantiere sempre locale alle funzioni: vedi nota nel modello.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+chiusura_router = APIRouter(prefix="/cantieri/{cantiere_id}/chiusura", tags=["Chiusura Cantiere"])
+
+_RUOLI_CHIUSURA = {"admin", "capo_cantiere", "amministrazione"}
+
+_MESI_IT_LONG = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+                 "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+
+
+def _data_estesa(d) -> str:
+    if not d:
+        return "—"
+    return f"{d.day} {_MESI_IT_LONG[d.month - 1]} {d.year}"
+
+
+def _durata_lavori(inizio, fine) -> str:
+    if not inizio or not fine or fine < inizio:
+        return "—"
+    giorni = (fine - inizio).days
+    mesi = giorni // 30
+    resto = giorni % 30
+    parti = []
+    if mesi:
+        parti.append(f"{mesi} mese" if mesi == 1 else f"{mesi} mesi")
+    if resto or not parti:
+        parti.append(f"{resto} giorno" if resto == 1 else f"{resto} giorni")
+    return " e ".join(parti)
+
+
+def _fasi_cantiere(db: Session, cantiere_id: int):
+    from app.models.economico import FaseLavoro
+    return (db.query(FaseLavoro)
+            .filter(FaseLavoro.cantiere_id == cantiere_id)
+            .order_by(FaseLavoro.ordine.asc(), FaseLavoro.id.asc())
+            .all())
+
+
+_STATO_FASE_LABEL = {
+    "completata": "Completata", "in_corso": "In corso", "in_ritardo": "In ritardo",
+    "sospesa": "Sospesa", "pianificata": "Pianificata",
+}
+
+
+def _periodo_fase(f) -> str:
+    ini = f.data_inizio
+    fin = f.data_fine_reale or f.data_fine_prevista
+    if ini and fin:
+        return f"{ini.strftime('%d.%m')} – {fin.strftime('%d.%m.%y')}"
+    if ini:
+        return ini.strftime("%d.%m.%Y")
+    return "—"
+
+
+def _chiusura_get(db: Session, cantiere_id: int):
+    from app.models.chiusura import ChiusuraCantiere
+    return db.query(ChiusuraCantiere).filter(ChiusuraCantiere.cantiere_id == cantiere_id).first()
+
+
+def _chiusura_dict(c, cantiere) -> dict:
+    return {
+        "esiste": c is not None,
+        "stato": (c.stato if c else "bozza"),
+        "numero": (c.numero if c else None),
+        "relazione": (c.relazione if c else None),
+        "consegne": (c.consegne if c else None),
+        "foto_ids": (c.foto_ids if c and c.foto_ids else []),
+        "foto_copertina_id": (c.foto_copertina_id if c else None),
+        "committente_nome": (c.committente_nome if c and c.committente_nome else (cantiere.cliente if cantiere else None)),
+        "direzione_lavori": (c.direzione_lavori if c else None),
+        "responsabile_nome": (c.responsabile_nome if c else None),
+        "data_ultimazione": (c.data_ultimazione.isoformat() if c and c.data_ultimazione else None),
+        "aggiornato_il": (c.aggiornato_il.isoformat() if c and c.aggiornato_il else None),
+    }
+
+
+class ChiusuraUpdate(BaseModel):
+    relazione: Optional[str] = None
+    consegne: Optional[str] = None
+    foto_ids: Optional[List[int]] = None
+    foto_copertina_id: Optional[int] = None
+    committente_nome: Optional[str] = None
+    direzione_lavori: Optional[str] = None
+    responsabile_nome: Optional[str] = None
+    data_ultimazione: Optional[date_today] = None
+
+
+@chiusura_router.get("")
+def leggi_chiusura(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo.value not in _RUOLI_CHIUSURA:
+        raise HTTPException(403, "Sezione riservata allo staff interno")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+
+    from app.models.foto_cantiere import FotoCantiere
+    c = _chiusura_get(db, cantiere_id)
+    fasi = _fasi_cantiere(db, cantiere_id)
+    foto = (db.query(FotoCantiere)
+            .filter(FotoCantiere.cantiere_id == cantiere_id)
+            .order_by(FotoCantiere.ordine.asc(), FotoCantiere.id.asc())
+            .all())
+
+    data_fine = (c.data_ultimazione if c and c.data_ultimazione else cantiere.data_fine_reale)
+    out = _chiusura_dict(c, cantiere)
+    out["contesto"] = {
+        "cantiere_nome": cantiere.nome,
+        "oggetto": cantiere.nome,
+        "indirizzo": ", ".join(x for x in [cantiere.indirizzo, cantiere.citta] if x)
+                     + (f" ({cantiere.provincia})" if cantiere.provincia else ""),
+        "stato_cantiere": cantiere.stato.value if hasattr(cantiere.stato, "value") else cantiere.stato,
+        "data_inizio": cantiere.data_inizio.isoformat() if cantiere.data_inizio else None,
+        "data_fine": data_fine.isoformat() if data_fine else None,
+        "durata": _durata_lavori(cantiere.data_inizio, data_fine),
+        "responsabile": (f"{cantiere.responsabile.nome} {cantiere.responsabile.cognome}".strip()
+                         if cantiere.responsabile else None),
+        "avanzamento": cantiere.avanzamento or 0,
+        "n_fasi": len(fasi),
+        "fasi": [{
+            "id": f.id, "nome": f.nome, "periodo": _periodo_fase(f),
+            "stato": _STATO_FASE_LABEL.get(
+                f.stato.value if hasattr(f.stato, "value") else (f.stato or ""), "—"),
+            "note": f.note or "",
+        } for f in fasi],
+        "foto": [{
+            "id": f.id, "url": f.url, "nota": f.nota or "",
+            "data": f.creato_il.date().isoformat() if f.creato_il else None,
+        } for f in foto],
+    }
+    return out
+
+
+@chiusura_router.put("")
+def salva_chiusura(cantiere_id: int, body: ChiusuraUpdate,
+                   db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo.value not in _RUOLI_CHIUSURA:
+        raise HTTPException(403, "Sezione riservata allo staff interno")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+
+    from app.models.chiusura import ChiusuraCantiere
+    from sqlalchemy.orm.attributes import flag_modified
+    c = _chiusura_get(db, cantiere_id)
+    if not c:
+        c = ChiusuraCantiere(cantiere_id=cantiere_id, creato_da=user.id,
+                             committente_nome=cantiere.cliente,
+                             responsabile_nome=(f"{cantiere.responsabile.nome} {cantiere.responsabile.cognome}".strip()
+                                                if cantiere.responsabile else None))
+        db.add(c)
+
+    dati = body.model_dump(exclude_unset=True)
+    for campo, val in dati.items():
+        setattr(c, campo, val)
+    if "foto_ids" in dati:
+        flag_modified(c, "foto_ids")
+    db.commit()
+    db.refresh(c)
+    return _chiusura_dict(c, cantiere)
+
+
+@chiusura_router.post("/genera-bozza")
+def genera_bozza_relazione(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Compila una BOZZA della descrizione lavori pescando da diario, fasi Gantt e
+    rapportini. Non salva nulla: il testo torna al frontend per la revisione."""
+    if user.ruolo.value not in _RUOLI_CHIUSURA:
+        raise HTTPException(403, "Sezione riservata allo staff interno")
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(503, "Servizio AI non configurato")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+
+    fasi = _fasi_cantiere(db, cantiere_id)
+    diari = (db.query(DiarioGiornaliero)
+             .filter(DiarioGiornaliero.cantiere_id == cantiere_id)
+             .order_by(DiarioGiornaliero.data.asc()).all())
+
+    righe_fasi = "\n".join(
+        f"- {f.nome} ({_periodo_fase(f)}) — "
+        f"{_STATO_FASE_LABEL.get(f.stato.value if hasattr(f.stato,'value') else (f.stato or ''), '')}"
+        + (f"; {f.note}" if f.note else "")
+        for f in fasi) or "(nessuna fase registrata)"
+
+    estratti = []
+    for d in diari:
+        testo = (d.attivita or "").strip()
+        if testo:
+            estratti.append(f"[{d.data.strftime('%d/%m/%Y')}] {testo}")
+    righe_diario = "\n".join(estratti[:80]) or "(nessuna nota di diario)"
+
+    import anthropic
+    claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    prompt = f"""Sei un tecnico di un'impresa edile italiana specializzata in costruzioni Light Steel Frame (LSF).
+Devi scrivere la sezione "DESCRIZIONE DEI LAVORI ESEGUITI" di un VERBALE DI CHIUSURA CANTIERE.
+È un documento relazionale e formale destinato al committente e alla direzione lavori — NON è un documento contabile: non citare importi, prezzi, costi o margini.
+
+DATI DEL CANTIERE
+Oggetto: {cantiere.nome}
+Committente: {cantiere.cliente}
+Ubicazione: {", ".join(x for x in [cantiere.indirizzo, cantiere.citta] if x)}
+Inizio lavori: {_data_estesa(cantiere.data_inizio)}
+Fine lavori: {_data_estesa(cantiere.data_fine_reale)}
+
+FASI DEL CRONOPROGRAMMA
+{righe_fasi}
+
+NOTE DAL DIARIO DI CANTIERE (in ordine cronologico)
+{righe_diario}
+
+ISTRUZIONI
+- Scrivi in italiano tecnico ma scorrevole, in terza persona ("i lavori hanno riguardato...", "si è proceduto con...").
+- 3-5 paragrafi, ognuno separato da una riga vuota. Nessun elenco puntato, nessun titolo.
+- Ricostruisci il racconto complessivo dell'opera: fondazioni, struttura, involucro, coperture, impianti, finiture, consegna — usando quello che emerge dai dati.
+- Se un'informazione non c'è, non inventarla: resta sul generale.
+- Chiudi con una frase sul rispetto del cronoprogramma e sull'esito positivo delle verifiche finali, solo se coerente con i dati.
+- Rispondi SOLO con il testo della relazione, senza premesse né commenti."""
+
+    testo = None
+    for modello in ("claude-sonnet-4-6", "claude-haiku-4-5-20251001"):
+        try:
+            msg = claude.messages.create(
+                model=modello, max_tokens=1600,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            testo = msg.content[0].text.strip()
+            break
+        except Exception:
+            continue
+    if not testo:
+        raise HTTPException(502, "Errore nella generazione della bozza")
+    return {"relazione": testo}
+
+
+@chiusura_router.post("/conferma")
+def conferma_chiusura(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Marca il verbale come definitivo e chiude il cantiere (stato = completato,
+    data fine reale = data di ultimazione del verbale)."""
+    if user.ruolo.value not in _RUOLI_CHIUSURA:
+        raise HTTPException(403, "Sezione riservata allo staff interno")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+    c = _chiusura_get(db, cantiere_id)
+    if not c or not (c.relazione or "").strip():
+        raise HTTPException(400, "Compila la relazione prima di confermare la chiusura")
+
+    if not c.numero:
+        anno = (c.data_ultimazione or date_today.today()).year
+        from app.models.chiusura import ChiusuraCantiere
+        n = db.query(ChiusuraCantiere).filter(
+            ChiusuraCantiere.numero.isnot(None),
+            ChiusuraCantiere.numero.like(f"{anno} /%")).count()
+        c.numero = f"{anno} / {n + 1:03d}"
+    c.stato = "definitivo"
+
+    data_fine = c.data_ultimazione or date_today.today()
+    c.data_ultimazione = data_fine
+    from app.models.cantiere import StatoCantiere
+    cantiere.stato = StatoCantiere.completato
+    cantiere.data_fine_reale = data_fine
+    if not (cantiere.avanzamento or 0) >= 100:
+        cantiere.avanzamento = 100.0
+    db.commit()
+    db.refresh(c)
+    try:
+        notifica_cantiere(db, cantiere_id,
+            ruoli=["admin", "amministrazione", "direzione_lavori"],
+            titolo="🏁 Cantiere chiuso",
+            corpo=f"{cantiere.nome}: verbale di chiusura n. {c.numero} confermato da {user.nome} {user.cognome}",
+            escludi_id=user.id,
+            url=f"/cantieri/{cantiere_id}#chiusura",
+        )
+    except Exception:
+        pass
+    return _chiusura_dict(c, cantiere)
+
+
+@chiusura_router.post("/genera-pdf")
+def genera_verbale_pdf(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    if user.ruolo.value not in _RUOLI_CHIUSURA:
+        raise HTTPException(403, "Sezione riservata allo staff interno")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(404, "Cantiere non trovato")
+    c = _chiusura_get(db, cantiere_id)
+    if not c:
+        raise HTTPException(400, "Verbale non ancora compilato")
+
+    from xml.sax.saxutils import escape
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph,
+                                    Spacer, HRFlowable, Image as RLImage, KeepTogether, PageBreak)
+    from app.routers.economico import PDF_BRAND
+    from app.models.foto_cantiere import FotoCantiere
+    from app.storage import leggi_file
+
+    PRIMARIO = colors.HexColor(PDF_BRAND["colore_primario"])
+    SCURO    = colors.HexColor(PDF_BRAND["colore_scuro"])
+    GRIGIO   = colors.HexColor("#F5F5F5")
+    MUTED    = colors.HexColor("#8C8578")
+
+    styles = getSampleStyleSheet()
+    st_brand   = ParagraphStyle("cv_brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=16, textColor=SCURO, leading=18)
+    st_brand_s = ParagraphStyle("cv_brand_s", parent=styles["Normal"], fontSize=7.5, textColor=MUTED, leading=10)
+    st_eyebrow = ParagraphStyle("cv_eyebrow", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5, textColor=PRIMARIO, leading=12, spaceAfter=2)
+    st_title   = ParagraphStyle("cv_title", parent=styles["Heading1"], fontSize=26, textColor=SCURO, leading=29, spaceBefore=6, spaceAfter=4)
+    st_h2      = ParagraphStyle("cv_h2", parent=styles["Heading2"], fontSize=15, textColor=SCURO, leading=18, spaceBefore=2, spaceAfter=8)
+    st_body    = ParagraphStyle("cv_body", parent=styles["Normal"], fontSize=10, leading=15, spaceAfter=7, alignment=4)
+    st_label   = ParagraphStyle("cv_label", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, textColor=MUTED, leading=11)
+    st_val     = ParagraphStyle("cv_val", parent=styles["Normal"], fontSize=10, textColor=SCURO, leading=13)
+    st_meta    = ParagraphStyle("cv_meta", parent=styles["Normal"], fontSize=8.5, textColor=MUTED, leading=11)
+    st_cell    = ParagraphStyle("cv_cell", parent=styles["Normal"], fontSize=8.5, leading=11, textColor=SCURO)
+    st_cellh   = ParagraphStyle("cv_cellh", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.5, textColor=SCURO, leading=10)
+    st_cap     = ParagraphStyle("cv_cap", parent=styles["Normal"], fontSize=8, textColor=MUTED, leading=10, spaceBefore=3)
+    st_sign    = ParagraphStyle("cv_sign", parent=styles["Normal"], fontSize=8, textColor=MUTED, leading=11)
+    st_signb   = ParagraphStyle("cv_signb", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5, textColor=SCURO, leading=11)
+
+    data_fine = c.data_ultimazione or cantiere.data_fine_reale
+    committente = c.committente_nome or cantiere.cliente or "—"
+    indirizzo = ", ".join(x for x in [cantiere.indirizzo, cantiere.citta] if x)
+    if cantiere.provincia:
+        indirizzo += f" ({cantiere.provincia})"
+    numero = c.numero or "bozza"
+
+    def masthead(pag, tot):
+        tab = Table([[
+            Table([[Paragraph(PDF_BRAND["nome"], st_brand)],
+                   [Paragraph(PDF_BRAND["sottotitolo"], st_brand_s)]], style=[
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]),
+            Paragraph(f"Verbale n. <b>{escape(numero)}</b><br/>Cantiere <b>{escape(cantiere.nome or '')}</b>", st_meta),
+        ]], colWidths=["58%", "42%"])
+        tab.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+            ("LINEBELOW", (0, 0), (-1, -1), 1.4, SCURO),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        return tab
+
+    def footer(pag, tot):
+        t = Table([[Paragraph(escape(PDF_BRAND["ragione_sociale"]), st_meta),
+                    Paragraph(f"Pag. {pag} / {tot}", st_meta)]], colWidths=["70%", "30%"])
+        t.setStyle(TableStyle([
+            ("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        return t
+
+    def foto_flowable(fid, larghezza, altezza_max):
+        f = db.query(FotoCantiere).filter(FotoCantiere.id == fid,
+                                          FotoCantiere.cantiere_id == cantiere_id).first()
+        if not f:
+            return None, None
+        try:
+            contenuto, _ = leggi_file(_chiave_da_url_foto(f.url))
+            buf_img, iw, ih = _foto_ridotta_per_pdf(contenuto, larghezza_max_px=900)
+            h = min(larghezza * ih / iw, altezza_max) if iw else altezza_max
+            w = h * iw / ih if ih else larghezza
+            return RLImage(buf_img, width=w, height=h), f
+        except Exception:
+            return None, f
+
+    TOT_PAG = 5
+    story = []
+
+    # ── Pag 1 — Copertina ──────────────────────────────────────────────
+    story.append(masthead(1, TOT_PAG))
+    story.append(Spacer(1, 22*mm))
+    story.append(Paragraph("DOCUMENTO DI FINE LAVORI", st_eyebrow))
+    story.append(Paragraph("Verbale di chiusura del cantiere", st_title))
+    story.append(HRFlowable(width=56, thickness=2, color=PRIMARIO, spaceBefore=4, spaceAfter=16))
+
+    meta_rows = [
+        [Paragraph("OGGETTO", st_label), Paragraph(escape(cantiere.nome or "—"), st_val)],
+        [Paragraph("COMMITTENTE", st_label), Paragraph(escape(committente), st_val)],
+        [Paragraph("UBICAZIONE", st_label), Paragraph(escape(indirizzo or "—"), st_val)],
+        [Paragraph("ULTIMAZIONE LAVORI", st_label), Paragraph(_data_estesa(data_fine), st_val)],
+    ]
+    mt = Table(meta_rows, colWidths=[42*mm, "*"])
+    mt.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.white),
+        ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    story.append(mt)
+    story.append(Spacer(1, 10*mm))
+
+    if c.foto_copertina_id:
+        img, _f = foto_flowable(c.foto_copertina_id, 170*mm, 90*mm)
+        if img:
+            img.hAlign = "CENTER"
+            story.append(img)
+    story.append(Spacer(1, 12*mm))
+    story.append(footer(1, TOT_PAG))
+    story.append(PageBreak())
+
+    # ── Pag 2 — Dati generali + Descrizione ────────────────────────────
+    story.append(masthead(2, TOT_PAG))
+    story.append(Spacer(1, 8*mm))
+    story.append(Paragraph("01 · DATI GENERALI", st_eyebrow))
+    story.append(Paragraph("Identificazione del cantiere", st_h2))
+
+    resp = c.responsabile_nome or (f"{cantiere.responsabile.nome} {cantiere.responsabile.cognome}".strip()
+                                   if cantiere.responsabile else "—")
+    dati_rows = [
+        ("Committente", committente),
+        ("Oggetto dei lavori", cantiere.nome or "—"),
+        ("Ubicazione", indirizzo or "—"),
+        ("Inizio lavori", _data_estesa(cantiere.data_inizio)),
+        ("Ultimazione lavori", _data_estesa(data_fine)),
+        ("Durata effettiva", _durata_lavori(cantiere.data_inizio, data_fine)),
+        ("Responsabile di cantiere", resp),
+        ("Direzione lavori", c.direzione_lavori or "—"),
+        ("Impresa esecutrice", PDF_BRAND["ragione_sociale"]),
+    ]
+    dt = Table([[Paragraph(k.upper(), st_label), Paragraph(escape(str(v)), st_val)] for k, v in dati_rows],
+               colWidths=[50*mm, "*"])
+    dt.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 1.4, SCURO),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#E6E0D6")),
+        ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(dt)
+    story.append(Spacer(1, 10*mm))
+
+    story.append(Paragraph("02 · RELAZIONE", st_eyebrow))
+    story.append(Paragraph("Descrizione dei lavori eseguiti", st_h2))
+    testo_rel = (c.relazione or "").strip() or "—"
+    for para in testo_rel.split("\n"):
+        if para.strip():
+            story.append(Paragraph(escape(para.strip()), st_body))
+    story.append(Spacer(1, 6*mm))
+    story.append(footer(2, TOT_PAG))
+    story.append(PageBreak())
+
+    # ── Pag 3 — Riepilogo lavorazioni ─────────────────────────────────
+    story.append(masthead(3, TOT_PAG))
+    story.append(Spacer(1, 8*mm))
+    story.append(Paragraph("03 · CRONOLOGIA", st_eyebrow))
+    story.append(Paragraph("Riepilogo delle lavorazioni", st_h2))
+
+    fasi = _fasi_cantiere(db, cantiere_id)
+    durata_gg = ((data_fine - cantiere.data_inizio).days
+                 if (data_fine and cantiere.data_inizio and data_fine >= cantiere.data_inizio) else None)
+    synth = Table([[
+        Paragraph(f"<b>{len(fasi)}</b>", st_val), Paragraph(f"<b>{durata_gg if durata_gg is not None else '—'}</b>", st_val),
+        Paragraph(f"<b>{int(cantiere.avanzamento or 0)}%</b>", st_val),
+    ], [
+        Paragraph("FASI DI LAVORO", st_label), Paragraph("GIORNI", st_label), Paragraph("AVANZAMENTO", st_label),
+    ]], colWidths=["33%", "33%", "34%"])
+    synth.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.white),
+        ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    story.append(synth)
+    story.append(Spacer(1, 8*mm))
+
+    if fasi:
+        rows = [[Paragraph("LAVORAZIONE", st_cellh), Paragraph("PERIODO", st_cellh),
+                 Paragraph("ESITO", st_cellh), Paragraph("NOTE", st_cellh)]]
+        for f in fasi:
+            rows.append([
+                Paragraph(escape(f.nome or ""), st_cell),
+                Paragraph(_periodo_fase(f), st_cell),
+                Paragraph(_STATO_FASE_LABEL.get(f.stato.value if hasattr(f.stato, "value") else (f.stato or ""), "—"), st_cell),
+                Paragraph(escape(f.note or "—"), st_cell),
+            ])
+        wt = Table(rows, colWidths=[55*mm, 28*mm, 25*mm, "*"], repeatRows=1)
+        wt.setStyle(TableStyle([
+            ("LINEBELOW", (0, 0), (-1, 0), 1.4, PRIMARIO),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.5, colors.HexColor("#E6E0D6")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBFAF8")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(wt)
+    else:
+        story.append(Paragraph("Nessuna fase registrata nel cronoprogramma.", st_meta))
+    story.append(Spacer(1, 6*mm))
+    story.append(footer(3, TOT_PAG))
+    story.append(PageBreak())
+
+    # ── Pag 4 — Documentazione fotografica ────────────────────────────
+    story.append(masthead(4, TOT_PAG))
+    story.append(Spacer(1, 8*mm))
+    story.append(Paragraph("04 · ALLEGATO FOTOGRAFICO", st_eyebrow))
+    story.append(Paragraph("Documentazione fotografica", st_h2))
+
+    foto_ids = [fid for fid in (c.foto_ids or [])]
+    if foto_ids:
+        cella_w = 82*mm
+        celle = []
+        for i, fid in enumerate(foto_ids, 1):
+            img, f = foto_flowable(fid, cella_w, 62*mm)
+            if not img:
+                continue
+            cap = f.nota or ""
+            data_f = f.creato_il.date().strftime("%d.%m.%Y") if f and f.creato_il else ""
+            testo_cap = f"<b>{i:02d}</b>  " + escape(" — ".join(x for x in [cap, data_f] if x) or "Foto di cantiere")
+            celle.append([img, Paragraph(testo_cap, st_cap)])
+        righe = []
+        for j in range(0, len(celle), 2):
+            coppia = celle[j:j + 2]
+            riga_img = [coppia[0][0], coppia[1][0] if len(coppia) > 1 else ""]
+            riga_cap = [coppia[0][1], coppia[1][1] if len(coppia) > 1 else ""]
+            righe.append(riga_img)
+            righe.append(riga_cap)
+        if righe:
+            ft = Table(righe, colWidths=[cella_w, cella_w])
+            ft.setStyle(TableStyle([
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]))
+            story.append(ft)
+        else:
+            story.append(Paragraph("Impossibile caricare le foto selezionate.", st_meta))
+    else:
+        story.append(Paragraph("Nessuna foto selezionata per il verbale.", st_meta))
+    story.append(Spacer(1, 6*mm))
+    story.append(footer(4, TOT_PAG))
+    story.append(PageBreak())
+
+    # ── Pag 5 — Dichiarazione e firme ────────────────────────────────
+    story.append(masthead(5, TOT_PAG))
+    story.append(Spacer(1, 8*mm))
+    story.append(Paragraph("05 · CHIUSURA", st_eyebrow))
+    story.append(Paragraph("Dichiarazione di ultimazione", st_h2))
+
+    decl = (f"Si dà atto che in data <b>{_data_estesa(data_fine)}</b> i lavori descritti nel presente "
+            f"verbale risultano <b>ultimati a regola d'arte</b>, conformi al progetto e alle disposizioni "
+            f"impartite dalla Direzione Lavori. Il cantiere viene formalmente chiuso e l'opera consegnata "
+            f"al Committente.")
+    dcl = Table([[Paragraph(decl, st_val)]], colWidths=["*"])
+    dcl.setStyle(TableStyle([
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, PRIMARIO),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12), ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(dcl)
+    story.append(Spacer(1, 8*mm))
+
+    if (c.consegne or "").strip():
+        story.append(Paragraph("CONSEGNE AL COMMITTENTE", st_eyebrow))
+        story.append(Paragraph(escape(c.consegne.strip()), st_val))
+        story.append(Spacer(1, 14*mm))
+    else:
+        story.append(Spacer(1, 8*mm))
+
+    firme = Table([[
+        Paragraph("L'IMPRESA ESECUTRICE", st_sign), Paragraph("LA DIREZIONE LAVORI", st_sign),
+        Paragraph("IL COMMITTENTE", st_sign),
+    ], [
+        Paragraph(escape(PDF_BRAND["ragione_sociale"]), st_signb),
+        Paragraph(escape(c.direzione_lavori or "—"), st_signb),
+        Paragraph(escape(committente), st_signb),
+    ]], colWidths=["34%", "33%", "33%"])
+    firme.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 1, SCURO),
+        ("TOPPADDING", (0, 0), (-1, 0), 6), ("TOPPADDING", (0, 1), (-1, 1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+    ]))
+    story.append(Spacer(1, 30*mm))
+    story.append(firme)
+    story.append(Spacer(1, 8*mm))
+    story.append(footer(5, TOT_PAG))
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=16*mm, rightMargin=16*mm,
+                            topMargin=14*mm, bottomMargin=14*mm,
+                            title=f"Verbale chiusura — {cantiere.nome}")
+    doc.build(story)
+    buf.seek(0)
+
+    nome_file = f"verbale_chiusura_{(cantiere.nome or 'cantiere').replace(' ', '_')}.pdf"
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{nome_file}"'})
