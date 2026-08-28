@@ -34,6 +34,19 @@ Esistono DUE app distinte e completamente separate. Non mescolare mai codice, gr
   - Il commit author deve essere `micheletoffoletto85-jpg <michele.toffoletto85@gmail.com>`
   - Se bloccato: verificare `git config user.email` → deve essere `michele.toffoletto85@gmail.com`
 
+## Sincronizzazione (OBBLIGATORIA — le due app non devono mai perdere pezzi)
+- **Ogni modifica funzionale vive identica su entrambe le app.** Non chiudere un task
+  con una sola app fatta: STEELEX prima, FR subito dopo (branding adattato).
+- **Dopo ogni push su `master`**, allineare subito il checkout principale di ENTRAMBI
+  i repo (i worktree tengono `master` bloccato e lo lasciano indietro):
+  - `git -C C:/steelex-cantieri-cloud merge --ff-only origin/master`
+  - `git -C C:/fontana-raffaele-cantieri merge --ff-only origin/master`
+  - se il checkout è su un altro branch: `git -C <repo> fetch origin` +
+    `git -C <repo> branch -f master origin/master`
+- **Non chiedere a Michele di fare `git pull` / sync**: è l'ultimo passo del task, lo fa l'agente.
+- Se un `--ff-only` fallisce (divergenza o file sporchi nel checkout), segnalarlo a Michele,
+  non forzare.
+
 ## Differenze di branding (non mischiare mai)
 | Elemento      | STEELEX              | FR Cantieri               |
 |---------------|----------------------|---------------------------|
