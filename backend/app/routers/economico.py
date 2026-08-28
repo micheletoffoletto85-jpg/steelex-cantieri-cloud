@@ -361,14 +361,14 @@ def sync_voce_extra_ore(db: Session, ore, ricarico_perc: float = 0.0) -> bool:
     prezzo = round(costo * (1 + ric / 100), 2)
     if esistente:
         esistente.update({
-            "descrizione": desc, "qt": 1, "um": "ore",
+            "descrizione": desc, "qt": 1, "um": "corpo",
             "costo_unitario": costo, "totale_costo": costo, "ricarico_perc": round(ric, 2),
             "prezzo_unitario": prezzo, "totale_cliente": prezzo,
         })
     else:
         vid = int(datetime.now().timestamp() * 1000)
         voci.append({
-            "id": vid, "descrizione": desc, "categoria": "Manodopera", "qt": 1, "um": "ore",
+            "id": vid, "descrizione": desc, "categoria": "Manodopera", "qt": 1, "um": "corpo",
             "costo_unitario": costo, "ricarico_perc": round(ric, 2),
             "prezzo_unitario": prezzo, "totale_costo": costo, "totale_cliente": prezzo,
         })
@@ -2017,10 +2017,20 @@ def _eur_it(x) -> str:
     return f"€ {s}"
 
 
-def _flowables_preventivo(prev, cantiere) -> list:
-    """Costruisce i flowable reportlab di UN preventivo/computo (intestazione,
-    tabella voci, totali, firma). Riusato per il PDF singolo e per lo scarico
-    di tutti i computi in un unico file."""
+def _pulisci_desc_voce(raw: str) -> str:
+    """Toglie i marker interni dalla descrizione voce per l'uso nei documenti."""
+    s = (raw or "").strip()
+    for pref in ("⚠ EXTRA (manodopera) — ", "⚠ EXTRA (manodopera) ", "⚠ EXTRA — ", "⚠ EXTRA "):
+        if s.startswith(pref):
+            s = s[len(pref):].strip()
+            break
+    return s.lstrip("⚠").strip() or "—"
+
+
+def _flowables_preventivo(prev, cantiere, dettaglio: bool = False) -> list:
+    """Costruisce i flowable reportlab di UN preventivo/computo.
+    dettaglio=False → documento per il cliente (voci, prezzi, totali, firma).
+    dettaglio=True  → uso interno: aggiunge costo unitario, ricarico % e margine."""
     from xml.sax.saxutils import escape
     from reportlab.lib import colors
     from reportlab.lib.units import mm
@@ -2084,51 +2094,68 @@ def _flowables_preventivo(prev, cantiere) -> list:
     story.append(info_table)
     story.append(Spacer(1, 6*mm))
 
-    story.append(Paragraph("COMPUTO METRICO ESTIMATIVO", style_label))
+    story.append(Paragraph("COMPUTO DETTAGLIO — USO INTERNO" if dettaglio else "COMPUTO METRICO ESTIMATIVO", style_label))
     story.append(Spacer(1, 2*mm))
 
-    headers = ["#", "Descrizione", "Um", "Qt", "P. Unit.", "Totale"]
-    col_widths = [9*mm, 89*mm, 13*mm, 13*mm, 27*mm, 29*mm]
-    table_data = [headers]
     voci = prev.voci or []
+    n_voci = len(voci)
+
+    if dettaglio:
+        headers = ["#", "Descrizione", "Um", "Qt", "Costo un.", "Ric.%", "P. cli.", "Tot. costo", "Tot. cli."]
+        col_widths = [7*mm, 52*mm, 11*mm, 11*mm, 20*mm, 12*mm, 20*mm, 20*mm, 21*mm]
+    else:
+        headers = ["#", "Descrizione", "Um", "Qt", "P. Unit.", "Totale"]
+        col_widths = [9*mm, 89*mm, 13*mm, 13*mm, 27*mm, 29*mm]
+    ncol = len(headers)
+    table_data = [headers]
+
+    tot_costo_voci = 0.0
     for i, v in enumerate(voci, 1):
         qta = v.get("quantita") or v.get("qt") or 1
         try:
             qta_str = f"{float(qta):g}".replace(".", ",")
         except (TypeError, ValueError):
             qta_str = str(qta)
-        desc = escape((v.get("descrizione") or "").strip() or "—")
+        desc = escape(_pulisci_desc_voce(v.get("descrizione") or ""))
         cat = (v.get("categoria") or "").strip()
         if cat and cat.lower() not in ("materiali", "altro"):
             desc += f'<br/><font size="6.5" color="#888888">{escape(cat)}</font>'
         prezzo = v.get("prezzo_cliente") or v.get("prezzo_unitario") or 0
         totale = v.get("totale_cliente") or 0
-        table_data.append([str(i), Paragraph(desc, style_voce), v.get("um", "cad"),
-                           qta_str, _eur_it(prezzo), _eur_it(totale)])
+        costo_u = v.get("costo_unitario") or 0
+        tot_costo = v.get("totale_costo") or (costo_u * (float(qta) if str(qta).replace('.','',1).isdigit() else 1))
+        tot_costo_voci += float(tot_costo or 0)
+        if dettaglio:
+            table_data.append([str(i), Paragraph(desc, style_voce), v.get("um", "cad"), qta_str,
+                               _eur_it(costo_u), f"{(v.get('ricarico_perc') or 0):g}%",
+                               _eur_it(prezzo), _eur_it(tot_costo), _eur_it(totale)])
+        else:
+            table_data.append([str(i), Paragraph(desc, style_voce), v.get("um", "cad"),
+                               qta_str, _eur_it(prezzo), _eur_it(totale)])
 
     subtotale = prev.subtotale or 0
     totale_doc = prev.totale or 0
-    table_data.append(["", "", "", "", "Imponibile", _eur_it(subtotale)])
-    table_data.append(["", "", "", "", f"IVA {(prev.iva_perc or 0):.0f}%", _eur_it(totale_doc - subtotale)])
-    table_data.append(["", "", "", "", "TOTALE", _eur_it(totale_doc)])
-    table_data.append(["", "", "", "", f"Acconto {(prev.acconto_perc or 0):.0f}%", _eur_it(prev.acconto_importo)])
+    pad = [""] * (ncol - 2)
+    table_data.append(pad + ["Imponibile", _eur_it(subtotale)])
+    table_data.append(pad + [f"IVA {(prev.iva_perc or 0):.0f}%", _eur_it(totale_doc - subtotale)])
+    table_data.append(pad + ["TOTALE", _eur_it(totale_doc)])
+    table_data.append(pad + [f"Acconto {(prev.acconto_perc or 0):.0f}%", _eur_it(prev.acconto_importo)])
 
-    n_voci = len(voci)
     voci_table = Table(table_data, colWidths=col_widths, repeatRows=1)
     voci_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), SCURO),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("FONTSIZE", (0, 0), (-1, 0), 8 if dettaglio else 9),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-        ("FONTSIZE", (0, 1), (-1, n_voci), 8),
+        ("FONTSIZE", (0, 1), (-1, n_voci), 7 if dettaglio else 8),
         ("ROWBACKGROUNDS", (0, 1), (-1, n_voci), [colors.white, GRIGIO]),
         ("ALIGN", (3, 1), (-1, n_voci), "RIGHT"),
         ("ALIGN", (0, 1), (0, n_voci), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("FONTNAME", (0, n_voci + 1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, n_voci + 1), (-1, -1), 9),
-        ("ALIGN", (4, n_voci + 1), (5, -1), "RIGHT"),
+        ("FONTSIZE", (0, n_voci + 1), (-1, -1), 8 if dettaglio else 9),
+        ("ALIGN", (ncol - 2, n_voci + 1), (ncol - 1, -1), "RIGHT"),
         ("BACKGROUND", (0, n_voci + 3), (-1, n_voci + 3), PRIMARIO),
         ("TEXTCOLOR", (0, n_voci + 3), (-1, n_voci + 3), colors.white),
         ("GRID", (0, 0), (-1, n_voci), 0.3, colors.lightgrey),
@@ -2139,31 +2166,52 @@ def _flowables_preventivo(prev, cantiere) -> list:
     story.append(voci_table)
     story.append(Spacer(1, 6*mm))
 
+    if dettaglio:
+        ricavo = subtotale
+        margine = ricavo - tot_costo_voci
+        perc = (margine / ricavo * 100) if ricavo else 0
+        marg_tbl = Table([
+            [Paragraph("<b>Costo totale</b>", style_label), Paragraph(_eur_it(tot_costo_voci), style_right)],
+            [Paragraph("<b>Ricavo (imponibile)</b>", style_label), Paragraph(_eur_it(ricavo), style_right)],
+            [Paragraph("<b>Margine</b>", style_label), Paragraph(f"{_eur_it(margine)}  ·  {perc:.1f}%", style_right)],
+        ], colWidths=["60%", "40%"])
+        marg_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(marg_tbl)
+        story.append(Spacer(1, 4*mm))
+
     if prev.note:
         story.append(Paragraph("<b>Note:</b>", style_label))
         story.append(Paragraph(escape(prev.note), style_note))
         story.append(Spacer(1, 4*mm))
 
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
-    story.append(Spacer(1, 4*mm))
-    firma_table = Table([
-        [Paragraph("Per accettazione:", style_label), Paragraph(PDF_BRAND["ragione_sociale"], style_label)],
-        [Paragraph("_" * 35, style_small), Paragraph("_" * 35, style_small)],
-        [Paragraph("Timbro e firma cliente", style_small), Paragraph("Firma", style_small)],
-    ], colWidths=["50%", "50%"])
-    story.append(firma_table)
+    if not dettaglio:
+        story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
+        story.append(Spacer(1, 4*mm))
+        firma_table = Table([
+            [Paragraph("Per accettazione:", style_label), Paragraph(PDF_BRAND["ragione_sociale"], style_label)],
+            [Paragraph("_" * 35, style_small), Paragraph("_" * 35, style_small)],
+            [Paragraph("Timbro e firma cliente", style_small), Paragraph("Firma", style_small)],
+        ], colWidths=["50%", "50%"])
+        story.append(firma_table)
     return story
 
 
 @router.get("/{cantiere_id}/preventivi/pdf-tutti")
-def genera_pdf_tutti_computi(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    """Un unico PDF con tutti i computi del cantiere: prima i base, poi gli extra."""
+def genera_pdf_tutti_computi(cantiere_id: int, modo: str = "preventivo",
+                             db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Un unico PDF con tutti i computi del cantiere: prima i base, poi gli extra.
+    modo=preventivo → documento cliente; modo=dettaglio → uso interno con costi/margine."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.platypus import SimpleDocTemplate, PageBreak
 
     cantiere = _check(cantiere_id, db, user)
     _solo_economia(user)
+    dettaglio = (modo == "dettaglio")
     prevs = db.query(PreventivoCantiere).filter(
         PreventivoCantiere.cantiere_id == cantiere_id).all()
     if not prevs:
@@ -2175,7 +2223,7 @@ def genera_pdf_tutti_computi(cantiere_id: int, db: Session = Depends(get_db), us
     for idx, p in enumerate(prevs):
         if idx:
             story.append(PageBreak())
-        story.extend(_flowables_preventivo(p, cantiere))
+        story.extend(_flowables_preventivo(p, cantiere, dettaglio=dettaglio))
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm,
@@ -2183,7 +2231,8 @@ def genera_pdf_tutti_computi(cantiere_id: int, db: Session = Depends(get_db), us
                             title=f"Computi — {cantiere.nome}")
     doc.build(story)
     buf.seek(0)
-    nome_file = f"computi_{(cantiere.nome or 'cantiere').replace(' ', '_')}.pdf"
+    suff = "dettaglio" if dettaglio else "preventivo"
+    nome_file = f"computi_{suff}_{(cantiere.nome or 'cantiere').replace(' ', '_')}.pdf"
     return StreamingResponse(buf, media_type="application/pdf",
                              headers={"Content-Disposition": f'attachment; filename="{nome_file}"'})
 
