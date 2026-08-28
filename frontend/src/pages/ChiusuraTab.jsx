@@ -81,7 +81,7 @@ export default function ChiusuraTab({ cantiereId, utente }) {
   const onBlurSalva = () => { if (dirty) salvaOra() }
 
   const bozzaMutation = useMutation(
-    () => api.post(`/cantieri/${cantiereId}/chiusura/genera-bozza`).then(r => r.data),
+    () => api.post(`/cantieri/${cantiereId}/chiusura/genera-bozza`, null, { timeout: 120000 }).then(r => r.data),
     {
       onSuccess: (res) => {
         aggiorna({ relazione: res.relazione || form.relazione })
