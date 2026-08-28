@@ -4,7 +4,7 @@
  */
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users, GripVertical, FileDown } from 'lucide-react'
+import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users, GripVertical, FileDown, ClipboardList } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -445,6 +445,7 @@ export default function GanttTab({ cantiereId, cantiere }) {
   const { utente } = useAuth()
   const qc = useQueryClient()
   const canWrite = ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori'].includes(utente?.ruolo)
+  const canValidaComputo = ['admin','capo_cantiere','amministrazione'].includes(utente?.ruolo)
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
   const [vista, setVista] = useState(() => window.innerWidth < 640 ? 'lista' : 'gantt')
@@ -498,6 +499,50 @@ export default function GanttTab({ cantiereId, cantiere }) {
     items => api.patch(`/cantieri/${cantiereId}/fasi/riordina`, items),
     { onSuccess: () => qc.invalidateQueries(['fasi', cantiereId]) }
   )
+
+  // ─── Fasi proposte dal computo (validazione admin / capo cantiere) ───
+  const { data: propComputo } = useQuery(
+    ['fasi-proposte-computo', cantiereId],
+    () => api.get(`/cantieri/${cantiereId}/fasi/proposte-computo`).then(r => r.data),
+    { staleTime: 30 * 1000, retry: 1, enabled: canValidaComputo },
+  )
+  const [pannelloComputo, setPannelloComputo] = useState(false)
+  const [selComputo, setSelComputo] = useState({})   // { [idx]: {sel, data_inizio, data_fine_prevista} }
+  const apriPannelloComputo = () => {
+    const init = {}
+    ;(propComputo?.proposte || []).forEach((p, i) => {
+      if (!p.gia_presente) init[i] = { sel: true, data_inizio: '', data_fine_prevista: '' }
+    })
+    setSelComputo(init)
+    setPannelloComputo(true)
+  }
+  const applicaFasiComputoMut = useMutation(
+    (righe) => api.post(`/cantieri/${cantiereId}/fasi/da-computo`, righe),
+    {
+      onSuccess: (r) => {
+        qc.invalidateQueries(['fasi', cantiereId])
+        qc.invalidateQueries(['fasi-proposte-computo', cantiereId])
+        setPannelloComputo(false)
+        toast.success(`${r.data.length} fasi aggiunte al cronoprogramma`)
+      },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore'),
+    },
+  )
+  const confermaFasiComputo = () => {
+    const proposte = propComputo?.proposte || []
+    const righe = Object.entries(selComputo)
+      .filter(([, v]) => v.sel)
+      .map(([i, v]) => {
+        const p = proposte[i]
+        return {
+          nome: p.nome, categoria: p.categoria, colore: p.colore,
+          data_inizio: v.data_inizio || null,
+          data_fine_prevista: v.data_fine_prevista || null,
+        }
+      })
+    if (!righe.length) { toast.error('Seleziona almeno una fase'); return }
+    applicaFasiComputoMut.mutate(righe)
+  }
 
   const chiudiForm = () => { setShowForm(false); setEditId(null); setForm({ nome:'',categoria:'lavorazione',colore:'#1C1C1C',data_inizio:'',data_fine_prevista:'',sal_id:'',artigiano_id:'',percentuale:0,stato:'pianificata',note:'',visibile_cliente:false }) }
 
@@ -597,6 +642,80 @@ export default function GanttTab({ cantiereId, cantiere }) {
         )}
         </div>
       </div>
+
+      {/* Banner: il computo ha voci non ancora nel cronoprogramma */}
+      {canValidaComputo && propComputo?.n_nuove > 0 && !pannelloComputo && (
+        <div className="card border-2 border-steelex-orange/40 bg-orange-50/40 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <ClipboardList size={16} className="text-steelex-orange shrink-0" />
+            <p className="text-sm text-gray-700">
+              Il computo {propComputo.computo?.numero ? <b>{propComputo.computo.numero}</b> : ''} ha{' '}
+              <b>{propComputo.n_nuove}</b> {propComputo.n_nuove === 1 ? 'voce non ancora' : 'voci non ancora'} nel cronoprogramma.
+            </p>
+          </div>
+          <button onClick={apriPannelloComputo}
+            className="btn-primary text-sm py-1.5 px-3 whitespace-nowrap shrink-0">Rivedi e aggiungi</button>
+        </div>
+      )}
+
+      {/* Pannello validazione fasi dal computo */}
+      {pannelloComputo && (
+        <div className="card border-2 border-steelex-orange/50 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ClipboardList size={16} className="text-steelex-orange" />
+              <h3 className="font-bold text-gray-900">Fasi dal computo — validazione</h3>
+            </div>
+            <button onClick={() => setPannelloComputo(false)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
+          <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-2">
+            Spunta le voci da aggiungere al cronoprogramma. Le fasi già presenti non sono elencate.
+            Puoi impostare le date ora o dopo, trascinandole nel Gantt.
+          </p>
+          <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+            {(propComputo?.proposte || []).map((p, i) => {
+              if (p.gia_presente) return null
+              const row = selComputo[i] || { sel: false }
+              return (
+                <div key={i} className="py-2 flex items-start gap-2">
+                  <input type="checkbox" className="mt-1 accent-steelex-orange" checked={!!row.sel}
+                    onChange={e => setSelComputo(s => ({ ...s, [i]: { ...row, sel: e.target.checked } }))} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: p.colore }} />
+                      <p className="text-sm text-gray-900 truncate">{p.nome}</p>
+                      <span className="text-[10px] text-gray-400 shrink-0">{p.categoria}</span>
+                    </div>
+                    {row.sel && (
+                      <div className="flex gap-2 mt-1.5">
+                        <input type="date" className="border border-gray-200 rounded px-2 py-1 text-xs"
+                          value={row.data_inizio || ''} title="Inizio"
+                          onChange={e => setSelComputo(s => ({ ...s, [i]: { ...row, data_inizio: e.target.value } }))} />
+                        <input type="date" className="border border-gray-200 rounded px-2 py-1 text-xs"
+                          value={row.data_fine_prevista || ''} title="Fine prevista"
+                          onChange={e => setSelComputo(s => ({ ...s, [i]: { ...row, data_fine_prevista: e.target.value } }))} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex justify-between items-center pt-1 border-t border-gray-100">
+            <span className="text-xs text-gray-500">
+              {Object.values(selComputo).filter(v => v.sel).length} selezionate
+            </span>
+            <div className="flex gap-2">
+              <button onClick={() => setPannelloComputo(false)} className="btn-secondary text-sm py-1.5 px-3">Annulla</button>
+              <button onClick={confermaFasiComputo} disabled={applicaFasiComputoMut.isLoading}
+                className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1">
+                {applicaFasiComputoMut.isLoading ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                Aggiungi al Gantt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale anteprima fasi importate */}
       {fasiImportate && (

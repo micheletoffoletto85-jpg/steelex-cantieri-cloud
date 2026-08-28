@@ -943,6 +943,121 @@ def elimina_fase(cantiere_id: int, fase_id: int, db: Session = Depends(get_db), 
     db.delete(fase); db.commit()
 
 
+# ─── FASI DAL COMPUTO — proposta + validazione (Michele o capo cantiere) ──────
+
+_RUOLI_VALIDA_FASI = (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione)
+
+# categoria voce computo → (categoria fase, colore)
+_VOCE_CAT_FASE = {
+    "manodopera": ("Manodopera", "#7c3aed"),
+    "materiali":  ("Fornitura", "#2563eb"),
+    "materiale":  ("Fornitura", "#2563eb"),
+    "nolo":       ("Nolo", "#eab308"),
+    "noleggio":   ("Nolo", "#eab308"),
+    "servizi":    ("Servizi", "#0891b2"),
+    "sicurezza":  ("Sicurezza", "#dc2626"),
+    "trasporto":  ("Trasporto", "#0d9488"),
+}
+
+
+def _nome_norm(s) -> str:
+    return " ".join(str(s or "").lower().split())
+
+
+def _computo_base(db: Session, cantiere_id: int):
+    prevs = db.query(PreventivoCantiere).filter(PreventivoCantiere.cantiere_id == cantiere_id).all()
+    base = [p for p in prevs if (p.tipo or "base") == "base"]
+    acc = [p for p in base if p.stato == "accettato"]
+    lista = acc or base
+    return lista[0] if lista else None
+
+
+@router.get("/{cantiere_id}/fasi/proposte-computo")
+def proposte_fasi_computo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Fasi proposte dal computo (una per voce). Il Gantt le mostra per la
+    validazione dell'admin o del capo cantiere prima di aggiungerle."""
+    _check(cantiere_id, db, user); _solo_staff(user)
+    prev = _computo_base(db, cantiere_id)
+    if not prev or not prev.voci:
+        return {"computo": None, "proposte": [], "n_nuove": 0}
+
+    fasi_nomi = {_nome_norm(f.nome) for f in
+                 db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).all()}
+    proposte = []
+    for v in prev.voci:
+        desc = str(v.get("descrizione") or "").strip()
+        if not desc or desc.startswith("⚠"):   # salta marker EXTRA e righe vuote
+            continue
+        cat_v = str(v.get("categoria") or "").strip().lower()
+        cat_fase, colore = _VOCE_CAT_FASE.get(cat_v, ("Lavorazione", "#FF6B00"))
+        proposte.append({
+            "voce_id": v.get("id"),
+            "nome": desc[:200],
+            "categoria": cat_fase,
+            "colore": colore,
+            "gia_presente": _nome_norm(desc) in fasi_nomi,
+        })
+    n_nuove = sum(1 for p in proposte if not p["gia_presente"])
+    return {
+        "computo": {"id": prev.id, "numero": prev.numero, "voci": len(prev.voci)},
+        "proposte": proposte,
+        "n_nuove": n_nuove,
+    }
+
+
+class FaseDaComputo(BaseModel):
+    nome: str
+    categoria: str = "Lavorazione"
+    colore: str = "#FF6B00"
+    data_inizio: Optional[date] = None
+    data_fine_prevista: Optional[date] = None
+
+
+@router.post("/{cantiere_id}/fasi/da-computo", response_model=List[FaseOut])
+def applica_fasi_computo(cantiere_id: int, body: List[FaseDaComputo],
+                         db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Aggiunge al Gantt le fasi validate dal computo. Non tocca le fasi esistenti;
+    salta i nomi già presenti. Riservato ad admin, capo cantiere, amministrazione."""
+    _check(cantiere_id, db, user)
+    if user.ruolo not in _RUOLI_VALIDA_FASI:
+        raise HTTPException(403, "La validazione delle fasi è riservata all'admin o al capo cantiere")
+
+    esistenti = {_nome_norm(f.nome) for f in
+                 db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).all()}
+    max_ord = max((f.ordine or 0) for f in
+                  db.query(FaseLavoro).filter(FaseLavoro.cantiere_id == cantiere_id).all()) \
+        if esistenti else 0
+
+    create = []
+    for b in body:
+        nn = _nome_norm(b.nome)
+        if not nn or nn in esistenti:
+            continue
+        max_ord += 1
+        f = FaseLavoro(
+            cantiere_id=cantiere_id, nome=b.nome.strip()[:200],
+            categoria=b.categoria or "Lavorazione", colore=b.colore or "#FF6B00",
+            ordine=max_ord, data_inizio=b.data_inizio, data_fine_prevista=b.data_fine_prevista,
+            stato="pianificata", percentuale=0.0,
+        )
+        db.add(f); esistenti.add(nn); create.append(f)
+    db.commit()
+    for f in create:
+        db.refresh(f)
+    if create:
+        try:
+            notifica_cantiere(db, cantiere_id,
+                ruoli=["admin", "direzione_lavori"],
+                titolo="📊 Cronoprogramma aggiornato",
+                corpo=f"{user.nome} {user.cognome}: {len(create)} fasi aggiunte dal computo",
+                escludi_id=user.id,
+                url=f"/cantieri/{cantiere_id}#gantt",
+            )
+        except Exception:
+            pass
+    return create
+
+
 # ─── HELPER JSON REPAIR ───────────────────────────────────────────────────────
 
 def _ripara_json_array(testo: str) -> str:
