@@ -158,8 +158,11 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
 
   const prevOk = preventivi.find(p => p.stato === 'accettato')
   // Utilizzo del budget COSTI: speso reale vs costo previsto (non vs il ricavo!)
+  // Il costo previsto è quello del SOLO computo base, quindi va confrontato con lo
+  // speso al netto della manodopera segnata extra preventivo (che ha un ricavo a parte).
   const budgetCosti = rv.costo_previsto || 0
-  const percCosti = budgetCosti > 0 ? (rv.totale_speso / budgetCosti) * 100 : 0
+  const spesoSuComputo = Math.max((rv.totale_speso || 0) - (rv.costo_manodopera_extra || 0), 0)
+  const percCosti = budgetCosti > 0 ? (spesoSuComputo / budgetCosti) * 100 : 0
   // % del fatturato consumato dai costi (fatturato = preventivo base + extra preventivi)
   const fatturatoTot = (rv.budget_preventivo || 0) + (rv.budget_extra || 0)
   const percSuFatturato = fatturatoTot > 0 ? Math.min((rv.totale_speso / fatturatoTot) * 100, 100) : 0
@@ -340,9 +343,12 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
             <div className={`h-3 rounded-full transition-all ${percCosti > 100 ? 'bg-red-500' : 'bg-steelex-orange'}`} style={{ width: `${Math.min(percCosti, 100)}%` }} />
           </div>
           <div className="flex justify-between text-xs text-gray-500">
-            <span>Speso: {fmt(rv.totale_speso)}</span>
+            <span>Speso su computo: {fmt(spesoSuComputo)}</span>
             <span>Costo previsto: {fmt(budgetCosti)} {rv.costo_previsto_fonte === 'preventivi_artigiani' && <span className="text-gray-400">(preventivi artigiani)</span>}</span>
           </div>
+          {rv.costo_manodopera_extra > 0 && (
+            <p className="text-[10px] text-gray-400">Escluse le ore extra preventivo ({fmt(rv.costo_manodopera_extra)}), conteggiate a parte con il relativo ricavo.</p>
+          )}
           {percCosti > 100 && <p className="text-xs text-red-600">⚠️ Hai speso più del costo previsto — margine in erosione.</p>}
         </div>
       )}

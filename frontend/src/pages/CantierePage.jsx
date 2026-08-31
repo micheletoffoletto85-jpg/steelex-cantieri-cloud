@@ -148,9 +148,11 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
   )
 
   const fmt = v => `€ ${(v || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const valoreCantiere = economia?.budget_preventivo || 0
+  // Valore = fatturato completo (computo base + extra preventivi), coerente con la tab Economia.
+  // Il margine viene dal backend (margine_atteso) così le tre cifre tornano: valore − spese = margine.
+  const valoreCantiere = (economia?.budget_preventivo || 0) + (economia?.budget_extra || 0)
   const totaleSpese = economia?.totale_speso || 0
-  const margine = valoreCantiere - totaleSpese
+  const margine = economia?.margine_atteso ?? (valoreCantiere - totaleSpese)
   const percSpesa = valoreCantiere > 0 ? Math.min(100, (totaleSpese / valoreCantiere) * 100) : 0
 
   return (
