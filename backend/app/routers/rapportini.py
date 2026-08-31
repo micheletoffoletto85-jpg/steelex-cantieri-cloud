@@ -606,7 +606,7 @@ async def invia_rapportino(
         testo_elaborato   = testo_ita,
         testo_italiano    = testo_ita,
         lingua_originale  = lingua,
-        cantiere_rilevato = dati_ai.get("cantiere"),
+        cantiere_rilevato = ((dati_ai.get("cantiere") or "")[:300] or None),
         descrizione_lavori = descrizione_lavori or dati_ai.get("descrizione_lavori"),
         foto_avanzamento_urls = foto_av_urls,
         descrizione_extra = descrizione_extra or dati_ai.get("descrizione_extra"),
@@ -1133,7 +1133,10 @@ def rianalizza_rapportino(
     cantieri_nomi = [c.nome for c in cantieri_attivi if c.nome]
     dati = _estrai_dati(testo_base, cantieri_nomi)
 
-    r.cantiere_rilevato = dati.get("cantiere")
+    # Troncato a 300 char: la colonna è VARCHAR(300) e il nome rilevato dall'AI (specie
+    # ri-analizzando testo_italiano, il racconto più ricco) può superare il limite e far
+    # fallire il commit con un errore DB non gestito
+    r.cantiere_rilevato = (dati.get("cantiere") or "")[:300] or None
     # Non-distruttivo: se la ri-analisi non trova ore o colleghi non cancellare quelli
     # già registrati (spesso il testo ri-analizzato è un riassunto più povero dell'originale)
     if dati.get("ore"):
