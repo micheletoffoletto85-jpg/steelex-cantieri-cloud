@@ -566,7 +566,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
       {/* Header personale */}
       <div className="bg-steelex-dark rounded-2xl p-5 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-fr-charcoal" />
+          <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-steelex-orange" />
         </div>
         <div className="relative flex items-center gap-3">
           <img src="/logo-steelex.png" alt="STEELEX" className="h-7 opacity-80" />
@@ -821,12 +821,14 @@ export default function DashboardPage() {
     ...cantieri.filter(c => !['in_corso', 'preventivo', 'sospeso'].includes(c.stato)),
   ].slice(0, 5)
 
-  const STATO_BADGE = {
-    preventivo: 'bg-gray-100 text-gray-600',
-    in_corso: 'bg-blue-100 text-blue-700',
-    sospeso: 'bg-yellow-100 text-yellow-700',
-    completato: 'bg-green-100 text-green-700',
-    annullato: 'bg-red-100 text-red-700',
+  // Stato: pastiglia + banda laterale, mai solo colore (MASTER.md)
+  const STATO_PILL_DASH = {
+    preventivo: 'pill-neutral', in_corso: 'pill-info', sospeso: 'pill-warn',
+    completato: 'pill-ok', annullato: 'pill-late',
+  }
+  const STATO_BAND_DASH = {
+    preventivo: 'border-l-steelex-border-strong', in_corso: 'border-l-blue-500', sospeso: 'border-l-warn',
+    completato: 'border-l-ok', annullato: 'border-l-danger',
   }
   const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
@@ -837,21 +839,23 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Intestazione */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Ciao, {utente?.nome} 👋</h1>
-        <p className="text-gray-500 text-sm">Ecco la situazione dei cantieri oggi</p>
+        <h1 className="text-2xl font-bold text-steelex-ink">Ciao, {utente?.nome} 👋</h1>
+        <p className="text-steelex-muted-fg text-sm">Ecco la situazione dei cantieri oggi</p>
+      </div>
+
+      {/* Sommario: riga KPI a tutta larghezza, prima del dettaglio (MASTER.md) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard icon={HardHat} label="Totale Cantieri" value={stats.totale} tone="neutral" />
+        <StatCard icon={Clock} label="In Corso" value={stats.in_corso} tone="info" />
+        <StatCard icon={CheckCircle} label="Completati" value={stats.completati} tone="ok" />
+        <StatCard icon={TrendingUp} label="Avanz. Medio" value={`${stats.avanzamento_medio}%`} tone="accent" />
       </div>
 
       {/* Layout desktop: 2 colonne | mobile: stack */}
       <div className="lg:grid lg:grid-cols-3 lg:gap-6 space-y-6 lg:space-y-0">
 
-        {/* Colonna sinistra: stats + azioni rapide */}
+        {/* Colonna sinistra: alert + azioni rapide */}
         <div className="lg:col-span-1 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard icon={HardHat} label="Totale Cantieri" value={stats.totale} color="orange" />
-            <StatCard icon={Clock} label="In Corso" value={stats.in_corso} color="blue" />
-            <StatCard icon={CheckCircle} label="Completati" value={stats.completati} color="green" />
-            <StatCard icon={TrendingUp} label="Avanz. Medio" value={`${stats.avanzamento_medio}%`} color="purple" />
-          </div>
 
           {/* Alert costi non assegnati */}
           {isAdminOrAmm && costiNonAssegnati > 0 && (
@@ -874,11 +878,11 @@ export default function DashboardPage() {
           {/* Azioni rapide — solo desktop, no cliente */}
           {!isCliente && (
             <div className="hidden lg:block card space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Azioni rapide</p>
-              <Link to="/cantieri" className="flex items-center gap-2 text-sm text-gray-700 hover:text-fr-charcoal font-medium py-1.5 transition-colors">
-                <HardHat size={16} className="text-fr-charcoal" /> Vai ai cantieri
+              <p className="text-xs font-semibold text-steelex-muted-fg uppercase tracking-wide mb-3">Azioni rapide</p>
+              <Link to="/cantieri" className="flex items-center gap-2 min-h-[40px] text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
+                <HardHat size={16} className="text-steelex-orange" /> Vai ai cantieri
               </Link>
-              <Link to="/cantieri" state={{ nuovo: true }} className="flex items-center gap-2 text-sm text-gray-700 hover:text-fr-charcoal font-medium py-1.5 transition-colors">
+              <Link to="/cantieri" state={{ nuovo: true }} className="flex items-center gap-2 min-h-[40px] text-sm text-gray-700 hover:text-steelex-orange font-medium py-1.5 transition-colors">
                 <AlertCircle size={16} className="text-blue-500" /> Nuovo cantiere
               </Link>
             </div>
@@ -888,18 +892,18 @@ export default function DashboardPage() {
         {/* Colonna destra: cantieri recenti */}
         <div className="lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-gray-800">Cantieri Recenti</h2>
-            <Link to="/cantieri" className="text-fr-charcoal text-sm font-medium">Vedi tutti →</Link>
+            <h2 className="font-bold text-steelex-ink">Cantieri Recenti</h2>
+            <Link to="/cantieri" className="text-steelex-orange text-sm font-medium">Vedi tutti →</Link>
           </div>
           {cantieri.length === 0 ? (
-            <div className="card text-center py-8 text-gray-400">
+            <div className="card text-center py-8 text-steelex-muted-fg">
               <HardHat size={40} className="mx-auto mb-2 opacity-30" />
               {isCliente ? (
                 <p>Non sei ancora assegnato a nessun cantiere.<br/><span className="text-xs">Contatta il responsabile per ricevere l'accesso.</span></p>
               ) : (
                 <>
                   <p>Nessun cantiere ancora</p>
-                  <Link to="/cantieri" className="text-fr-charcoal text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
+                  <Link to="/cantieri" className="text-steelex-orange text-sm font-medium mt-2 inline-block">Crea il primo cantiere →</Link>
                 </>
               )}
             </div>
@@ -907,23 +911,21 @@ export default function DashboardPage() {
             <div className="space-y-2">
               {cantieriRecenti.map(c => (
                 <Link key={c.id} to={`/cantieri/${c.id}`}
-                  className="card flex items-center gap-3 hover:border-fr-charcoal border-2 border-transparent transition-colors">
-                  <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
-                    <HardHat size={18} className="text-fr-charcoal" />
+                  className={`card flex items-center gap-3 border-l-[3px] hover:border-steelex-border-strong hover:border-l-steelex-orange ${STATO_BAND_DASH[c.stato] || 'border-l-steelex-border-strong'}`}>
+                  <div className="w-9 h-9 rounded-xl bg-steelex-muted flex items-center justify-center flex-shrink-0">
+                    <HardHat size={18} className="text-steelex-orange" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
-                    <p className="text-sm text-gray-500 truncate">{c.cliente}{c.citta ? ` — ${c.citta}` : ''}</p>
+                    <p className="font-semibold text-steelex-ink truncate">{c.nome}</p>
+                    <p className="text-sm text-steelex-muted-fg truncate">{c.cliente}{c.citta ? ` — ${c.citta}` : ''}</p>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_BADGE[c.stato]}`}>
+                    <span className={`pill ${STATO_PILL_DASH[c.stato] || 'pill-neutral'}`}>
                       {STATO_LABEL_DASH[c.stato]}
                     </span>
                     <div className="text-right hidden sm:block w-16">
-                      <div className="text-fr-charcoal font-bold text-sm">{c.avanzamento}%</div>
-                      <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                        <div className="bg-fr-charcoal h-1.5 rounded-full transition-all" style={{ width: `${c.avanzamento}%` }} />
-                      </div>
+                      <div className="text-steelex-orange font-bold text-sm tnums">{c.avanzamento}%</div>
+                      <div className="progress w-full mt-1"><i style={{ width: `${c.avanzamento}%` }} /></div>
                     </div>
                   </div>
                 </Link>
@@ -1004,20 +1006,22 @@ function NotifichePanel() {
   )
 }
 
-function StatCard({ icon: Icon, label, value, color }) {
-  const colors = {
-    orange: 'bg-orange-50 text-gray-700',
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    purple: 'bg-purple-50 text-purple-600',
+function StatCard({ icon: Icon, label, value, tone = 'neutral' }) {
+  // Accento semantico su banda + icona; il numero resta scuro e leggibile (MASTER.md)
+  const tones = {
+    neutral: { band: 'border-l-steelex-border-strong', icon: 'bg-steelex-muted text-steelex-muted-fg' },
+    info:    { band: 'border-l-blue-500', icon: 'bg-blue-50 text-blue-600' },
+    ok:      { band: 'border-l-ok', icon: 'bg-ok-tint text-ok' },
+    accent:  { band: 'border-l-steelex-orange', icon: 'bg-steelex-light text-steelex-orange' },
   }
+  const t = tones[tone] || tones.neutral
   return (
-    <div className="card">
-      <div className={`inline-flex p-2 rounded-lg ${colors[color]} mb-2`}>
-        <Icon size={20} />
+    <div className={`card border-l-[3px] ${t.band} py-3`}>
+      <div className={`inline-flex p-1.5 rounded-lg ${t.icon} mb-2`}>
+        <Icon size={18} />
       </div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
-      <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+      <div className="text-2xl font-bold text-steelex-ink tnums leading-none">{value}</div>
+      <div className="text-xs text-steelex-muted-fg mt-1">{label}</div>
     </div>
   )
 }
