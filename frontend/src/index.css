@@ -4,7 +4,23 @@
 
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 font-sans;
+    @apply bg-steelex-bg text-steelex-ink font-sans antialiased;
+  }
+  /* Focus visibile su tutto ciò che è raggiungibile da tastiera (MASTER.md) */
+  :focus-visible {
+    outline: 2px solid theme('colors.steelex.orange');
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+/* Rispetta prefers-reduced-motion: niente animazioni non essenziali (MASTER.md) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -25,16 +41,54 @@
 }
 
 @layer components {
+  /* Bottoni — area minima 44px, feedback pressione, focus ring (MASTER.md) */
   .btn-primary {
-    @apply bg-steelex-orange text-white px-4 py-3 rounded-lg font-semibold text-base active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 min-h-[44px] bg-steelex-orange text-white px-4 py-3 rounded-lg font-semibold text-base
+           transition-colors hover:bg-steelex-orange-press active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
   }
   .btn-secondary {
-    @apply bg-white text-steelex-dark border-2 border-steelex-dark px-4 py-3 rounded-lg font-semibold text-base active:scale-95 transition-transform;
+    @apply inline-flex items-center justify-center gap-2 min-h-[44px] bg-white text-steelex-dark border-2 border-steelex-dark px-4 py-3 rounded-lg font-semibold text-base
+           transition-colors hover:bg-steelex-muted active:scale-95;
   }
+  /* Card / riga — flat: l'hover cambia il bordo, non sposta il layout (MASTER.md) */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-4;
+    @apply bg-white rounded-xl shadow-sm border border-steelex-border p-4 transition-colors;
   }
   .input-field {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-steelex-orange focus:border-transparent;
+    @apply w-full min-h-[44px] border border-steelex-border-strong rounded-lg px-3 py-3 text-base bg-white
+           focus:outline-none focus:ring-2 focus:ring-steelex-orange focus:border-transparent;
+  }
+
+  /* Pastiglia di stato — testo + pallino; la riga porta anche una banda laterale (MASTER.md) */
+  .pill {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-bold uppercase tracking-wide;
+  }
+  .pill::before {
+    content: '';
+    width: 6px; height: 6px; border-radius: 9999px;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .pill-ok      { @apply text-ok bg-ok-tint; }
+  .pill-warn    { @apply text-warn bg-warn-tint; }
+  .pill-late    { @apply text-danger bg-danger-tint; }
+  .pill-info    { @apply text-blue-700 bg-blue-100; }
+  .pill-neutral { @apply text-steelex-muted-fg bg-steelex-muted; }
+
+  /* Barra di avanzamento */
+  .progress {
+    @apply h-1.5 rounded-full bg-steelex-muted border border-steelex-border overflow-hidden;
+  }
+  .progress > i {
+    @apply block h-full bg-steelex-orange;
+  }
+}
+
+@layer utilities {
+  /* Numeri/importi allineati in colonna (MASTER.md) */
+  .tnums {
+    font-family: theme('fontFamily.mono');
+    font-variant-numeric: tabular-nums;
   }
 }

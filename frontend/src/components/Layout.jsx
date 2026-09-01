@@ -223,8 +223,8 @@ export default function Layout() {
           </div>
           {/* Firma in fondo ad ogni pagina */}
           <div className="px-4 pb-4 pt-2 text-center">
-            <p className="text-[10px] text-gray-300 tracking-wide">
-              Powered by <span className="font-medium text-gray-400">Geom. Michele Toffoletto</span>
+            <p className="text-[11px] text-gray-500 tracking-wide">
+              Powered by <span className="font-medium text-gray-600">Geom. Michele Toffoletto</span>
             </p>
           </div>
         </main>

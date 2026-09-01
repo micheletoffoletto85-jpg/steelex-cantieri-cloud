@@ -7,12 +7,20 @@ import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
 const STATI = ['tutti', 'preventivo', 'in_corso', 'sospeso', 'completato']
-const STATO_STYLE = {
-  preventivo: 'bg-gray-100 text-gray-700',
-  in_corso: 'bg-blue-100 text-blue-700',
-  sospeso: 'bg-yellow-100 text-yellow-700',
-  completato: 'bg-green-100 text-green-700',
-  annullato: 'bg-red-100 text-red-700',
+// Stato codificato da testo + pastiglia + banda laterale, mai dal solo colore (MASTER.md)
+const STATO_PILL = {
+  preventivo: 'pill-neutral',
+  in_corso: 'pill-info',
+  sospeso: 'pill-warn',
+  completato: 'pill-ok',
+  annullato: 'pill-late',
+}
+const STATO_BAND = {
+  preventivo: 'border-l-steelex-border-strong',
+  in_corso: 'border-l-blue-500',
+  sospeso: 'border-l-warn',
+  completato: 'border-l-ok',
+  annullato: 'border-l-danger',
 }
 const STATO_LABEL = {
   preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso',
@@ -59,7 +67,7 @@ export default function CantieriPage() {
       <div className="flex gap-2 overflow-x-auto pb-1">
         {STATI.map(s => (
           <button key={s} onClick={() => setFiltroStato(s)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filtroStato === s ? 'bg-steelex-orange text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>
+            className={`min-h-[40px] px-3.5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${filtroStato === s ? 'bg-steelex-orange text-white' : 'bg-white border border-steelex-border text-steelex-muted-fg hover:border-steelex-border-strong'}`}>
             {s === 'tutti' ? 'Tutti' : STATO_LABEL[s]}
           </button>
         ))}
@@ -67,41 +75,40 @@ export default function CantieriPage() {
 
       {/* Ricerca */}
       <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-steelex-muted-fg pointer-events-none" />
         <input className="input-field pl-9" placeholder="Cerca cantiere, cliente, città..." value={ricerca} onChange={e => setRicerca(e.target.value)} />
       </div>
 
       {/* Lista */}
       {isLoading ? (
-        <div className="text-center py-8 text-gray-400">Caricamento...</div>
+        <div className="text-center py-8 text-steelex-muted-fg">Caricamento...</div>
       ) : filtered.length === 0 ? (
-        <div className="card text-center py-8 text-gray-400">
+        <div className="card text-center py-8 text-steelex-muted-fg">
           <HardHat size={40} className="mx-auto mb-2 opacity-30" />
           <p>Nessun cantiere trovato</p>
         </div>
       ) : (
         <div className="space-y-2">
           {filtered.map(c => (
-            <Link key={c.id} to={`/cantieri/${c.id}`} className="card block hover:border-steelex-orange transition-colors">
-              <div className="flex items-start justify-between gap-2">
+            <Link key={c.id} to={`/cantieri/${c.id}`}
+              className={`card block border-l-[3px] hover:border-steelex-border-strong hover:border-l-steelex-orange ${STATO_BAND[c.stato] || 'border-l-steelex-border-strong'}`}>
+              <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_STYLE[c.stato]}`}>{STATO_LABEL[c.stato]}</span>
+                    <span className={`pill ${STATO_PILL[c.stato] || 'pill-neutral'}`}>{STATO_LABEL[c.stato]}</span>
                   </div>
-                  <h3 className="font-bold text-gray-900 truncate">{c.nome}</h3>
-                  <p className="text-sm text-gray-600">{c.cliente}</p>
+                  <h3 className="font-bold text-steelex-ink truncate">{c.nome}</h3>
+                  <p className="text-sm text-steelex-muted-fg">{c.cliente}</p>
                   {(c.citta || c.indirizzo) && (
-                    <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                      <MapPin size={12} /> {c.indirizzo}{c.citta ? `, ${c.citta}` : ''}
+                    <p className="text-xs text-steelex-muted-fg flex items-center gap-1 mt-0.5">
+                      <MapPin size={12} className="flex-shrink-0" /> {c.indirizzo}{c.citta ? `, ${c.citta}` : ''}
                     </p>
                   )}
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className="text-lg font-bold text-steelex-orange">{c.avanzamento}%</div>
-                  <div className="w-16 bg-gray-200 rounded-full h-1.5 mt-1">
-                    <div className="bg-steelex-orange h-1.5 rounded-full" style={{ width: `${c.avanzamento}%` }} />
-                  </div>
-                  {c.budget > 0 && <p className="text-xs text-gray-400 mt-1">€{c.budget.toLocaleString('it-IT')}</p>}
+                  <div className="text-lg font-bold text-steelex-orange tnums">{c.avanzamento}%</div>
+                  <div className="progress w-16 mt-1 ml-auto"><i style={{ width: `${c.avanzamento}%` }} /></div>
+                  {c.budget > 0 && <p className="text-xs text-steelex-muted-fg mt-1 tnums">€{c.budget.toLocaleString('it-IT')}</p>}
                 </div>
               </div>
             </Link>
