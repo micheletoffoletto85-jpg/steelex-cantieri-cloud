@@ -15,10 +15,10 @@ import dayjs from 'dayjs'
 import 'dayjs/locale/it'
 dayjs.locale('it')
 
-const STATO_STYLE = {
-  preventivo: 'bg-gray-100 text-gray-700', in_corso: 'bg-blue-100 text-blue-700',
-  sospeso: 'bg-yellow-100 text-yellow-700', completato: 'bg-green-100 text-green-700',
-  annullato: 'bg-red-100 text-red-700',
+// Stato: pastiglia + banda laterale, mai solo colore (MASTER.md)
+const STATO_PILL = {
+  preventivo: 'pill-neutral', in_corso: 'pill-info', sospeso: 'pill-warn',
+  completato: 'pill-ok', annullato: 'pill-late',
 }
 const STATO_LABEL = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
 
@@ -54,7 +54,8 @@ export default function CantierePage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/cantieri')} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft size={20} /></button>
+          <button onClick={() => navigate('/cantieri')} aria-label="Torna ai cantieri"
+            className="grid place-items-center h-11 w-11 rounded-lg text-steelex-muted-fg hover:bg-steelex-muted"><ArrowLeft size={20} /></button>
         </div>
         <ClienteView cantiere={cantiere} />
       </div>
@@ -67,20 +68,29 @@ export default function CantierePage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/cantieri')} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft size={20} /></button>
+      <div className="flex items-center gap-2">
+        <button onClick={() => navigate('/cantieri')} aria-label="Torna ai cantieri"
+          className="grid place-items-center h-11 w-11 flex-shrink-0 rounded-lg text-steelex-muted-fg hover:bg-steelex-muted"><ArrowLeft size={20} /></button>
         <div className="flex-1 min-w-0">
           {editing
             ? <input className="input-field text-lg font-bold" value={form.nome} onChange={e => set('nome', e.target.value)} />
-            : <h1 className="text-xl font-bold truncate">{cantiere.nome}</h1>}
+            : <>
+                <h1 className="text-xl font-bold truncate text-steelex-ink">{cantiere.nome}</h1>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className={`pill ${STATO_PILL[cantiere.stato] || 'pill-neutral'}`}>{STATO_LABEL[cantiere.stato]}</span>
+                  <span className="text-xs text-steelex-muted-fg tnums">{cantiere.avanzamento}% avanzamento</span>
+                </div>
+              </>}
         </div>
         {editing ? (
-          <div className="flex gap-2">
-            <button onClick={() => { setForm(cantiere); setEditing(false) }} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400"><X size={20} /></button>
-            <button onClick={() => updateMutation.mutate(form)} className="btn-primary py-2 flex items-center gap-1"><Save size={16} /> Salva</button>
+          <div className="flex gap-2 flex-shrink-0">
+            <button onClick={() => { setForm(cantiere); setEditing(false) }} aria-label="Annulla"
+              className="grid place-items-center h-11 w-11 rounded-lg text-steelex-muted-fg hover:bg-steelex-muted"><X size={20} /></button>
+            <button onClick={() => updateMutation.mutate(form)} className="btn-primary"><Save size={16} /> Salva</button>
           </div>
         ) : (
-          <button onClick={() => setEditing(true)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400"><Edit2 size={20} /></button>
+          <button onClick={() => setEditing(true)} aria-label="Modifica cantiere"
+            className="grid place-items-center h-11 w-11 flex-shrink-0 rounded-lg text-steelex-muted-fg hover:bg-steelex-muted"><Edit2 size={20} /></button>
         )}
       </div>
 
@@ -108,11 +118,11 @@ export default function CantierePage() {
           ...(isStaffInterno ? [['chiusura','Chiusura',Flag]] : []),
         ]
         return (
-          <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
             {tabs.map(([key,label,Icon]) => (
               <button key={key} onClick={() => setTab(key)}
-                className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                {Icon && <Icon size={12} />}{label}
+                className={`flex items-center gap-1.5 min-h-[40px] px-3.5 py-2 rounded-lg text-[13px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${tab===key ? 'bg-steelex-orange text-white' : 'bg-white border border-steelex-border text-steelex-muted-fg hover:border-steelex-border-strong'}`}>
+                {Icon && <Icon size={14} />}{label}
               </button>
             ))}
           </div>
@@ -163,69 +173,69 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
           ? <select className="input-field w-40" value={form.stato} onChange={e => set('stato', e.target.value)}>
               {Object.keys(STATO_LABEL).map(s => <option key={s} value={s}>{STATO_LABEL[s]}</option>)}
             </select>
-          : <span className={`px-3 py-1 rounded-full text-sm font-medium ${STATO_STYLE[cantiere.stato]}`}>{STATO_LABEL[cantiere.stato]}</span>}
-        <span className="text-2xl font-bold text-steelex-orange">{data.avanzamento}%</span>
+          : <span className={`pill ${STATO_PILL[cantiere.stato] || 'pill-neutral'}`}>{STATO_LABEL[cantiere.stato]}</span>}
+        <span className="text-2xl font-bold text-steelex-orange tnums">{data.avanzamento}%</span>
       </div>
 
       {/* Barra avanzamento */}
       {editing
-        ? <div><label className="text-sm text-gray-500 mb-1 block">Avanzamento: {form.avanzamento}%</label>
-            <input type="range" min="0" max="100" step="5" value={form.avanzamento} onChange={e => set('avanzamento', Number(e.target.value))} className="w-full accent-fr-accent" /></div>
-        : <div className="w-full bg-gray-200 rounded-full h-3"><div className="bg-steelex-orange h-3 rounded-full transition-all" style={{ width: `${cantiere.avanzamento}%` }} /></div>}
+        ? <div><label className="text-sm text-steelex-muted-fg mb-1 block">Avanzamento: {form.avanzamento}%</label>
+            <input type="range" min="0" max="100" step="5" value={form.avanzamento} onChange={e => set('avanzamento', Number(e.target.value))} className="w-full accent-steelex-orange" /></div>
+        : <div className="progress h-3"><i style={{ width: `${cantiere.avanzamento}%` }} /></div>}
 
       {/* Dati cantiere */}
       <div className="grid grid-cols-2 gap-3">
-        <InfoField icon="👷" label="Cliente" value={data.cliente || ''} editing={editing} onChange={v => set('cliente', v)} />
+        <InfoField icon={<Users size={14} />} label="Cliente" value={data.cliente || ''} editing={editing} onChange={v => set('cliente', v)} />
         <InfoField icon={<MapPin size={14} />} label="Città" value={data.citta || ''} editing={editing} onChange={v => set('citta', v)} />
         <InfoField icon={<MapPin size={14} />} label="Indirizzo" value={data.indirizzo || ''} editing={editing} onChange={v => set('indirizzo', v)} className="col-span-2" />
-        <InfoField icon={<Calendar size={14} />} label="Inizio" type="date" value={data.data_inizio || ''} editing={editing} onChange={v => set('data_inizio', v)} />
-        <InfoField icon={<Calendar size={14} />} label="Fine Prevista" type="date" value={data.data_fine_prevista || ''} editing={editing} onChange={v => set('data_fine_prevista', v)} />
+        <InfoField icon={<Calendar size={14} />} label="Inizio" type="date" value={data.data_inizio || ''} display={data.data_inizio ? dayjs(data.data_inizio).format('DD/MM/YYYY') : ''} editing={editing} onChange={v => set('data_inizio', v)} />
+        <InfoField icon={<Calendar size={14} />} label="Fine Prevista" type="date" value={data.data_fine_prevista || ''} display={data.data_fine_prevista ? dayjs(data.data_fine_prevista).format('DD/MM/YYYY') : ''} editing={editing} onChange={v => set('data_fine_prevista', v)} />
       </div>
 
       {/* Riepilogo economico — solo admin e capo cantiere STEELEX */}
       {!editing && puoVedereEconomia && (
-        <div className="border-t border-gray-100 pt-3 space-y-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Economia</p>
+        <div className="border-t border-steelex-border pt-3 space-y-3">
+          <p className="text-xs font-semibold text-steelex-muted-fg uppercase tracking-wide">Economia</p>
           <div className="grid grid-cols-3 gap-2">
-            <div className="bg-orange-50 rounded-xl p-3 text-center">
-              <p className="text-xs text-gray-500 mb-0.5">Valore cantiere</p>
-              <p className="font-bold text-steelex-orange text-sm">{fmt(valoreCantiere)}</p>
+            <div className="bg-steelex-muted rounded-xl p-3 text-center">
+              <p className="text-xs text-steelex-muted-fg mb-0.5">Valore cantiere</p>
+              <p className="font-bold text-steelex-orange text-sm tnums">{fmt(valoreCantiere)}</p>
             </div>
-            <div className="bg-red-50 rounded-xl p-3 text-center">
-              <p className="text-xs text-gray-500 mb-0.5">Spese</p>
-              <p className="font-bold text-red-600 text-sm">{fmt(totaleSpese)}</p>
+            <div className="bg-danger-tint rounded-xl p-3 text-center">
+              <p className="text-xs text-steelex-muted-fg mb-0.5">Spese</p>
+              <p className="font-bold text-danger text-sm tnums">{fmt(totaleSpese)}</p>
             </div>
-            <div className={`rounded-xl p-3 text-center ${margine >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-              <p className="text-xs text-gray-500 mb-0.5">Margine</p>
-              <p className={`font-bold text-sm ${margine >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(margine)}</p>
+            <div className={`rounded-xl p-3 text-center ${margine >= 0 ? 'bg-ok-tint' : 'bg-danger-tint'}`}>
+              <p className="text-xs text-steelex-muted-fg mb-0.5">Margine</p>
+              <p className={`font-bold text-sm tnums ${margine >= 0 ? 'text-ok' : 'text-danger'}`}>{fmt(margine)}</p>
             </div>
           </div>
           {valoreCantiere > 0 && (
             <div>
-              <div className="flex justify-between text-xs text-gray-400 mb-1">
+              <div className="flex justify-between text-xs text-steelex-muted-fg mb-1">
                 <span>Spese / Valore</span>
-                <span>{percSpesa.toFixed(0)}%</span>
+                <span className="tnums">{percSpesa.toFixed(0)}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full transition-all ${percSpesa > 90 ? 'bg-red-500' : percSpesa > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+              <div className="progress h-2">
+                <i
+                  className={percSpesa > 90 ? '!bg-danger' : percSpesa > 70 ? '!bg-warn' : '!bg-ok'}
                   style={{ width: `${percSpesa}%` }}
                 />
               </div>
             </div>
           )}
           {valoreCantiere === 0 && (
-            <p className="text-xs text-gray-400 text-center py-1">Nessun preventivo accettato — vai su Economia per crearne uno</p>
+            <p className="text-xs text-steelex-muted-fg text-center py-1">Nessun preventivo accettato — vai su Economia per crearne uno</p>
           )}
         </div>
       )}
 
       {(editing || cantiere.note) && (
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">Note</label>
+          <label className="text-xs text-steelex-muted-fg mb-1 block">Note</label>
           {editing
             ? <textarea className="input-field h-20 resize-none" value={form.note || ''} onChange={e => set('note', e.target.value)} placeholder="Note..." />
-            : <p className="text-sm text-gray-700">{cantiere.note}</p>}
+            : <p className="text-sm text-gray-700 whitespace-pre-line">{cantiere.note}</p>}
         </div>
       )}
     </div>
@@ -239,10 +249,10 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
 function InfoField({ icon, label, value, editing, onChange, type = 'text', display, className }) {
   return (
     <div className={className}>
-      <label className="text-xs text-gray-500 flex items-center gap-1 mb-1">{icon} {label}</label>
+      <label className="text-xs text-steelex-muted-fg flex items-center gap-1 mb-1">{icon} {label}</label>
       {editing
         ? <input className="input-field py-2 text-sm" type={type} value={value} onChange={e => onChange(e.target.value)} />
-        : <p className="text-sm font-medium text-gray-900">{display || value || '—'}</p>}
+        : <p className="text-sm font-medium text-steelex-ink">{display || value || '—'}</p>}
     </div>
   )
 }
