@@ -123,12 +123,15 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     r.cantiere_rilevato && c.nome?.toLowerCase().includes(r.cantiere_rilevato.toLowerCase())
   )
 
-  const statoColor = {
-    inviato:  'bg-yellow-100 text-yellow-700',
-    validato: 'bg-green-100 text-green-700',
-    rifiutato:'bg-red-100 text-red-700',
-    diviso:   'bg-purple-100 text-purple-700',
-  }[r.stato] || 'bg-gray-100 text-gray-600'
+  const statoPill = {
+    inviato:  'pill-warn',
+    validato: 'pill-ok',
+    rifiutato:'pill-late',
+    diviso:   'pill-info',
+  }[r.stato] || 'pill-neutral'
+  const statoLabel = {
+    inviato: 'Da validare', validato: 'Validato', rifiutato: 'Rifiutato', diviso: 'Diviso',
+  }[r.stato] || r.stato
 
   const salvaTesto = () => {
     onModifica(r.id, {
@@ -207,9 +210,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                 <GitBranch size={10} /> multi-cantiere
               </span>
             )}
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statoColor}`}>
-              {r.stato}
-            </span>
+            <span className={`pill ${statoPill}`}>{statoLabel}</span>
             {isAdmin && r.stato !== 'inviato' && r.stato !== 'diviso' && (
               <button onClick={() => setModificaCantiere(v => !v)}
                 className={`transition-colors ${modificaCantiere ? 'text-steelex-orange' : 'text-gray-400 hover:text-steelex-orange'}`}
