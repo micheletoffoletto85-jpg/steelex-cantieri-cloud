@@ -210,80 +210,42 @@ def genera_relazione_pdf(
         raise HTTPException(404, "Nessuna nota trovata")
 
     from xml.sax.saxutils import escape
-    from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import mm
-    from reportlab.lib.utils import ImageReader
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph,
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (Table, TableStyle, Paragraph,
                                      Spacer, HRFlowable, Image as RLImage, KeepTogether)
-    from app.routers.economico import PDF_BRAND
+    from app import pdf_theme as T
     from app.storage import leggi_file
 
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=15*mm, rightMargin=15*mm,
-                            topMargin=15*mm, bottomMargin=18*mm)
+    S = T.make_styles()
+    PRIMARIO, SCURO = T.palette()
 
-    PRIMARIO = colors.HexColor(PDF_BRAND["colore_primario"])
-    SCURO    = colors.HexColor(PDF_BRAND["colore_scuro"])
-    GRIGIO   = colors.HexColor("#F5F5F5")
+    style_giorno = ParagraphStyle("giorno_rel", parent=S["h2"], fontSize=12, spaceBefore=8, spaceAfter=2)
+    style_meta   = S["meta"]
+    style_testo  = ParagraphStyle("testo_rel", parent=S["body"], alignment=4)
+    style_extra  = ParagraphStyle("extra_rel", parent=S["kicker"], spaceAfter=4)
+    style_cella  = S["cell"]
+    style_label  = S["value_b"]
 
-    styles = getSampleStyleSheet()
-    style_titolo = ParagraphStyle("titolo_rel", parent=styles["Heading1"], textColor=PRIMARIO, fontSize=18, spaceAfter=2)
-    style_sub = ParagraphStyle("sub_rel", parent=styles["Normal"], textColor=SCURO, fontSize=10)
-    style_label = ParagraphStyle("label_rel", parent=styles["Normal"], textColor=SCURO, fontSize=9, fontName="Helvetica-Bold")
-    style_giorno = ParagraphStyle("giorno_rel", parent=styles["Heading2"], textColor=SCURO, fontSize=13, spaceAfter=2, spaceBefore=8)
-    style_meta = ParagraphStyle("meta_rel", parent=styles["Normal"], fontSize=8.5, textColor=colors.grey, spaceAfter=4)
-    style_testo = ParagraphStyle("testo_rel", parent=styles["Normal"], fontSize=9.5, leading=13, spaceAfter=4)
-    style_small = ParagraphStyle("small_rel", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
-    style_extra = ParagraphStyle("extra_rel", parent=styles["Normal"], fontSize=9, textColor=PRIMARIO,
-                                  fontName="Helvetica-Bold", spaceAfter=4)
-    style_cella = ParagraphStyle("cella_rel", parent=styles["Normal"], fontSize=8, leading=10, textColor=SCURO)
-
-    story = []
-
-    # Intestazione aziendale — stesso brand usato per i preventivi
-    logo_path = PDF_BRAND["logo"]
-    if os.path.exists(logo_path):
-        try:
-            iw, ih = ImageReader(logo_path).getSize()
-            h = PDF_BRAND["logo_altezza_mm"] * mm
-            img = RLImage(logo_path, width=iw * h / ih, height=h)
-            img.hAlign = "LEFT"
-            story.append(img)
-        except Exception:
-            story.append(Paragraph(PDF_BRAND["nome"], style_titolo))
-    else:
-        story.append(Paragraph(PDF_BRAND["nome"], style_titolo))
-    story.append(Paragraph(PDF_BRAND["sottotitolo"], style_sub))
-    story.append(Spacer(1, 2*mm))
-    story.append(HRFlowable(width="100%", thickness=2, color=PRIMARIO, spaceAfter=6))
-
-    story.append(Paragraph("RELAZIONE LAVORI", style_titolo))
     data_min = diari[0].data.strftime("%d/%m/%Y")
     data_max = diari[-1].data.strftime("%d/%m/%Y")
     periodo = data_min if data_min == data_max else f"dal {data_min} al {data_max}"
-    info_data = [
-        [Paragraph(f"<b>Cantiere:</b> {escape(cantiere.nome or '')}", style_label),
-         Paragraph(f"<b>Periodo:</b> {periodo}", style_label)],
+
+    story = []
+    story += T.masthead(S, "Relazione lavori", periodo)
+    indirizzo = ", ".join(x for x in [cantiere.indirizzo, cantiere.citta] if x)
+    rows = [
+        ("Cantiere", escape(cantiere.nome or "—")),
+        ("Periodo", periodo),
     ]
     if cantiere.cliente:
-        info_data.append([Paragraph(f"<b>Cliente:</b> {escape(cantiere.cliente)}", style_label),
-                           Paragraph(f"<b>Data emissione:</b> {date_today.today().strftime('%d/%m/%Y')}", style_label)])
-    indirizzo = ", ".join(x for x in [cantiere.indirizzo, cantiere.citta] if x)
+        rows.append(("Cliente", escape(cantiere.cliente)))
     if indirizzo:
-        info_data.append([Paragraph(f"<b>Indirizzo:</b> {escape(indirizzo)}", style_label), ""])
-    info_table = Table(info_data, colWidths=["55%", "45%"])
-    info_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-    ]))
-    story.append(Spacer(1, 3*mm))
-    story.append(info_table)
-    story.append(Spacer(1, 6*mm))
+        rows.append(("Ubicazione", escape(indirizzo)))
+    rows.append(("Data emissione", date_today.today().strftime("%d/%m/%Y")))
+    story.append(T.info_grid(S, rows))
+    story.append(Spacer(1, 7*mm))
 
     tot_ore = 0.0
     tot_foto = 0
@@ -316,7 +278,7 @@ def genera_relazione_pdf(
 
         if d.extra_preventivo:
             nota_extra = f" — {escape(d.extra_preventivo_nota)}" if d.extra_preventivo_nota else ""
-            story.append(Paragraph(f"⚠ LAVORAZIONE EXTRA PREVENTIVO{nota_extra}", style_extra))
+            story.append(Paragraph(f"LAVORAZIONE EXTRA PREVENTIVO{nota_extra}", style_extra))
 
         # Ore lavorate registrate per questa nota — filtrate a extra preventivo se la
         # relazione ne contiene almeno una (vedi sopra)
@@ -352,23 +314,25 @@ def genera_relazione_pdf(
             # Celle come Paragraph, non stringhe nude: reportlab non va a capo il testo
             # dentro una Table se il contenuto è una stringa semplice, solo se è un
             # Flowable — con nomi/attività lunghe il testo sbordava dalla colonna.
-            tabella_ore = [["Operaio", "Ore", "Attività"]]
+            tabella_ore = [[Paragraph("Operaio", S["cell_h"]), Paragraph("Ore", S["cell_h"]), Paragraph("Attività", S["cell_h"])]]
             for o in ore_rows:
                 tot_ore += o.ore or 0
                 tabella_ore.append([
                     Paragraph(escape(o.operaio_nome or ""), style_cella),
-                    f"{o.ore:g}h",
+                    Paragraph(f"{o.ore:g} h", S["num"]),
                     Paragraph(escape(o.attivita or ""), style_cella),
                 ])
-            t = Table(tabella_ore, colWidths=[45*mm, 15*mm, 105*mm])
+            nore = len(tabella_ore) - 1
+            t = Table(tabella_ore, colWidths=[48*mm, 16*mm, 101*mm])
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), SCURO),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("GRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("TOPPADDING", (0, 0), (-1, -1), 3),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("ROWBACKGROUNDS", (0, 1), (-1, nore), [colors.white, T.BG_SOFT]),
+                ("LINEBELOW", (0, 1), (-1, nore), 0.4, T.BORDER),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
             ]))
             story.append(Spacer(1, 2*mm))
             story.append(t)
@@ -407,38 +371,24 @@ def genera_relazione_pdf(
         story.append(Spacer(1, 6*mm))
 
     # Riepilogo
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
     story.append(Spacer(1, 3*mm))
+    story.append(Paragraph("Riepilogo", S["h2"]))
     n_extra = sum(1 for d in diari if d.extra_preventivo)
     etichetta_ore = "Totale ore extra preventivo" if solo_extra_preventivo else "Totale ore lavorate"
-    riepilogo = [
-        [Paragraph("<b>Giorni relazionati</b>", style_label), Paragraph(str(len(diari)), style_label)],
-        [Paragraph(f"<b>{etichetta_ore}</b>", style_label), Paragraph(f"{tot_ore:g}h" if tot_ore else "—", style_label)],
-        [Paragraph("<b>Foto allegate</b>", style_label), Paragraph(str(tot_foto), style_label)],
+    rows = [
+        ("Giorni relazionati", str(len(diari))),
+        (etichetta_ore, f"{tot_ore:g} h" if tot_ore else "—"),
+        ("Foto allegate", str(tot_foto)),
     ]
     if n_extra:
-        riepilogo.append([Paragraph("<b>Di cui extra preventivo</b>", style_label), Paragraph(str(n_extra), style_label)])
-    riep_table = Table(riepilogo, colWidths=["60%", "40%"])
-    riep_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), GRIGIO),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(riep_table)
-    story.append(Spacer(1, 8*mm))
+        rows.append(("Di cui extra preventivo", str(n_extra)))
+    story.append(T.info_grid(S, rows, col_label_mm=70))
+    story.append(Spacer(1, 9*mm))
 
-    # Firma
-    firma_data = [
-        [Paragraph("Per presa visione:", style_label), Paragraph(PDF_BRAND["ragione_sociale"], style_label)],
-        [Paragraph("_" * 35, style_small), Paragraph("_" * 35, style_small)],
-        [Paragraph("Timbro e firma cliente", style_small), Paragraph("Firma", style_small)],
-    ]
-    firma_table = Table(firma_data, colWidths=["50%", "50%"])
-    story.append(firma_table)
+    story.append(T.signature_block(S, "Per presa visione — timbro e firma cliente", "Per l'impresa"))
 
-    doc.build(story)
-    buf.seek(0)
+    buf = io.BytesIO()
+    T.build(buf, story, title=f"Relazione — {cantiere.nome}")
 
     nome_cantiere = (cantiere.nome or "cantiere").replace(" ", "_")
     nome_file = f"relazione_{nome_cantiere}_{data_min.replace('/', '-')}.pdf"
@@ -1264,30 +1214,32 @@ def genera_verbale_pdf(cantiere_id: int, db: Session = Depends(get_db), user: Ut
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph,
                                     Spacer, HRFlowable, Image as RLImage, KeepTogether, PageBreak)
+    from app import pdf_theme as T
     from app.routers.economico import PDF_BRAND
     from app.models.foto_cantiere import FotoCantiere
     from app.storage import leggi_file
 
-    PRIMARIO = colors.HexColor(PDF_BRAND["colore_primario"])
-    SCURO    = colors.HexColor(PDF_BRAND["colore_scuro"])
-    GRIGIO   = colors.HexColor("#F5F5F5")
-    MUTED    = colors.HexColor("#8C8578")
+    T.register_fonts()
+    _F, _FB = T.FONT, T.FONT_BD
+    PRIMARIO, SCURO = T.palette()
+    GRIGIO   = T.BG_SOFT
+    MUTED    = T.MUTED
 
     styles = getSampleStyleSheet()
-    st_brand   = ParagraphStyle("cv_brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=16, textColor=SCURO, leading=18)
-    st_brand_s = ParagraphStyle("cv_brand_s", parent=styles["Normal"], fontSize=7.5, textColor=MUTED, leading=10)
-    st_eyebrow = ParagraphStyle("cv_eyebrow", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5, textColor=PRIMARIO, leading=12, spaceAfter=2)
-    st_title   = ParagraphStyle("cv_title", parent=styles["Heading1"], fontSize=26, textColor=SCURO, leading=29, spaceBefore=6, spaceAfter=4)
-    st_h2      = ParagraphStyle("cv_h2", parent=styles["Heading2"], fontSize=15, textColor=SCURO, leading=18, spaceBefore=2, spaceAfter=8)
-    st_body    = ParagraphStyle("cv_body", parent=styles["Normal"], fontSize=10, leading=15, spaceAfter=7, alignment=4)
-    st_label   = ParagraphStyle("cv_label", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, textColor=MUTED, leading=11)
-    st_val     = ParagraphStyle("cv_val", parent=styles["Normal"], fontSize=10, textColor=SCURO, leading=13)
-    st_meta    = ParagraphStyle("cv_meta", parent=styles["Normal"], fontSize=8.5, textColor=MUTED, leading=11)
-    st_cell    = ParagraphStyle("cv_cell", parent=styles["Normal"], fontSize=8.5, leading=11, textColor=SCURO)
-    st_cellh   = ParagraphStyle("cv_cellh", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.5, textColor=SCURO, leading=10)
-    st_cap     = ParagraphStyle("cv_cap", parent=styles["Normal"], fontSize=8, textColor=MUTED, leading=10, spaceBefore=3)
-    st_sign    = ParagraphStyle("cv_sign", parent=styles["Normal"], fontSize=8, textColor=MUTED, leading=11)
-    st_signb   = ParagraphStyle("cv_signb", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5, textColor=SCURO, leading=11)
+    st_brand   = ParagraphStyle("cv_brand", parent=styles["Normal"], fontName=_FB, fontSize=16, textColor=SCURO, leading=18)
+    st_brand_s = ParagraphStyle("cv_brand_s", parent=styles["Normal"], fontName=_F, fontSize=7.5, textColor=MUTED, leading=10)
+    st_eyebrow = ParagraphStyle("cv_eyebrow", parent=styles["Normal"], fontName=_FB, fontSize=8.5, textColor=PRIMARIO, leading=12, spaceAfter=2)
+    st_title   = ParagraphStyle("cv_title", parent=styles["Heading1"], fontName=_FB, fontSize=25, textColor=SCURO, leading=28, spaceBefore=6, spaceAfter=4)
+    st_h2      = ParagraphStyle("cv_h2", parent=styles["Heading2"], fontName=T.FONT_SB, fontSize=14, textColor=SCURO, leading=18, spaceBefore=2, spaceAfter=8)
+    st_body    = ParagraphStyle("cv_body", parent=styles["Normal"], fontName=_F, fontSize=10, leading=15, spaceAfter=7, alignment=4)
+    st_label   = ParagraphStyle("cv_label", parent=styles["Normal"], fontName=T.FONT_SB, fontSize=7.5, textColor=MUTED, leading=11)
+    st_val     = ParagraphStyle("cv_val", parent=styles["Normal"], fontName=_F, fontSize=10, textColor=SCURO, leading=13)
+    st_meta    = ParagraphStyle("cv_meta", parent=styles["Normal"], fontName=_F, fontSize=8.5, textColor=MUTED, leading=11)
+    st_cell    = ParagraphStyle("cv_cell", parent=styles["Normal"], fontName=_F, fontSize=8.5, leading=11, textColor=SCURO)
+    st_cellh   = ParagraphStyle("cv_cellh", parent=styles["Normal"], fontName=T.FONT_SB, fontSize=7.5, textColor=SCURO, leading=10)
+    st_cap     = ParagraphStyle("cv_cap", parent=styles["Normal"], fontName=_F, fontSize=8, textColor=MUTED, leading=10, spaceBefore=3)
+    st_sign    = ParagraphStyle("cv_sign", parent=styles["Normal"], fontName=_F, fontSize=8, textColor=MUTED, leading=11)
+    st_signb   = ParagraphStyle("cv_signb", parent=styles["Normal"], fontName=T.FONT_SB, fontSize=8.5, textColor=SCURO, leading=11)
 
     data_fine = c.data_ultimazione or cantiere.data_fine_reale
     committente = c.committente_nome or cantiere.cliente or "—"
