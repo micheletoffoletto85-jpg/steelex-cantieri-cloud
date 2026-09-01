@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText, AlertTriangle, Clock, ExternalLink, Tag, FolderOpen } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Minus, Plus, X, ChevronDown, ChevronUp, Search, Phone, Mail, Edit2, Trash2, Link2, UserCheck, Upload, FileText, AlertTriangle, Clock, ExternalLink, Tag, FolderOpen, ClipboardList, HardHat } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -26,13 +26,11 @@ function ScoreBadge({ score, totale, su, medio, giu, size = 'md' }) {
         <p className={`font-semibold ${size === 'lg' ? 'text-base' : 'text-sm'} ${score >= 75 ? 'text-green-700' : score >= 45 ? 'text-yellow-700' : 'text-red-600'}`}>
           {label}
         </p>
-        <p className="text-xs text-gray-400">
-          <span className="text-green-600">👍{su}</span>
-          {' · '}
-          <span className="text-yellow-600">👌{medio}</span>
-          {' · '}
-          <span className="text-red-500">👎{giu}</span>
-          {' · '}{totale} feedback
+        <p className="text-xs text-gray-400 flex items-center gap-2">
+          <span className="text-green-600 inline-flex items-center gap-0.5"><ThumbsUp size={11} />{su}</span>
+          <span className="text-yellow-600 inline-flex items-center gap-0.5"><Minus size={11} />{medio}</span>
+          <span className="text-red-500 inline-flex items-center gap-0.5"><ThumbsDown size={11} />{giu}</span>
+          <span>· {totale} feedback</span>
         </p>
       </div>
     </div>
@@ -258,7 +256,7 @@ export default function ArtigianiPage() {
 
           {/* 3 doc principali */}
           <div className="border border-gray-200 rounded-xl p-3 space-y-3">
-            <p className="text-xs font-semibold text-gray-600">📋 Documenti principali</p>
+            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5"><ClipboardList size={13} /> Documenti principali</p>
             {[
               { label: 'DURC', scad: 'durc_scadenza', url: 'durc_drive_url' },
               { label: 'Primo Soccorso', scad: 'primo_soccorso_scadenza', url: 'primo_soccorso_drive_url' },
@@ -309,7 +307,7 @@ export default function ArtigianiPage() {
         <div className="text-center py-10 text-gray-400">Caricamento...</div>
       ) : filtrati.length === 0 ? (
         <div className="card text-center py-12 text-gray-400">
-          <p className="text-4xl mb-3">👷</p>
+          <HardHat size={40} className="mx-auto mb-3 opacity-30" />
           <p className="font-medium">Nessun artigiano trovato</p>
           {puoScrivere && <p className="text-sm mt-1">Aggiungi il primo con il tasto "Nuovo"</p>}
         </div>
@@ -530,11 +528,11 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
 
           {/* Feedback summary inline */}
           {a.totale_feedback > 0 ? (
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-xs text-green-600">👍{a.su}</span>
-              <span className="text-xs text-yellow-600">👌{a.medio}</span>
-              <span className="text-xs text-red-500">👎{a.giu}</span>
-              <span className="text-xs text-gray-400">· {a.totale_feedback} feedback</span>
+            <div className="flex items-center gap-2 mt-1.5 text-xs">
+              <span className="text-green-600 inline-flex items-center gap-0.5"><ThumbsUp size={11} />{a.su}</span>
+              <span className="text-yellow-600 inline-flex items-center gap-0.5"><Minus size={11} />{a.medio}</span>
+              <span className="text-red-500 inline-flex items-center gap-0.5"><ThumbsDown size={11} />{a.giu}</span>
+              <span className="text-gray-400">· {a.totale_feedback} feedback</span>
             </div>
           ) : (
             <p className="text-xs text-gray-400 mt-1">Nessun feedback ancora</p>
@@ -584,7 +582,7 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
           <div className="border border-gray-200 rounded-xl p-3 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
-                📋 Documenti principali
+                <ClipboardList size={13} /> Documenti principali
               </p>
               {a.drive_folder_url && (
                 <a href={a.drive_folder_url} target="_blank" rel="noopener noreferrer"
