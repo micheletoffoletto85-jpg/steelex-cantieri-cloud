@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Link } from 'react-router-dom'
-import { Plus, Search, HardHat, MapPin } from 'lucide-react'
+import { Plus, Search, HardHat, MapPin, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -44,6 +44,11 @@ export default function CantieriPage() {
     return true
   })
 
+  const nuovi = filtered.filter(c => c.stato === 'preventivo')
+  const operativi = filtered.filter(c => c.stato !== 'preventivo')
+  const mostraNuovi = filtroStato === 'tutti' || filtroStato === 'preventivo'
+  const mostraOperativi = filtroStato !== 'preventivo'
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -80,38 +85,59 @@ export default function CantieriPage() {
           <p>Nessun cantiere trovato</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map(c => (
-            <Link key={c.id} to={`/cantieri/${c.id}`} className="card block hover:border-steelex-orange transition-colors">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_STYLE[c.stato]}`}>{STATO_LABEL[c.stato]}</span>
-                  </div>
-                  <h3 className="font-bold text-gray-900 truncate">{c.nome}</h3>
-                  <p className="text-sm text-gray-600">{c.cliente}</p>
-                  {(c.citta || c.indirizzo) && (
-                    <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                      <MapPin size={12} /> {c.indirizzo}{c.citta ? `, ${c.citta}` : ''}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <div className="text-lg font-bold text-steelex-orange">{c.avanzamento}%</div>
-                  <div className="w-16 bg-gray-200 rounded-full h-1.5 mt-1">
-                    <div className="bg-steelex-orange h-1.5 rounded-full" style={{ width: `${c.avanzamento}%` }} />
-                  </div>
-                  {c.budget > 0 && <p className="text-xs text-gray-400 mt-1">€{c.budget.toLocaleString('it-IT')}</p>}
-                </div>
-              </div>
-            </Link>
-          ))}
+        <div className="space-y-5">
+          {mostraNuovi && nuovi.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
+                <Sparkles size={14} className="text-steelex-orange" /> Nuovi cantieri · in preventivo
+                <span className="text-gray-300 font-medium normal-case">({nuovi.length})</span>
+              </h2>
+              {nuovi.map(c => <CantiereCard key={c.id} c={c} nuovo />)}
+            </section>
+          )}
+          {mostraOperativi && operativi.length > 0 && (
+            <section className="space-y-2">
+              {mostraNuovi && nuovi.length > 0 && (
+                <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">Cantieri</h2>
+              )}
+              {operativi.map(c => <CantiereCard key={c.id} c={c} />)}
+            </section>
+          )}
         </div>
       )}
 
       {/* Modal nuovo cantiere */}
       {showForm && <NuovoCantiereModal onClose={() => setShowForm(false)} onSubmit={createMutation.mutate} loading={createMutation.isLoading} />}
     </div>
+  )
+}
+
+function CantiereCard({ c, nuovo }) {
+  return (
+    <Link to={`/cantieri/${c.id}`}
+      className={`card block transition-colors hover:border-steelex-orange ${nuovo ? 'border-l-4 border-l-steelex-orange' : ''}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_STYLE[c.stato]}`}>{STATO_LABEL[c.stato]}</span>
+          </div>
+          <h3 className="font-bold text-gray-900 truncate">{c.nome}</h3>
+          <p className="text-sm text-gray-600">{c.cliente}</p>
+          {(c.citta || c.indirizzo) && (
+            <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+              <MapPin size={12} /> {c.indirizzo}{c.citta ? `, ${c.citta}` : ''}
+            </p>
+          )}
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-lg font-bold text-steelex-orange">{c.avanzamento}%</div>
+          <div className="w-16 bg-gray-200 rounded-full h-1.5 mt-1">
+            <div className="bg-steelex-orange h-1.5 rounded-full" style={{ width: `${c.avanzamento}%` }} />
+          </div>
+          {c.budget > 0 && <p className="text-xs text-gray-400 mt-1">€{c.budget.toLocaleString('it-IT')}</p>}
+        </div>
+      </div>
+    </Link>
   )
 }
 
