@@ -215,7 +215,7 @@ export default function UtentiPage() {
 
       {/* Form modifica */}
       {editando && (
-        <div className="card space-y-3 border-2 border-fr-charcoal">
+        <div className="card space-y-3 border-2 border-steelex-orange">
           <div className="flex items-center justify-between">
             <h2 className="font-bold text-lg">Modifica: {editando.nome} {editando.cognome}</h2>
             <button onClick={() => setEditando(null)} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
@@ -312,11 +312,11 @@ export default function UtentiPage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${RUOLO_COLOR[u.ruolo] || 'text-gray-600 bg-gray-50'}`}>
                       {RUOLO_LABEL[u.ruolo] || u.ruolo}
                     </span>
-                    <button onClick={() => apriModifica(u)} className="p-1.5 text-gray-400 hover:text-fr-charcoal transition-colors" title="Modifica">
+                    <button onClick={() => apriModifica(u)} className="p-1.5 text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica">
                       <Edit2 size={16} />
                     </button>
                     <button onClick={() => toggleMutation.mutate({ id: u.id, attivo: !u.attivo })}
-                      className="text-gray-400 hover:text-fr-charcoal transition-colors" title={u.attivo ? 'Disattiva' : 'Attiva'}>
+                      className="text-gray-400 hover:text-steelex-orange transition-colors" title={u.attivo ? 'Disattiva' : 'Attiva'}>
                       {u.attivo ? <ToggleRight size={24} className="text-green-500" /> : <ToggleLeft size={24} />}
                     </button>
                     {!isSelf && (

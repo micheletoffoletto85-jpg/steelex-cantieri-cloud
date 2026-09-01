@@ -802,7 +802,7 @@ export default function GanttTab({ cantiereId, cantiere }) {
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Avanzamento %</label>
               <div className="flex items-center gap-2">
-                <input type="range" min="0" max="100" step="5" value={form.percentuale} onChange={e => setF('percentuale', e.target.value)} className="flex-1 accent-fr-charcoal" />
+                <input type="range" min="0" max="100" step="5" value={form.percentuale} onChange={e => setF('percentuale', e.target.value)} className="flex-1 accent-steelex-orange" />
                 <span className="text-sm font-bold text-steelex-orange w-10">{form.percentuale}%</span>
               </div>
             </div>
@@ -835,7 +835,7 @@ export default function GanttTab({ cantiereId, cantiere }) {
           {/* Visibilità cliente */}
           <label className="flex items-center gap-2 cursor-pointer select-none py-1">
             <input type="checkbox" checked={!!form.visibile_cliente} onChange={e => setF('visibile_cliente', e.target.checked)}
-              className="w-4 h-4 accent-fr-charcoal" />
+              className="w-4 h-4 accent-steelex-orange" />
             <span className="text-sm text-gray-600">Mostra questa fase al cliente</span>
           </label>
 
@@ -1458,7 +1458,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
 
       {/* Card principale */}
       <div
-        className={`bg-white rounded-2xl space-y-2 select-none p-4 transition-transform duration-200 ${swiped ? '-translate-x-20' : 'translate-x-0'} ${selezionato ? 'ring-2 ring-fr-charcoal' : ''}`}
+        className={`bg-white rounded-2xl space-y-2 select-none p-4 transition-transform duration-200 ${swiped ? '-translate-x-20' : 'translate-x-0'} ${selezionato ? 'ring-2 ring-steelex-orange' : ''}`}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onClick={() => { if (modalitaSelect) onSelect(f.id) }}
@@ -1467,7 +1467,7 @@ function FaseCard({ f, sal, canWrite, onEdit, onDelete, onUpdate, onSelect, sele
           {/* Checkbox selezione multipla */}
           {modalitaSelect && canWrite && (
             <input type="checkbox" checked={!!selezionato} onChange={() => onSelect(f.id)}
-              className="w-5 h-5 accent-fr-charcoal flex-shrink-0 mt-0.5" onClick={e => e.stopPropagation()} />
+              className="w-5 h-5 accent-steelex-orange flex-shrink-0 mt-0.5" onClick={e => e.stopPropagation()} />
           )}
 
           <div className="flex items-center gap-2 flex-1 min-w-0">

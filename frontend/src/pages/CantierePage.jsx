@@ -951,7 +951,7 @@ function MappeTab({ cantiereId }) {
     <div className="space-y-3">
       {/* Upload singolo */}
       {canWrite && (
-        <label className={`card flex items-center gap-3 cursor-pointer hover:border-fr-accent border-2 border-dashed border-gray-200 transition-colors ${uploadMutation.isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
+        <label className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 border-dashed border-gray-200 transition-colors ${uploadMutation.isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
           <Upload size={20} className="text-steelex-orange flex-shrink-0" />
           <div>
             <p className="font-medium text-sm text-gray-800">{uploadMutation.isLoading ? 'Caricamento...' : 'Carica mappa o documento'}</p>
@@ -969,7 +969,7 @@ function MappeTab({ cantiereId }) {
       ) : (
         <div className="space-y-2">
           {docs.map(doc => (
-            <div key={doc.id} className={`card flex items-center gap-3 cursor-pointer hover:border-fr-accent border-2 transition-colors ${docSelezionato?.id === doc.id ? 'border-fr-accent' : 'border-transparent'}`}
+            <div key={doc.id} className={`card flex items-center gap-3 cursor-pointer hover:border-steelex-orange border-2 transition-colors ${docSelezionato?.id === doc.id ? 'border-steelex-orange' : 'border-transparent'}`}
               onClick={() => { setDocSelezionato(docSelezionato?.id === doc.id ? null : doc); setPinSelezionato(null) }}>
               <div className="p-2 bg-gray-100 rounded-lg">{doc.tipo === 'pdf' ? <FileText size={18} className="text-red-500" /> : <Map size={18} className="text-steelex-orange" />}</div>
               <div className="flex-1 min-w-0">
@@ -1033,7 +1033,7 @@ function MappeTab({ cantiereId }) {
                         <div className="flex gap-1 pt-1">
                           {Object.entries(STATO_PIN).map(([k, v]) => (
                             <button key={k} onClick={() => aggiornaStato(pinSelezionato.id, k)}
-                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinSelezionato.stato === k ? 'border-fr-accent bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinSelezionato.stato === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
                               {v.label}
                             </button>
                           ))}
@@ -1048,7 +1048,7 @@ function MappeTab({ cantiereId }) {
                       <div className="grid grid-cols-3 gap-1.5">
                         {Object.entries(TIPO_PIN).map(([k, v]) => (
                           <button key={k} type="button" onClick={() => setEditPinForm(f => ({ ...f, tipo: k }))}
-                            className={`py-2 rounded-lg text-xs font-medium border-2 transition-colors ${editPinForm.tipo === k ? 'border-fr-accent bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
+                            className={`py-2 rounded-lg text-xs font-medium border-2 transition-colors ${editPinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
                             {v.label}
                           </button>
                         ))}
@@ -1097,7 +1097,7 @@ function MappeTab({ cantiereId }) {
                                   setEditPinForm(f => ({ ...f, visibilita: f.visibilita?.includes(key) ? f.visibilita.filter(x=>x!==key) : [...(f.visibilita||[]), key] }))
                                 }
                               }}
-                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${editPinForm.visibilita?.includes(key) ? 'bg-steelex-orange text-white border-fr-accent' : 'border-gray-200 text-gray-500'}`}>
+                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${editPinForm.visibilita?.includes(key) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
                               {label}
                             </button>
                           ))}
@@ -1166,7 +1166,7 @@ function MappeTab({ cantiereId }) {
                       {/* Registrazione vocale */}
                       {pinRecStato === 'idle' && (
                         <button onClick={avviaPinRec}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-fr-accent text-steelex-orange text-sm font-medium hover:bg-orange-50 active:scale-95 transition-all">
+                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-steelex-orange text-steelex-orange text-sm font-medium hover:bg-orange-50 active:scale-95 transition-all">
                           <Mic size={16} /> 🎙️ Registra aggiornamento vocale
                         </button>
                       )}
@@ -1225,7 +1225,7 @@ function MappeTab({ cantiereId }) {
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(TIPO_PIN).map(([k, v]) => (
                 <button key={k} onClick={() => setPinForm(f => ({ ...f, tipo: k }))}
-                  className={`py-2.5 rounded-xl text-xs font-medium border-2 transition-colors flex flex-col items-center gap-1 ${pinForm.tipo === k ? 'border-fr-accent bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
+                  className={`py-2.5 rounded-xl text-xs font-medium border-2 transition-colors flex flex-col items-center gap-1 ${pinForm.tipo === k ? 'border-steelex-orange bg-orange-50 text-steelex-orange' : 'border-gray-200 text-gray-600'}`}>
                   {k === 'criticita' ? <AlertTriangle size={15} /> : k === 'lavorazione' ? <Wrench size={15} /> : k === 'extra_preventivo' ? <AlertCircle size={15} className="text-orange-500" /> : <MapPin size={15} />}
                   {v.label}
                 </button>
@@ -1253,7 +1253,7 @@ function MappeTab({ cantiereId }) {
             {/* Descrizione + Registrazione vocale */}
             {pinFormRecStato === 'idle' && (
               <button onClick={avviaPinFormRec}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-fr-accent text-steelex-orange font-medium hover:bg-orange-50 active:scale-95 transition-all">
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-steelex-orange text-steelex-orange font-medium hover:bg-orange-50 active:scale-95 transition-all">
                 <Mic size={18} /> 🎙️ Registra descrizione vocale
               </button>
             )}
@@ -1311,7 +1311,7 @@ function MappeTab({ cantiereId }) {
                         setPinForm(f => ({ ...f, visibilita: f.visibilita.includes(key) ? f.visibilita.filter(x=>x!==key) : [...f.visibilita, key] }))
                       }
                     }}
-                    className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinForm.visibilita.includes(key) ? 'bg-steelex-orange text-white border-fr-accent' : 'border-gray-200 text-gray-500'}`}>
+                    className={`text-xs px-2 py-1 rounded-lg border transition-colors ${pinForm.visibilita.includes(key) ? 'bg-steelex-orange text-white border-steelex-orange' : 'border-gray-200 text-gray-500'}`}>
                     {label}
                   </button>
                 ))}
@@ -1821,7 +1821,7 @@ function DiarioTab({ cantiereId, utente }) {
                   </div>
                 ) : (
                   <button onClick={() => { setInserendoSpesa(nota.id); setSpesaForm(f => ({...f, descrizione: nota.testo.substring(0, 80)})) }}
-                    className="w-full py-1 text-xs text-steelex-orange hover:bg-orange-50 rounded-lg border border-dashed border-fr-accent/50 flex items-center justify-center gap-1">
+                    className="w-full py-1 text-xs text-steelex-orange hover:bg-orange-50 rounded-lg border border-dashed border-steelex-orange/50 flex items-center justify-center gap-1">
                     <Euro size={11} /> Inserisci in Economia
                   </button>
                 )
@@ -2012,7 +2012,7 @@ function DiarioTab({ cantiereId, utente }) {
               <div className="flex items-start gap-2">
                 {puoValidare && (
                   <input type="checkbox" checked={selRelazione.has(d.id)} onChange={() => toggleSelRelazione(d.id)}
-                    className="w-4 h-4 mt-0.5 accent-fr-accent flex-shrink-0 cursor-pointer" title="Seleziona per la relazione PDF" />
+                    className="w-4 h-4 mt-0.5 accent-steelex-orange flex-shrink-0 cursor-pointer" title="Seleziona per la relazione PDF" />
                 )}
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -2149,7 +2149,7 @@ function DiarioTab({ cantiereId, utente }) {
                     updateMutation.mutate({ id: d.id, attivita: d.attivita, condividi_cliente: false })
                   }
                 }}
-                className="w-3.5 h-3.5 accent-fr-accent" />
+                className="w-3.5 h-3.5 accent-steelex-orange" />
               <span className="text-xs text-gray-400">Condividi con cliente</span>
             </label>
           <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor===d.id?'opacity-50':''}`}>
@@ -2574,7 +2574,7 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
 
       {/* Panel conferma upload multiplo — scegli sezione */}
       {filesMulti && (
-        <div className="card border border-fr-accent/40 space-y-3">
+        <div className="card border border-steelex-orange/40 space-y-3">
           <div className="flex items-center justify-between">
             <p className="font-semibold text-sm text-gray-700">📂 {filesMulti.length} file selezionati</p>
             <button onClick={() => setFilesMulti(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
@@ -2597,7 +2597,7 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
 
       {/* Form upload singolo file */}
       {fileInAttesa && (
-        <div className="card border border-fr-accent/30 space-y-3">
+        <div className="card border border-steelex-orange/30 space-y-3">
           <p className="font-semibold text-sm text-gray-700">📎 {fileInAttesa.name}</p>
           <input className="input-field" placeholder="Nome documento"
             value={formUpload.nome} onChange={e => setFormUpload(p => ({ ...p, nome: e.target.value }))} />
@@ -2621,7 +2621,7 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
         <div className="flex items-center gap-3 px-1">
           <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 select-none">
             <input type="checkbox" checked={tuttiSelezionati} onChange={toggleTutti}
-              className="w-4 h-4 accent-fr-accent" />
+              className="w-4 h-4 accent-steelex-orange" />
             {tuttiSelezionati ? 'Deseleziona tutto' : 'Seleziona tutto'}
           </label>
           {selezionati.size > 0 && (
@@ -2681,10 +2681,10 @@ function DocRow({ doc, apiUrl, isStaff, onElimina, selezionato, onToggleSel }) {
   const cat = CATEGORIE_DOC[doc.categoria]
   const fileUrl = doc.file_url?.startsWith('http') ? doc.file_url : `${apiUrl}${doc.file_url}`
   return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 bg-white rounded-xl border transition-colors group ${selezionato ? 'border-fr-accent bg-orange-50' : 'border-gray-100 hover:border-gray-200'}`}>
+    <div className={`flex items-center gap-3 px-3 py-2.5 bg-white rounded-xl border transition-colors group ${selezionato ? 'border-steelex-orange bg-orange-50' : 'border-gray-100 hover:border-gray-200'}`}>
       {isStaff && (
         <input type="checkbox" checked={selezionato} onChange={onToggleSel}
-          className="w-4 h-4 accent-fr-accent flex-shrink-0 cursor-pointer" />
+          className="w-4 h-4 accent-steelex-orange flex-shrink-0 cursor-pointer" />
       )}
       <span className="text-xl flex-shrink-0">{icona}</span>
       <a href={fileUrl} target="_blank" rel="noreferrer" className="flex-1 min-w-0 hover:text-steelex-orange transition-colors">
