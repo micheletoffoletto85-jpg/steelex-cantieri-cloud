@@ -5,6 +5,9 @@ import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
+// Le etichette categoria dal backend hanno un'emoji iniziale — la togliamo (MASTER.md: niente emoji come icona)
+const pulisciCat = (s) => (s || '').replace(/^[^\p{L}]+/u, '').trim()
+
 const VOTO_CONFIG = {
   su:    { label: 'Positivo',  icon: ThumbsUp,   color: 'text-green-600',  bg: 'bg-green-100',  border: 'border-green-400' },
   medio: { label: 'Neutro',    icon: Minus,       color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-400' },
@@ -232,7 +235,7 @@ export default function ArtigianiPage() {
           </div>
           <input className="input-field text-sm" placeholder="Azienda / Ditta" value={form.azienda} onChange={e => setF('azienda', e.target.value)} />
           <select className="input-field text-sm" value={form.categoria} onChange={e => setF('categoria', e.target.value)}>
-            {categorie.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            {categorie.map(c => <option key={c.value} value={c.value}>{pulisciCat(c.label)}</option>)}
           </select>
           <div>
             <label className="text-xs text-gray-500 font-medium mb-1 block">Tag lavorazioni aggiuntive</label>
@@ -295,8 +298,8 @@ export default function ArtigianiPage() {
           </button>
           {categorie.map(c => (
             <button key={c.value} onClick={() => setFiltroCategoria(filtroCategoria === c.value ? '' : c.value)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filtroCategoria === c.value ? 'bg-steelex-orange text-white' : 'bg-white border border-gray-200 text-gray-500'}`}>
-              {c.label}
+              className={`px-3 py-1.5 min-h-[36px] rounded-full text-xs font-semibold transition-colors ${filtroCategoria === c.value ? 'bg-steelex-orange text-white' : 'bg-white border border-steelex-border text-steelex-muted-fg hover:border-steelex-border-strong'}`}>
+              {pulisciCat(c.label)}
             </button>
           ))}
         </div>
@@ -469,7 +472,7 @@ function ArtigianoCard({ artigiano: a, espanso, onEspandi, puoScrivere, puoElimi
     { onSuccess: () => { qc.invalidateQueries(['feedback', a.id]); qc.invalidateQueries('artigiani') } }
   )
 
-  const catLabel = a.categoria_label || a.categoria
+  const catLabel = pulisciCat(a.categoria_label || a.categoria)
 
   // Alert scadenze — stessa logica di FR, sui 3 doc principali
   const oggiCard = new Date()
