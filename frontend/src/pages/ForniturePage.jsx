@@ -13,14 +13,6 @@ const CATEGORIE_RATING = [
   { value: 'sicurezza', label: 'Sicurezza' },
 ]
 
-const PROFESSIONI_LABEL = {
-  'Muratore': '🧱', 'Carpentiere in legno': '🪵', 'Carpentiere metallico': '⚙️',
-  'Elettricista': '⚡', 'Idraulico / Termoidraulico': '🔧', 'Installatore serramenti': '🚪',
-  'Tinteggiatore / Decoratore': '🎨', 'Piastrellista': '🏠', 'Pavimentatore': '🏗️',
-  'Saldatore': '🔥', 'Ponteggiatore': '🏗️', 'Trasportatore': '🚚',
-  'Noleggio attrezzature': '🔨', 'Geometra': '📐', 'Ingegnere / Architetto': '🏛️', 'Altro': '👷',
-}
-
 function StarsDisplay({ value, max = 5, size = 14 }) {
   return (
     <div className="flex items-center gap-0.5">
@@ -152,7 +144,7 @@ function FornitoreCard({ fornitore: f, espanso, onEspandi, puoScrivere, showRati
     { onSuccess: () => { qc.invalidateQueries(['ratings', f.id]); qc.invalidateQueries(['fornitori']) } }
   )
 
-  const emoji = PROFESSIONI_LABEL[f.tipo_professione] || '👷'
+  const iniziale = (f.nome?.[0] || f.cognome?.[0] || '?').toUpperCase()
   const badge = f.media_punteggio
     ? f.media_punteggio >= 4 ? 'bg-green-100 text-green-700' : f.media_punteggio >= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
     : 'bg-gray-100 text-gray-500'
@@ -161,8 +153,8 @@ function FornitoreCard({ fornitore: f, espanso, onEspandi, puoScrivere, showRati
     <div className="card">
       <div className="flex items-start gap-3">
         {/* Avatar */}
-        <div className="w-10 h-10 rounded-full bg-steelex-orange/10 flex items-center justify-center text-lg flex-shrink-0">
-          {emoji}
+        <div className="w-10 h-10 rounded-full bg-steelex-orange/10 text-steelex-orange flex items-center justify-center text-sm font-bold flex-shrink-0">
+          {iniziale}
         </div>
 
         {/* Info */}
