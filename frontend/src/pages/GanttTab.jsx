@@ -4,7 +4,7 @@
  */
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users, GripVertical, FileDown, ClipboardList } from 'lucide-react'
+import { Plus, Trash2, X, Edit2, Save, AlertTriangle, CheckCircle2, Clock, PauseCircle, Calendar, Sparkles, Loader2, Eye, EyeOff, Users, GripVertical, FileDown, ClipboardList, BarChart2, List } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -611,11 +611,11 @@ export default function GanttTab({ cantiereId, cantiere }) {
       {/* Header con vista toggle */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          <button onClick={() => setVista('gantt')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='gantt' ? 'bg-white shadow text-steelex-orange' : 'text-gray-500'}`}>
-            📊 Gantt
+          <button onClick={() => setVista('gantt')} className={`flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${vista==='gantt' ? 'bg-white shadow-sm text-steelex-orange' : 'text-gray-500'}`}>
+            <BarChart2 size={14} /> Gantt
           </button>
-          <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='lista' ? 'bg-white shadow text-steelex-orange' : 'text-gray-500'}`}>
-            📋 Lista
+          <button onClick={() => setVista('lista')} className={`flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${vista==='lista' ? 'bg-white shadow-sm text-steelex-orange' : 'text-gray-500'}`}>
+            <List size={14} /> Lista
           </button>
         </div>
         <div className="flex gap-2">
