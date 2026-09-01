@@ -1,10 +1,22 @@
 {
   "since_id_steelex": 39,
-  "since_id_fr": 126,
+  "since_id_fr": 127,
   "deleted_id_steelex": 39,
   "deleted_id_fr": 126,
   "pending": {
     "steelex": [],
-    "fr": []
+    "fr": [
+      {
+        "id": 127,
+        "creato_il": "2026-09-01T14:48:57.966315+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/3/stanze",
+        "metodo": "POST",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/commerciale/preventivi/3/rilievo",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      }
+    ]
   }
 }
