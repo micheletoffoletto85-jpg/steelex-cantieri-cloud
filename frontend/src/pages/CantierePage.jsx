@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check, Flag } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, FileImage, FileSpreadsheet, FileArchive, PencilRuler, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check, Flag } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ChiusuraTab from './ChiusuraTab'
 import MeteoMappa from '../components/MeteoMappa'
@@ -2375,14 +2375,20 @@ function TeamTab({ cantiereId, utente }) {
 
 /* ─── TAB ARCHIVIO DOCUMENTI ─── */
 const CATEGORIE_DOC = {
-  sicurezza:         { label: '🦺 Sicurezza',           bg: 'bg-red-100 text-red-700' },
-  relazioni_disegni: { label: '📐 Relazioni e Disegni', bg: 'bg-blue-100 text-blue-700' },
-  amministrazione:   { label: '📋 Amministrazione',     bg: 'bg-green-100 text-green-700' },
-  operativita:       { label: '⚙️ Operatività',         bg: 'bg-orange-100 text-orange-700' },
-  cliente:           { label: '👤 Documenti Cliente',   bg: 'bg-purple-100 text-purple-700' },
+  sicurezza:         { label: 'Sicurezza',           bg: 'bg-red-100 text-red-700' },
+  relazioni_disegni: { label: 'Relazioni e Disegni', bg: 'bg-blue-100 text-blue-700' },
+  amministrazione:   { label: 'Amministrazione',     bg: 'bg-green-100 text-green-700' },
+  operativita:       { label: 'Operatività',         bg: 'bg-orange-100 text-orange-700' },
+  cliente:           { label: 'Documenti Cliente',   bg: 'bg-purple-100 text-purple-700' },
 }
 
-const TIPO_ICONA = { pdf: '📄', dwg: '📐', dxf: '📐', jpg: '🖼', jpeg: '🖼', png: '🖼', xlsx: '📊', xls: '📊', docx: '📝', doc: '📝', zip: '🗜' }
+// Icona per tipo file — SVG, non emoji (MASTER.md)
+const TIPO_ICONA = {
+  pdf: FileText, dwg: PencilRuler, dxf: PencilRuler,
+  jpg: FileImage, jpeg: FileImage, png: FileImage,
+  xlsx: FileSpreadsheet, xls: FileSpreadsheet,
+  docx: FileText, doc: FileText, zip: FileArchive,
+}
 
 // File di sistema da ignorare nell'upload cartella
 const FILE_SISTEMA = new Set(['desktop.ini', 'thumbs.db', '.ds_store', '.localized', 'picasa.ini', 'folder.jpg', 'albumartsmall.jpg'])
@@ -2677,7 +2683,7 @@ function RaccoltaDocumentiTab({ cantiereId, utente }) {
 
 function DocRow({ doc, apiUrl, isStaff, onElimina, selezionato, onToggleSel }) {
   const ext = doc.tipo_file || ''
-  const icona = TIPO_ICONA[ext.toLowerCase()] || '📎'
+  const IconaFile = TIPO_ICONA[ext.toLowerCase()] || FileText
   const cat = CATEGORIE_DOC[doc.categoria]
   const fileUrl = doc.file_url?.startsWith('http') ? doc.file_url : `${apiUrl}${doc.file_url}`
   return (
@@ -2686,7 +2692,7 @@ function DocRow({ doc, apiUrl, isStaff, onElimina, selezionato, onToggleSel }) {
         <input type="checkbox" checked={selezionato} onChange={onToggleSel}
           className="w-4 h-4 accent-steelex-orange flex-shrink-0 cursor-pointer" />
       )}
-      <span className="text-xl flex-shrink-0">{icona}</span>
+      <IconaFile size={20} className="flex-shrink-0 text-steelex-muted-fg" />
       <a href={fileUrl} target="_blank" rel="noreferrer" className="flex-1 min-w-0 hover:text-steelex-orange transition-colors">
         <p className="font-medium text-gray-800 text-sm truncate hover:text-steelex-orange">{doc.nome}</p>
         <div className="flex items-center gap-2 mt-0.5">
