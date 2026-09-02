@@ -2,7 +2,11 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api/v1',
-  timeout: 12000,
+  // Il backend attende fino a pool_timeout=20s per una connessione DB libera (vedi
+  // backend/app/database.py): un timeout client più corto (12s) fa scadere la richiesta
+  // lato utente PRIMA che il server finisca di aspettare, causando falsi "Timeout client"
+  // ogni volta che più richieste GET partono in parallelo (es. tab Economia).
+  timeout: 25000,
 })
 
 api.interceptors.request.use((config) => {
