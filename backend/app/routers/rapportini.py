@@ -394,7 +394,11 @@ async def trascrivi_audio(
         err_str = str(e).lower()
         if "quota" in err_str or "rate" in err_str or "429" in err_str:
             raise HTTPException(503, "Servizio di trascrizione momentaneamente sovraccarico — riprova tra qualche secondo")
-        if "format" in err_str or "codec" in err_str or "invalid" in err_str:
+        # Solo messaggi che parlano davvero di formato/codec: "invalid" da solo matcha anche
+        # "invalid_request_error", il type generico di OpenAI per QUALSIASI errore 400 — con
+        # quel match tutti gli errori 400 (non solo quelli di formato) finivano mascherati
+        # dietro lo stesso messaggio fisso, rendendo impossibile capire la vera causa.
+        if "file format" in err_str or "codec" in err_str or "support the format" in err_str or "unrecognized format" in err_str:
             raise HTTPException(422, "Formato audio non supportato — riprova registrando di nuovo")
         raise HTTPException(502, f"Errore trascrizione: {str(e)[:120]}")
     finally:
