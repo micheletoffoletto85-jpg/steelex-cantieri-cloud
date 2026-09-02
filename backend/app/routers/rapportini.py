@@ -72,6 +72,12 @@ Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON.
 Regole:
 - Non inventare dati non presenti nel testo — se un cantiere non è chiaramente riconoscibile lascialo
   null piuttosto che indovinare
+- "ore" è la DURATA del lavoro in ore, numero decimale (mezz'ora = 0.5, un quarto d'ora = 0.25).
+  NON è un orario: "sono arrivato alle 8:30", "alle 17 ho staccato", "da mezzogiorno" sono ORARI,
+  non durate. Metti un numero in "ore" SOLO se l'operaio dice quante ore ha lavorato, oppure dà
+  sia l'ora di inizio sia quella di fine (allora calcola tu la durata). Se dà solo un orario o
+  niente, lascia "ore" a null. Mai convertire "8:30" in 8.3 (semmai una durata di 8 ore e mezza è 8.5).
+  Stessa regola per le "ore" dei colleghi e degli altri_cantieri.
 - Se l'operaio nomina un collega presente/al lavoro insieme a lui (es. "io e Mesedin",
   "con Mario abbiamo fatto...", "eravamo in due, io e..."), inseriscilo in colleghi con il suo
   nome — se non specifica ore diverse per il collega, lascia ore a null (si userà lo stesso
@@ -759,6 +765,61 @@ def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: 
     db.flush()
 
 
+def _registro_ore_fuori_cantiere(db: Session, r: RapportinoOperativo, data_obj) -> None:
+    """Registra le ore di un rapportino SENZA cantiere (corsi, ferie, trasferte, lavori
+    fuori commessa) nel registro personale Ore lavorate. Non tocca costi cantiere/diario
+    (non esistono): serve solo a non perdere le ore. Operativo + eventuali colleghi citati,
+    esterni compresi (operatore_nome)."""
+    from sqlalchemy.orm.attributes import flag_modified
+    # Riga dell'operativo
+    if r.ore_lavorate and r.ore_lavorate > 0:
+        row = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first() if r.ore_lavorate_id else None
+        if row:
+            row.ore = float(r.ore_lavorate)
+            row.aggiornato_il = datetime.utcnow()
+        else:
+            row = OreLavorate(utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
+                              descrizione=r.riassunto or "Rapportino (fuori cantiere)", rapportino_id=r.id)
+            db.add(row); db.flush()
+            r.ore_lavorate_id = row.id
+    elif r.ore_lavorate_id:
+        vecchia = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
+        r.ore_lavorate_id = None
+        db.flush()
+        if vecchia:
+            db.delete(vecchia)
+
+    # Righe dei colleghi citati (rifatte da zero a ogni passaggio)
+    db.query(OreLavorate).filter(
+        OreLavorate.rapportino_id == r.id,
+        OreLavorate.id != (r.ore_lavorate_id or 0),
+    ).delete(synchronize_session=False)
+    db.flush()
+
+    norm = []
+    for c in (r.colleghi_ore or []):
+        nome = (c.get("nome") or "").strip()
+        if not nome:
+            continue
+        ore_raw = c.get("ore")
+        ore = float(ore_raw) if ore_raw else float(r.ore_lavorate or 0)
+        if ore <= 0:
+            continue
+        uid = c.get("utente_id") or _match_operatore(db, nome, None)
+        u = db.query(Utente).filter(Utente.id == uid).first() if uid else None
+        db.add(OreLavorate(
+            utente_id=(u.id if u else None),
+            operatore_nome=(None if u else nome),
+            data=data_obj, ore=ore,
+            descrizione=(r.riassunto or "Rapportino (fuori cantiere)") + f" — citato da {r.operativo.nome if r.operativo else 'collega'}",
+            rapportino_id=r.id,
+        ))
+        norm.append({"nome": nome, "ore": ore_raw, "utente_id": (u.id if u else None)})
+    r.colleghi_ore = norm
+    flag_modified(r, "colleghi_ore")
+    db.flush()
+
+
 class ValidaBody(BaseModel):
     cantiere_id: Optional[int] = None
     note_admin: Optional[str] = None
@@ -931,7 +992,11 @@ def assegna_cantiere_rapportino(
                 OreExtra.id != (r.ore_extra_id or 0),
             ).update({"cantiere_id": cantiere.id}, synchronize_session=False)
     elif r.stato == "validato":
-        # Rapportino validato senza diario (era fuori cantiere): crealo ora
+        # Rapportino validato senza diario (era fuori cantiere): le ore erano già a
+        # registro come "senza cantiere" — ripuliscile, le rifà _crea_diario col cantiere
+        db.query(OreLavorate).filter(OreLavorate.rapportino_id == r.id).delete(synchronize_session=False)
+        r.ore_lavorate_id = None
+        db.flush()
         _crea_diario_da_rapportino(db, r, cantiere.id)
 
     db.commit()
@@ -1018,12 +1083,19 @@ def modifica_rapportino(
     # Colleghi citati come presenti/al lavoro insieme — ricrea le loro righe ore se la
     # lista o le ore di riferimento sono cambiate (i colleghi senza ore proprie ereditano
     # le ore_lavorate del rapportino)
-    if ("colleghi_ore" in dati or "ore_lavorate" in dati or "riassunto" in dati) and r.diario_id and r.cantiere_id and r.colleghi_ore:
+    _tocca_ore = ("colleghi_ore" in dati or "ore_lavorate" in dati or "riassunto" in dati)
+    if _tocca_ore and r.diario_id and r.cantiere_id and r.colleghi_ore:
         try:
             data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
         except Exception:
             data_obj = date_today.today()
         _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)
+    elif _tocca_ore and r.stato == "validato" and not r.cantiere_id:
+        try:
+            data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
+        except Exception:
+            data_obj = date_today.today()
+        _registro_ore_fuori_cantiere(db, r, data_obj)
 
     db.commit()
     return _rap_dict(r, db)
@@ -1217,7 +1289,8 @@ def rianalizza_rapportino(
         if ore_personali:
             ore_personali.ore = float(r.ore_lavorate)
             ore_personali.aggiornato_il = datetime.utcnow()
-        elif r.diario_id:
+        elif r.stato == "validato":
+            # anche i rapportini senza cantiere (fuori commessa) lasciano traccia nel registro
             ore_personali = OreLavorate(
                 utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
                 descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id,
@@ -1227,6 +1300,8 @@ def rianalizza_rapportino(
 
     if r.diario_id and r.cantiere_id:
         _sostituisci_colleghi_ore(db, r, r.cantiere_id, data_obj)
+    elif r.stato == "validato" and not r.cantiere_id:
+        _registro_ore_fuori_cantiere(db, r, data_obj)
 
     db.commit()
     return _rap_dict(r, db)
@@ -1275,10 +1350,9 @@ def dividi_rapportino(
         vecchie_ore = db.query(OreExtra).filter(OreExtra.id == vecchio_ore_extra_id).first()
         if vecchie_ore:
             db.delete(vecchie_ore)
-    if vecchio_ore_lavorate_id:
-        vecchie_ore_pers = db.query(OreLavorate).filter(OreLavorate.id == vecchio_ore_lavorate_id).first()
-        if vecchie_ore_pers:
-            db.delete(vecchie_ore_pers)
+    # tutte le righe registro-ore di questo rapportino (operativo + colleghi, anche
+    # quelle create quando era "fuori cantiere") — i figli le rifaranno alla validazione
+    db.query(OreLavorate).filter(OreLavorate.rapportino_id == r.id).delete(synchronize_session=False)
     if vecchio_diario_id:
         vecchio_diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == vecchio_diario_id).first()
         if vecchio_diario:
@@ -1359,6 +1433,13 @@ def valida_rapportino(
 
     if cantiere_id:
         _crea_diario_da_rapportino(db, r, cantiere_id)
+    else:
+        # Nessun cantiere: le ore vanno comunque nel registro personale
+        try:
+            data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
+        except Exception:
+            data_obj = date_today.today()
+        _registro_ore_fuori_cantiere(db, r, data_obj)
 
     r.stato = "validato"
     r.note_admin = body.note_admin
