@@ -741,12 +741,16 @@ def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: 
         )
         db.add(riga); db.flush()
         _sync_voce_extra_ore_safe(db, riga)
-        if u:
-            db.add(OreLavorate(
-                utente_id=u.id, data=data_obj, ore=ore,
-                descrizione=(r.riassunto or "Rapportino di cantiere") + f" — citato da {r.operativo.nome if r.operativo else 'collega'}",
-                rapportino_id=r.id,
-            ))
+        # La riga entra sempre nel registro Ore lavorate: se il collega ha un account
+        # è collegato a lui, altrimenti (operatore esterno occasionale, "socio") resta
+        # come nome libero in operatore_nome — l'importante è che lasci traccia.
+        db.add(OreLavorate(
+            utente_id=(u.id if u else None),
+            operatore_nome=(None if u else nome),
+            data=data_obj, ore=ore,
+            descrizione=(r.riassunto or "Rapportino di cantiere") + f" — citato da {r.operativo.nome if r.operativo else 'collega'}",
+            rapportino_id=r.id,
+        ))
         colleghi_norm.append({"nome": nome, "ore": ore_raw, "utente_id": (u.id if u else None), "extra_preventivo": c_extra})
 
     # Memorizza gli abbinamenti risolti così restano stabili tra una modifica e l'altra
