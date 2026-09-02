@@ -217,6 +217,7 @@ def genera_relazione_pdf(
                                      Spacer, HRFlowable, Image as RLImage, KeepTogether)
     from app import pdf_theme as T
     from app.storage import leggi_file
+    from concurrent.futures import ThreadPoolExecutor
 
     S = T.make_styles()
     PRIMARIO, SCURO = T.palette()
@@ -344,10 +345,22 @@ def genera_relazione_pdf(
         if foto_urls:
             tot_foto += len(foto_urls)
             cella_w = 55*mm
-            righe_foto, riga = [], []
-            for url in foto_urls:
+            # Il download da R2 è I/O-bound e indipendente per ogni foto: le scarichiamo
+            # in parallelo invece che una alla volta per ridurre ulteriormente i tempi
+            # di generazione (oltre al ridimensionamento sotto, non tocca il DB).
+            def _scarica_foto(url):
                 try:
-                    contenuto, _ = leggi_file(_chiave_da_url_foto(url))
+                    return leggi_file(_chiave_da_url_foto(url))
+                except Exception:
+                    return None
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                contenuti = list(executor.map(_scarica_foto, foto_urls))
+            righe_foto, riga = [], []
+            for risultato in contenuti:
+                if risultato is None:
+                    continue
+                contenuto, _ = risultato
+                try:
                     img_buf, iw, ih = _foto_ridotta_per_pdf(contenuto)
                     h = min(cella_w * ih / iw, 55*mm) if iw else cella_w
                     w = h * iw / ih if ih else cella_w
