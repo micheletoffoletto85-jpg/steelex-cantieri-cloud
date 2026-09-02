@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Clock, Plus, Trash2, Check, X, Pencil, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Clock, Plus, Trash2, Check, X, Pencil, ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
 import api from '../lib/api'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
@@ -64,13 +64,32 @@ export default function OreLavoratePage() {
 
   // Riepilogo per utente (utile ad admin quando vede tutti)
   const perUtente = Object.values(righe.reduce((acc, r) => {
-    const k = r.utente_id
-    if (!acc[k]) acc[k] = { nome: `${r.nome || ''} ${r.cognome || ''}`.trim(), ore: 0 }
+    const k = r.utente_id ?? `ext:${r.operatore_nome || r.operatore}`
+    if (!acc[k]) acc[k] = { nome: r.operatore || `${r.nome || ''} ${r.cognome || ''}`.trim(), ore: 0 }
     acc[k].ore += parseFloat(r.ore) || 0
     return acc
   }, {}))
 
   const puoModificare = (r) => isAdmin || r.utente_id === utente?.id
+
+  const [scaricando, setScaricando] = useState(false)
+  const scaricaPdf = async () => {
+    setScaricando(true)
+    try {
+      const resp = await api.get('/ore-lavorate/report.pdf', {
+        params: { mese, ...(filtroUtente ? { utente_id: filtroUtente } : {}) },
+        responseType: 'blob', timeout: 60000,
+      })
+      const url = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = resp.headers['content-disposition']?.match(/filename="(.+)"/)?.[1] || `ore_lavorate_${mese}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert('Errore durante la generazione del PDF')
+    } finally { setScaricando(false) }
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-4">
@@ -82,10 +101,18 @@ export default function OreLavoratePage() {
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">{isAdmin ? 'Registro ore di tutti gli utenti — con dettaglio operazioni' : 'Le tue ore giornaliere — visibili solo all\'amministrazione'}</p>
         </div>
-        <button onClick={() => { setNuovo(true); setForm(FORM_VUOTO()) }}
-          className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl bg-steelex-orange text-white font-medium hover:opacity-90 transition-opacity">
-          <Plus size={16} /> Registra ore
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && righe.length > 0 && (
+            <button onClick={scaricaPdf} disabled={scaricando}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-50">
+              <FileDown size={16} /> {scaricando ? 'Genero...' : 'Stampa PDF'}
+            </button>
+          )}
+          <button onClick={() => { setNuovo(true); setForm(FORM_VUOTO()) }}
+            className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl bg-steelex-orange text-white font-medium hover:opacity-90 transition-opacity">
+            <Plus size={16} /> Registra ore
+          </button>
+        </div>
       </div>
 
       {/* Selettore mese + filtro utente */}
@@ -182,7 +209,8 @@ export default function OreLavoratePage() {
             <thead>
               <tr className="border-b border-gray-100 text-left text-xs text-gray-400 uppercase tracking-wide">
                 <th className="px-4 py-3 font-semibold whitespace-nowrap">Data</th>
-                {isAdmin && !filtroUtente && <th className="px-4 py-3 font-semibold whitespace-nowrap">Utente</th>}
+                {isAdmin && !filtroUtente && <th className="px-4 py-3 font-semibold whitespace-nowrap">Operatore</th>}
+                {isAdmin && <th className="px-4 py-3 font-semibold whitespace-nowrap">Cantiere</th>}
                 <th className="px-4 py-3 font-semibold whitespace-nowrap text-right">Ore</th>
                 <th className="px-4 py-3 font-semibold w-full">Dettaglio operazioni</th>
                 <th className="px-4 py-3"></th>
@@ -201,7 +229,10 @@ export default function OreLavoratePage() {
                             className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
                         </td>
                         {isAdmin && !filtroUtente && (
-                          <td className="px-4 py-2 whitespace-nowrap text-gray-600">{r.nome} {r.cognome}</td>
+                          <td className="px-4 py-2 whitespace-nowrap text-gray-600">{r.operatore || `${r.nome || ''} ${r.cognome || ''}`}</td>
+                        )}
+                        {isAdmin && (
+                          <td className="px-4 py-2 whitespace-nowrap text-gray-500">{r.cantiere_nome || '—'}</td>
                         )}
                         <td className="px-4 py-2 text-right">
                           <input type="number" min="0.5" max="24" step="0.5" value={editing.ore}
@@ -230,7 +261,13 @@ export default function OreLavoratePage() {
                           <span className="block text-[10px] text-gray-400 capitalize">{dayjs(r.data).format('dddd')}</span>
                         </td>
                         {isAdmin && !filtroUtente && (
-                          <td className="px-4 py-3 whitespace-nowrap text-gray-600">{r.nome} {r.cognome}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-600">
+                            {r.operatore || `${r.nome || ''} ${r.cognome || ''}`}
+                            {!r.utente_id && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">esterno</span>}
+                          </td>
+                        )}
+                        {isAdmin && (
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-500">{r.cantiere_nome || '—'}</td>
                         )}
                         <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-steelex-orange">
                           {parseFloat(r.ore).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h

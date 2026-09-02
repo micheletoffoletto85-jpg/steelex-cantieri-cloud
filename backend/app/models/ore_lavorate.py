@@ -10,7 +10,11 @@ class OreLavorate(Base):
     __tablename__ = "ore_lavorate"
 
     id            = Column(Integer, primary_key=True, index=True)
-    utente_id     = Column(Integer, ForeignKey("utenti.id", ondelete="CASCADE"))
+    utente_id     = Column(Integer, ForeignKey("utenti.id", ondelete="CASCADE"), nullable=True)
+    # Operatore esterno occasionale ("socio") senza account: quando utente_id è NULL
+    # il nome dettato nel rapportino resta qui, così le sue ore compaiono comunque
+    # nel registro Ore lavorate.
+    operatore_nome = Column(Text, nullable=True)
     data          = Column(Date, nullable=False)
     ore           = Column(Numeric(5, 2), nullable=False)
     descrizione   = Column(Text, nullable=False)
