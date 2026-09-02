@@ -5,18 +5,6 @@
   "deleted_id_fr": 127,
   "pending": {
     "steelex": [],
-    "fr": [
-      {
-        "id": 128,
-        "creato_il": "2026-09-01T19:39:59.304099+00:00",
-        "ruolo": "artigiano",
-        "endpoint": "/rapportini/trascrivi",
-        "metodo": "POST",
-        "status_code": 422,
-        "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
-        "url_pagina": "/",
-        "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
-      }
-    ]
+    "fr": []
   }
 }
