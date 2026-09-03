@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -1029,10 +1029,16 @@ function BannerCostiNonAssegnati({ lista }) {
 function VistaAdmin() {
   const qc = useQueryClient()
   const [tab, setTab] = useState('da-validare')
+  const [tabScelto, setTabScelto] = useState(false)  // l'utente ha cliccato un tab a mano?
 
-  const { data: daValidare = [] } = useQuery('rapp-da-validare',
+  const { data: daValidare = [], isSuccess: dvOk } = useQuery('rapp-da-validare',
     () => api.get('/rapportini/da-validare').then(r => r.data),
     { staleTime: 30000 })
+
+  // Se non c'è nulla da validare, apri direttamente "Tutti" invece di una schermata vuota
+  useEffect(() => {
+    if (!tabScelto && dvOk && daValidare.length === 0) setTab('tutti')
+  }, [tabScelto, dvOk, daValidare.length])
 
   const { data: tutti = [] } = useQuery('rapp-tutti',
     () => api.get('/rapportini').then(r => r.data),
@@ -1173,11 +1179,11 @@ function VistaAdmin() {
 
       <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
         {[
-          { key: 'da-validare', label: 'Da validare' },
+          { key: 'da-validare', label: `Da validare${daValidare.length ? ` (${daValidare.length})` : ''}` },
           { key: 'fuori', label: 'Fuori cantiere' },
-          { key: 'tutti', label: 'Tutti' },
+          { key: 'tutti', label: `Tutti${tutti.length ? ` (${tutti.length})` : ''}` },
         ].map(({ key, label }) => (
-          <button key={key} onClick={() => setTab(key)}
+          <button key={key} onClick={() => { setTab(key); setTabScelto(true) }}
             className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-colors ${
               tab === key ? 'bg-white text-steelex-orange shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}>
@@ -1214,7 +1220,11 @@ function VistaAdmin() {
       {lista.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <FileText size={40} className="mx-auto mb-3 opacity-30"/>
-          <p className="text-sm">{tab === 'fuori' ? 'Nessun costo non assegnato' : 'Nessun rapportino'}</p>
+          <p className="text-sm">
+            {tab === 'fuori' ? 'Nessun costo non assegnato'
+              : tab === 'da-validare' ? 'Niente da validare — i rapportini già validati sono nel tab «Tutti»'
+              : 'Nessun rapportino'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
