@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import {
   Mic, MicOff, Send, Clock, Package, AlertTriangle, CheckCircle, XCircle,
   FileText, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Camera, Plus, X, Info, Image, MapPin, Euro, Trash2, Pencil,
@@ -1248,13 +1248,11 @@ function VistaAdmin() {
 // ── Entry point ───────────────────────────────────────────────────────────────
 export default function RapportiniPage() {
   const { utente } = useAuth()
-  const navigate = useNavigate()
   const isAdmin = RUOLI_ADMIN.includes(utente?.ruolo)
 
-  if (!isAdmin) {
-    navigate('/', { replace: true })
-    return null
-  }
+  // Gli operativi registrano i rapportini dalla Dashboard: qui non hanno nulla da fare
+  if (!isAdmin) return <Navigate to="/" replace />
+
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
