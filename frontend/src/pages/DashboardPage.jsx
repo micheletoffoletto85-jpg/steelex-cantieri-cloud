@@ -460,12 +460,17 @@ function ArtigianoDashboard({ utente, cantieri }) {
               </div>
             </div>
             <div className="space-y-2 text-sm text-gray-700">
-              <p className="font-semibold text-gray-900">Nel rapportino devi indicare:</p>
+              <p className="font-semibold text-gray-900">Nel rapportino devi sempre indicare, in quest'ordine:</p>
               <ul className="space-y-1.5 ml-2">
-                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">1.</span> Il <strong>cantiere</strong> dove hai lavorato</li>
-                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">2.</span> Le <strong>attività svolte</strong> durante la giornata</li>
-                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">3.</span> I <strong>materiali utilizzati</strong> (se rilevanti)</li>
-                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">4.</span> Eventuali <strong>problemi o anomalie</strong> riscontrati</li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">1.</span> <strong>DOVE</strong> — il cantiere in cui hai lavorato</li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">2.</span> <strong>QUANTO</strong> — quante ore hai lavorato (es. "8 ore", "9 ore e mezza")</li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">3.</span> <strong>COSA</strong> — le attività svolte durante la giornata</li>
+              </ul>
+              <p className="font-semibold text-gray-900 pt-1">E se ci sono, aggiungi:</p>
+              <ul className="space-y-1.5 ml-2">
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">•</span> I <strong>materiali utilizzati</strong></li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">•</span> Eventuali <strong>lavori extra</strong> rispetto al preventivo</li>
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">•</span> <strong>Problemi, anomalie o non conformità</strong> riscontrati</li>
               </ul>
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
@@ -731,8 +736,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
                 <textarea
                   value={testoLibero}
                   onChange={e => setTestoLibero(e.target.value)}
-                  rows={3}
-                  placeholder="Descrivi cosa hai fatto, materiali usati, eventuali problemi..."
+                  rows={4}
+                  placeholder={'Es. "Cantiere Museo, 8 ore. Tinteggiatura pareti e soffitto, seconda mano. Usato stucco e vernice lavabile."\n\nIndica sempre: dove, quante ore, cosa hai fatto. Poi materiali, extra, problemi.'}
                   className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange"
                 />
                 <button
