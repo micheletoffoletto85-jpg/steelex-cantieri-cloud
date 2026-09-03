@@ -5,29 +5,6 @@
   "deleted_id_fr": 129,
   "pending": {
     "steelex": [],
-    "fr": [
-      {
-        "id": 130,
-        "creato_il": "2026-09-03T12:35:37.547500+00:00",
-        "ruolo": "artigiano",
-        "endpoint": "/utenti",
-        "metodo": "GET",
-        "status_code": 403,
-        "messaggio": "Accesso riservato agli amministratori",
-        "url_pagina": "/utenti",
-        "dettagli": "{\"detail\":\"Accesso riservato agli amministratori\"}"
-      },
-      {
-        "id": 131,
-        "creato_il": "2026-09-03T12:35:38.782410+00:00",
-        "ruolo": "artigiano",
-        "endpoint": "/utenti",
-        "metodo": "GET",
-        "status_code": 403,
-        "messaggio": "Accesso riservato agli amministratori",
-        "url_pagina": "/utenti",
-        "dettagli": "{\"detail\":\"Accesso riservato agli amministratori\"}"
-      }
-    ]
+    "fr": []
   }
 }
