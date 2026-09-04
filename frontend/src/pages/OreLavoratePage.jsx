@@ -58,15 +58,17 @@ export default function OreLavoratePage() {
   }
   const formOk = form.data && oreValide(form.ore) && form.descrizione.trim()
 
-  // Totali del mese visualizzato
-  const totaleOre = righe.reduce((s, r) => s + (parseFloat(r.ore) || 0), 0)
+  // Totali del mese visualizzato (viaggio incluso nel totale)
+  const rTot = (r) => (parseFloat(r.ore) || 0) + (parseFloat(r.ore_viaggio) || 0)
+  const totaleOre = righe.reduce((s, r) => s + rTot(r), 0)
+  const totaleViaggio = righe.reduce((s, r) => s + (parseFloat(r.ore_viaggio) || 0), 0)
   const giorni = new Set(righe.map(r => `${r.utente_id}-${r.data}`)).size
 
   // Riepilogo per utente (utile ad admin quando vede tutti)
   const perUtente = Object.values(righe.reduce((acc, r) => {
     const k = r.utente_id ?? `ext:${r.operatore_nome || r.operatore}`
     if (!acc[k]) acc[k] = { nome: r.operatore || `${r.nome || ''} ${r.cognome || ''}`.trim(), ore: 0 }
-    acc[k].ore += parseFloat(r.ore) || 0
+    acc[k].ore += rTot(r)
     return acc
   }, {}))
 
@@ -137,6 +139,7 @@ export default function OreLavoratePage() {
         <div className="flex items-center gap-2 text-sm">
           <span className="px-3 py-1.5 rounded-xl bg-steelex-orange/10 text-steelex-orange font-semibold">
             Totale: {totaleOre.toLocaleString('it-IT', { maximumFractionDigits: 2 })} h
+            {totaleViaggio > 0 && <span className="font-normal opacity-70"> · di cui {totaleViaggio.toLocaleString('it-IT', { maximumFractionDigits: 2 })} h viaggio</span>}
           </span>
           <span className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-600 font-medium">
             {giorni} {giorni === 1 ? 'giornata' : 'giornate'}
@@ -270,7 +273,12 @@ export default function OreLavoratePage() {
                           <td className="px-4 py-3 whitespace-nowrap text-gray-500">{r.cantiere_nome || '—'}</td>
                         )}
                         <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-steelex-orange">
-                          {parseFloat(r.ore).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h
+                          {rTot(r).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h
+                          {r.ore_viaggio > 0 && (
+                            <span className="block text-[10px] font-normal text-gray-400">
+                              {parseFloat(r.ore).toLocaleString('it-IT', { maximumFractionDigits: 2 })} lav · {parseFloat(r.ore_viaggio).toLocaleString('it-IT', { maximumFractionDigits: 2 })} viaggio
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-gray-700 whitespace-pre-wrap leading-relaxed">{r.descrizione}</td>
                         <td className="px-4 py-3 whitespace-nowrap">

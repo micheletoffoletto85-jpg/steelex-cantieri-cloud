@@ -468,6 +468,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
               </ul>
               <p className="font-semibold text-gray-900 pt-1">E se ci sono, aggiungi:</p>
               <ul className="space-y-1.5 ml-2">
+                <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">•</span> Le <strong>ore di viaggio / trasferta</strong> (dille a parte: "un'ora di viaggio")</li>
                 <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">•</span> I <strong>materiali utilizzati</strong></li>
                 <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">•</span> Eventuali <strong>lavori extra</strong> rispetto al preventivo</li>
                 <li className="flex items-start gap-2"><span className="text-steelex-orange font-bold mt-0.5">•</span> <strong>Problemi, anomalie o non conformità</strong> riscontrati</li>

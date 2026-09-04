@@ -46,7 +46,8 @@ Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON.
 {{
   "cantiere": "nome del cantiere menzionato, null se non specificato",
   "data_lavoro": "data YYYY-MM-DD se menzionata, null altrimenti",
-  "ore": numero_ore_lavorate oppure null,
+  "ore": numero_ore_di_LAVORO_EFFETTIVO oppure null,
+  "ore_viaggio": ore di viaggio/trasferta/tragitto/spostamento dichiarate a parte, oppure null,
   "testo": "la porzione di racconto relativa SOLO a questo primo cantiere, riscritta in modo che si
     legga da sola senza il resto — se il rapportino parla di UN SOLO cantiere, qui va l'intero racconto",
   "descrizione_lavori": "descrizione chiara dei lavori principali svolti (in questo primo cantiere)",
@@ -85,6 +86,10 @@ Regole:
     trasformarlo in un numero di ore.
   * Niente di tutto questo → null.
   Non inventare. Stessa regola per le "ore" dei colleghi e degli altri_cantieri.
+- "ore_viaggio": SOLO le ore di spostamento/tragitto/trasferta dichiarate esplicitamente
+  come tempo di viaggio ("un'ora di viaggio", "tempo di trasferimento: 1 ora", "mezz'ora di
+  strada per arrivare", "1 ora di ritorno"). NON metterle in "ore" (che è il lavoro
+  effettivo). Se non parla di viaggio → null. Stesso formato decimale.
 - Se l'operaio nomina un collega presente/al lavoro insieme a lui (es. "io e Mesedin",
   "con Mario abbiamo fatto...", "eravamo in due, io e..."), inseriscilo in colleghi con il suo
   nome — se non specifica ore diverse per il collega, lascia ore a null (si userà lo stesso
@@ -117,7 +122,7 @@ JSON:"""
 
 
 def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
-    vuoto = {"cantiere": None, "ore": None, "lavorazioni": [], "materiali": [],
+    vuoto = {"cantiere": None, "ore": None, "ore_viaggio": None, "lavorazioni": [], "materiali": [],
              "criticita": None, "spese_extra": [], "riassunto": testo[:200],
              "data_lavoro": None, "descrizione_lavori": testo[:300], "testo": testo,
              "descrizione_extra": None, "ore_extra": None, "materiale_extra": None,
@@ -303,6 +308,7 @@ def _rap_dict(r: RapportinoOperativo, db: Optional[Session] = None) -> dict:
         "ore_extra": r.ore_extra,
         "materiale_extra": r.materiale_extra,
         "ore_lavorate": r.ore_lavorate,
+        "ore_viaggio": r.ore_viaggio,
         "colleghi_ore": colleghi,
         "extra_preventivo": r.extra_preventivo or False,
         "extra_preventivo_nota": r.extra_preventivo_nota,
@@ -627,6 +633,7 @@ async def invia_rapportino(
         ore_extra         = ore_extra or dati_ai.get("ore_extra"),
         materiale_extra   = materiale_extra or dati_ai.get("materiale_extra"),
         ore_lavorate      = dati_ai.get("ore"),
+        ore_viaggio       = dati_ai.get("ore_viaggio"),
         colleghi_ore      = dati_ai.get("colleghi") or [],
         extra_preventivo  = dati_ai.get("extra_preventivo") or False,
         extra_preventivo_nota = dati_ai.get("extra_preventivo_nota"),
@@ -715,6 +722,7 @@ def _sostituisci_colleghi_ore(db: Session, r: RapportinoOperativo, cantiere_id: 
     vecchie = db.query(OreExtra).filter(
         OreExtra.diario_id == r.diario_id,
         OreExtra.id.notin_(ref_ids),
+        OreExtra.viaggio.isnot(True),   # le righe "viaggio" le gestisce _sync_viaggio
     ).all()
     for oe in vecchie:
         if oe.voce_extra_id:            # togli la voce dal computo prima di cancellare la riga
@@ -778,14 +786,18 @@ def _registro_ore_fuori_cantiere(db: Session, r: RapportinoOperativo, data_obj) 
     (non esistono): serve solo a non perdere le ore. Operativo + eventuali colleghi citati,
     esterni compresi (operatore_nome)."""
     from sqlalchemy.orm.attributes import flag_modified
-    # Riga dell'operativo
-    if r.ore_lavorate and r.ore_lavorate > 0:
+    # Riga dell'operativo (con la quota viaggio)
+    _hv = bool(r.ore_viaggio and r.ore_viaggio > 0)
+    if (r.ore_lavorate and r.ore_lavorate > 0) or _hv:
+        _ol = float(r.ore_lavorate) if (r.ore_lavorate and r.ore_lavorate > 0) else 0
         row = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first() if r.ore_lavorate_id else None
         if row:
-            row.ore = float(r.ore_lavorate)
+            row.ore = _ol
+            row.ore_viaggio = float(r.ore_viaggio) if _hv else None
             row.aggiornato_il = datetime.utcnow()
         else:
-            row = OreLavorate(utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
+            row = OreLavorate(utente_id=r.operativo_id, data=data_obj, ore=_ol,
+                              ore_viaggio=float(r.ore_viaggio) if _hv else None,
                               descrizione=r.riassunto or "Rapportino (fuori cantiere)", rapportino_id=r.id)
             db.add(row); db.flush()
             r.ore_lavorate_id = row.id
@@ -827,6 +839,36 @@ def _registro_ore_fuori_cantiere(db: Session, r: RapportinoOperativo, data_obj) 
     db.flush()
 
 
+def _sync_viaggio(db: Session, r: RapportinoOperativo, data_obj) -> None:
+    """Allinea la riga costo-cantiere delle ore di VIAGGIO/trasferta dell'operativo —
+    distinta da quella delle ore di lavoro, stesso costo orario, imputata allo stesso
+    cantiere del rapportino. Non è referenziata da r.ore_extra_id: la si ritrova per
+    (diario, utente, viaggio=True)."""
+    if not (r.diario_id and r.operativo_id):
+        return
+    riga = db.query(OreExtra).filter(
+        OreExtra.diario_id == r.diario_id,
+        OreExtra.utente_id == r.operativo_id,
+        OreExtra.viaggio.is_(True),
+    ).first()
+    ha_v = bool(r.ore_viaggio and r.ore_viaggio > 0)
+    if ha_v and r.cantiere_id:
+        v = float(r.ore_viaggio)
+        tar = _costo_orario(r.operativo)
+        nome_op = f"{r.operativo.nome} {r.operativo.cognome}".strip() if r.operativo else "Operativo"
+        if riga:
+            riga.ore = v; riga.tariffa_oraria = tar; riga.totale = round(v * tar, 2)
+            riga.cantiere_id = r.cantiere_id
+        else:
+            riga = OreExtra(cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
+                            utente_id=r.operativo_id, ore=v, attivita="Viaggio / trasferta",
+                            tariffa_oraria=tar, totale=round(v * tar, 2), data=data_obj,
+                            approvato=False, viaggio=True, creato_da=r.operativo_id)
+            db.add(riga); db.flush()
+    elif riga:
+        db.delete(riga); db.flush()
+
+
 def _sync_ore_rapportino(db: Session, r: RapportinoOperativo, data_obj) -> None:
     """Allinea TUTTE le tracce delle ore allo stato attuale del rapportino: riga costo
     cantiere (OreExtra), riga registro personale (OreLavorate), voci mostrate nel diario,
@@ -859,17 +901,25 @@ def _sync_ore_rapportino(db: Session, r: RapportinoOperativo, data_obj) -> None:
     elif oe and not ha_ore:
         r.ore_extra_id = None; db.flush(); db.delete(oe)
 
-    # riga registro personale
+    # riga registro personale (con la quota viaggio)
+    ha_v = bool(r.ore_viaggio and r.ore_viaggio > 0)
     ol = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first() if r.ore_lavorate_id else None
-    if ha_ore:
+    if ha_ore or ha_v:
         if ol:
-            ol.ore = float(r.ore_lavorate); ol.aggiornato_il = datetime.utcnow()
+            ol.ore = float(r.ore_lavorate) if ha_ore else 0
+            ol.ore_viaggio = float(r.ore_viaggio) if ha_v else None
+            ol.aggiornato_il = datetime.utcnow()
         else:
-            ol = OreLavorate(utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
+            ol = OreLavorate(utente_id=r.operativo_id, data=data_obj,
+                             ore=float(r.ore_lavorate) if ha_ore else 0,
+                             ore_viaggio=float(r.ore_viaggio) if ha_v else None,
                              descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id)
             db.add(ol); db.flush(); r.ore_lavorate_id = ol.id
     elif ol:
         r.ore_lavorate_id = None; db.flush(); db.delete(ol)
+
+    # riga costo cantiere "viaggio" (distinta da quella del lavoro)
+    _sync_viaggio(db, r, data_obj)
 
     # voci mostrate nella scheda diario
     if r.diario_id:
@@ -879,6 +929,9 @@ def _sync_ore_rapportino(db: Session, r: RapportinoOperativo, data_obj) -> None:
             if ha_ore:
                 voci.append({"tipo": "ore_extra", "operaio": nome_op, "ore": float(r.ore_lavorate),
                              "attivita": r.riassunto or "", "approvato": True})
+            if ha_v:
+                voci.append({"tipo": "ore_extra", "operaio": nome_op, "ore": float(r.ore_viaggio),
+                             "attivita": "Viaggio / trasferta", "viaggio": True, "approvato": True})
             for c in (r.colleghi_ore or []):
                 nc = (c.get("nome") or "").strip()
                 oc = c.get("ore"); oc = float(oc) if oc else float(r.ore_lavorate or 0)
@@ -1026,6 +1079,24 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
     if r.colleghi_ore:
         _sostituisci_colleghi_ore(db, r, cantiere_id, data_obj)
 
+    # Ore di viaggio/trasferta: riga costo cantiere distinta + quota nel registro personale + voce diario
+    if r.ore_viaggio and r.ore_viaggio > 0:
+        from sqlalchemy.orm.attributes import flag_modified as _fmv
+        _v = float(r.ore_viaggio)
+        _olv = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first() if r.ore_lavorate_id else None
+        if _olv:
+            _olv.ore_viaggio = _v
+        else:
+            _olv = OreLavorate(utente_id=r.operativo_id, data=data_obj, ore=0, ore_viaggio=_v,
+                               descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id)
+            db.add(_olv); db.flush()
+            r.ore_lavorate_id = _olv.id
+        diario.voci_estratte = list(diario.voci_estratte or []) + [{
+            "tipo": "ore_extra", "operaio": nome_op or "Operativo", "ore": _v,
+            "attivita": "Viaggio / trasferta", "viaggio": True, "approvato": True}]
+        _fmv(diario, "voci_estratte")
+        _sync_viaggio(db, r, data_obj)
+
 
 class AssegnaBody(BaseModel):
     cantiere_id: int
@@ -1090,6 +1161,7 @@ class ModificaBody(BaseModel):
     descrizione_extra: Optional[str] = None
     riassunto: Optional[str] = None
     ore_lavorate: Optional[float] = None
+    ore_viaggio: Optional[float] = None
     ore_extra: Optional[float] = None
     materiale_extra: Optional[str] = None
     lavorazioni: Optional[List[str]] = None
@@ -1116,7 +1188,7 @@ def modifica_rapportino(
 
     dati = body.model_dump(exclude_unset=True)
     for campo in ("testo_italiano", "descrizione_lavori", "descrizione_extra", "riassunto",
-                  "ore_lavorate", "ore_extra", "materiale_extra", "lavorazioni", "materiali", "criticita",
+                  "ore_lavorate", "ore_viaggio", "ore_extra", "materiale_extra", "lavorazioni", "materiali", "criticita",
                   "colleghi_ore", "extra_preventivo", "extra_preventivo_nota"):
         if campo in dati:
             setattr(r, campo, dati[campo])
@@ -1258,6 +1330,8 @@ def rianalizza_rapportino(
     # già registrati (spesso il testo ri-analizzato è un riassunto più povero dell'originale)
     if dati.get("ore"):
         r.ore_lavorate = dati.get("ore")
+    if dati.get("ore_viaggio"):
+        r.ore_viaggio = dati.get("ore_viaggio")
     r.lavorazioni = dati.get("lavorazioni") or []
     r.materiali = dati.get("materiali") or []
     r.criticita = dati.get("criticita")

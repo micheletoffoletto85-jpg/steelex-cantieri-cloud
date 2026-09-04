@@ -42,7 +42,10 @@ def lista_utenti(db: Session = Depends(get_db), utente=Depends(get_current_user)
 # a mano dall'ufficio non hanno cantiere). L'operatore è l'utente collegato oppure, per
 # gli esterni occasionali senza account, il nome libero in operatore_nome.
 _SELECT_ORE = """
-    SELECT o.id, o.utente_id, o.operatore_nome, o.data, o.ore, o.descrizione,
+    SELECT o.id, o.utente_id, o.operatore_nome, o.data, o.ore,
+           COALESCE(o.ore_viaggio, 0) AS ore_viaggio,
+           (o.ore + COALESCE(o.ore_viaggio, 0)) AS ore_totali,
+           o.descrizione,
            o.creato_il, o.aggiornato_il, u.nome, u.cognome,
            rp.cantiere_id AS cantiere_id, c.nome AS cantiere_nome,
            COALESCE(NULLIF(TRIM(COALESCE(u.nome, '') || ' ' || COALESCE(u.cognome, '')), ''), o.operatore_nome, 'Sconosciuto') AS operatore
@@ -183,52 +186,63 @@ def report_pdf(mese: Optional[str] = None, utente_id: Optional[int] = None,
     def _f(x):
         return f"{float(x):.2f}".rstrip("0").rstrip(".").replace(".", ",")
 
-    # ── Riepilogo: operatore × cantiere (giornate + ore) ──────────────────────
-    agg = {}   # (operatore, cantiere) -> [giornate:set(data), ore]
+    has_viaggio = any(float(r["ore_viaggio"] or 0) > 0 for r in rows)
+
+    # ── Riepilogo: operatore × cantiere (giornate + ore lavoro/viaggio/totale) ──
+    agg = {}   # (operatore, cantiere) -> [giornate:set(data), ore_lavoro, ore_viaggio]
     for r in rows:
         k = (r["operatore"], r["cantiere_nome"] or "— Senza cantiere (ufficio) —")
-        d = agg.setdefault(k, [set(), 0.0])
-        d[0].add(r["data"]); d[1] += float(r["ore"])
+        d = agg.setdefault(k, [set(), 0.0, 0.0])
+        d[0].add(r["data"]); d[1] += float(r["ore"]); d[2] += float(r["ore_viaggio"] or 0)
 
     story.append(Paragraph("Riepilogo per operatore e cantiere", S["h2"]))
-    data_tab = [["Operatore", "Cantiere", "Giornate", "Ore"]]
-    span_rows = []          # righe subtotale operatore (per lo stile)
-    tot_gen_ore = 0.0
-    tot_gen_gg = 0
+    if has_viaggio:
+        hdr = ["Operatore", "Cantiere", "Giornate", "Lavoro", "Viaggio", "Totale"]
+    else:
+        hdr = ["Operatore", "Cantiere", "Giornate", "Ore"]
+    data_tab = [hdr]
+    span_rows = []
+    tg_l = tg_v = 0.0
+    tg_gg = 0
     ultimo_op = None
-    op_ore = 0.0
+    op_l = op_v = 0.0
     op_gg = 0
 
+    def _riga(c0, c1, gg, lav, via):
+        if has_viaggio:
+            return [c0, c1, str(gg), _f(lav) + " h", (_f(via) + " h" if via else "—"), _f(lav + via) + " h"]
+        return [c0, c1, str(gg), _f(lav) + " h"]
+
     def _chiudi_operatore():
-        nonlocal op_ore, op_gg
+        nonlocal op_l, op_v, op_gg
         if ultimo_op is not None:
-            data_tab.append(["", f"Totale {ultimo_op}", str(op_gg), _f(op_ore) + " h"])
+            data_tab.append(_riga("", f"Totale {ultimo_op}", op_gg, op_l, op_v))
             span_rows.append(len(data_tab) - 1)
-        op_ore = 0.0
+        op_l = op_v = 0.0
         op_gg = 0
 
-    for (op, cant), (giorni, ore) in sorted(agg.items(), key=lambda x: (x[0][0].lower(), x[0][1].lower())):
+    for (op, cant), (giorni, lav, via) in sorted(agg.items(), key=lambda x: (x[0][0].lower(), x[0][1].lower())):
         if ultimo_op is not None and op != ultimo_op:
             _chiudi_operatore()
         ultimo_op = op
-        data_tab.append([op, cant, str(len(giorni)), _f(ore) + " h"])
-        op_ore += ore
-        op_gg += len(giorni)
-        tot_gen_ore += ore
-        tot_gen_gg += len(giorni)
+        data_tab.append(_riga(op, cant, len(giorni), lav, via))
+        op_l += lav; op_v += via; op_gg += len(giorni)
+        tg_l += lav; tg_v += via; tg_gg += len(giorni)
     _chiudi_operatore()
-    data_tab.append(["", "TOTALE GENERALE", str(tot_gen_gg), _f(tot_gen_ore) + " h"])
+    data_tab.append(_riga("", "TOTALE GENERALE", tg_gg, tg_l, tg_v))
 
-    n_body = len(data_tab) - 2   # esclusa header + riga totale generale
-    t = Table(data_tab, colWidths=[52*mm, 68*mm, 22*mm, 26*mm], repeatRows=1)
+    n_body = len(data_tab) - 2
+    cw = [46*mm, 52*mm, 18*mm, 22*mm, 22*mm, 22*mm] if has_viaggio else [52*mm, 68*mm, 22*mm, 26*mm]
+    t = Table(data_tab, colWidths=cw, repeatRows=1)
     st = T.data_table_style(n_body, has_totals=True, total_rows=1)
-    from reportlab.lib import colors as _c
     for rr in span_rows:
         st.add("BACKGROUND", (0, rr), (-1, rr), T.BG_SOFT)
         st.add("FONTNAME", (0, rr), (-1, rr), T.FONT_SB)
     st.add("ALIGN", (2, 0), (-1, -1), "RIGHT")
     t.setStyle(st)
     story.append(t)
+    if has_viaggio:
+        story.append(Paragraph("«Viaggio» = ore di trasferta, incluse nel totale ma distinte dal lavoro effettivo.", S["note"]))
     story.append(Spacer(1, 8*mm))
 
     # ── Dettaglio giornaliero per operatore ──────────────────────────────────
@@ -239,19 +253,25 @@ def report_pdf(mese: Optional[str] = None, utente_id: Optional[int] = None,
 
     for op in sorted(per_op, key=str.lower):
         righe_op = per_op[op]
-        tot_op = sum(float(x["ore"]) for x in righe_op)
+        tot_op = sum(float(x["ore"]) + float(x["ore_viaggio"] or 0) for x in righe_op)
         story.append(Paragraph(f"{op}  —  {_f(tot_op)} h", S["value_b"]))
-        dett = [["Data", "Cantiere", "Ore", "Dettaglio operazioni"]]
+        if has_viaggio:
+            dett = [["Data", "Cantiere", "Lavoro", "Viaggio", "Dettaglio operazioni"]]
+        else:
+            dett = [["Data", "Cantiere", "Ore", "Dettaglio operazioni"]]
         for x in righe_op:
-            dett.append([
-                x["data"].strftime("%d/%m/%Y") if hasattr(x["data"], "strftime") else str(x["data"]),
-                x["cantiere_nome"] or "— ufficio —",
-                _f(x["ore"]),
-                Paragraph((x["descrizione"] or "").strip()[:400], S["cell"]),
-            ])
-        dt = Table(dett, colWidths=[20*mm, 44*mm, 14*mm, 90*mm], repeatRows=1)
+            data_s = x["data"].strftime("%d/%m/%Y") if hasattr(x["data"], "strftime") else str(x["data"])
+            cant_s = x["cantiere_nome"] or "— ufficio —"
+            det_p = Paragraph((x["descrizione"] or "").strip()[:400], S["cell"])
+            via = float(x["ore_viaggio"] or 0)
+            if has_viaggio:
+                dett.append([data_s, cant_s, _f(x["ore"]), (_f(via) if via else "—"), det_p])
+            else:
+                dett.append([data_s, cant_s, _f(x["ore"]), det_p])
+        cwd = [20*mm, 40*mm, 14*mm, 14*mm, 76*mm] if has_viaggio else [20*mm, 44*mm, 14*mm, 90*mm]
+        dt = Table(dett, colWidths=cwd, repeatRows=1)
         dst = T.data_table_style(len(dett) - 1)
-        dst.add("ALIGN", (2, 0), (2, -1), "RIGHT")
+        dst.add("ALIGN", (2, 0), (-2, -1) if has_viaggio else (2, -1), "RIGHT")
         dt.setStyle(dst)
         story.append(dt)
         story.append(Spacer(1, 5*mm))

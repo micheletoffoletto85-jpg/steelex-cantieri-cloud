@@ -16,7 +16,8 @@ class OreLavorate(Base):
     # nel registro Ore lavorate.
     operatore_nome = Column(Text, nullable=True)
     data          = Column(Date, nullable=False)
-    ore           = Column(Numeric(5, 2), nullable=False)
+    ore           = Column(Numeric(5, 2), nullable=False)   # ore di lavoro effettive
+    ore_viaggio   = Column(Numeric(5, 2), nullable=True)    # quota viaggio/trasferta (se presente)
     descrizione   = Column(Text, nullable=False)
     creato_il     = Column(DateTime(timezone=True), server_default=func.now())
     aggiornato_il = Column(DateTime(timezone=True), nullable=True)
