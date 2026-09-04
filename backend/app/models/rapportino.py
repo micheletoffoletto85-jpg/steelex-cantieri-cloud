@@ -31,6 +31,9 @@ class RapportinoOperativo(Base):
     ore_extra             = Column(Float, nullable=True)   # ore extra rispetto standard
     materiale_extra       = Column(Text, nullable=True)    # materiale extra usato
     ore_lavorate          = Column(Float, nullable=True)
+    # Ore di viaggio/trasferta dichiarate dall'operatore — contano nel totale ma restano
+    # distinte dalle ore di lavoro effettive; imputate al cantiere come voce "viaggio"
+    ore_viaggio            = Column(Float, nullable=True)
     # Colleghi citati come presenti/al lavoro insieme all'operativo ma senza un proprio
     # rapportino — [{"nome": "...", "ore": numero_o_null}]. Le loro ore vanno comunque
     # registrate nel cantiere, non solo quelle di chi ha inviato il rapportino

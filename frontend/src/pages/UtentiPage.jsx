@@ -126,7 +126,7 @@ export default function UtentiPage() {
 
   const apriModifica = (u) => {
     setEditando(u)
-    setEditForm({ nome: u.nome, cognome: u.cognome, telefono: u.telefono || '', ruolo: u.ruolo, password: '', tipo_professione: u.tipo_professione || '', costo_orario: u.costo_orario ?? '' })
+    setEditForm({ nome: u.nome, cognome: u.cognome, email: u.email || '', telefono: u.telefono || '', ruolo: u.ruolo, password: '', tipo_professione: u.tipo_professione || '', costo_orario: u.costo_orario ?? '' })
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -135,6 +135,7 @@ export default function UtentiPage() {
   const salvaModifica = () => {
     const payload = { ...editForm }
     if (!payload.password) delete payload.password
+    if (!payload.email || !payload.email.trim()) delete payload.email
     if (!payload.tipo_professione) payload.tipo_professione = null
     payload.costo_orario = payload.costo_orario === '' || payload.costo_orario == null ? null : parseFloat(payload.costo_orario)
     updateMutation.mutate({ id: editando.id, data: payload })
@@ -164,12 +165,27 @@ export default function UtentiPage() {
             <button onClick={() => setShowCreate(false)} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input className="input-field" placeholder="Nome *" value={form.nome} onChange={e => set('nome', e.target.value)} />
-            <input className="input-field" placeholder="Cognome *" value={form.cognome} onChange={e => set('cognome', e.target.value)} />
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Nome *</label>
+              <input className="input-field" placeholder="Nome" value={form.nome} onChange={e => set('nome', e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Cognome *</label>
+              <input className="input-field" placeholder="Cognome" value={form.cognome} onChange={e => set('cognome', e.target.value)} />
+            </div>
           </div>
-          <input className="input-field" type="email" placeholder="Email *" value={form.email} onChange={e => set('email', e.target.value)} />
-          <input className="input-field" type="tel" placeholder="Telefono" value={form.telefono} onChange={e => set('telefono', e.target.value)} />
-          <input className="input-field" type="password" placeholder="Password *" value={form.password} onChange={e => set('password', e.target.value)} />
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Email (serve per accedere) *</label>
+            <input className="input-field" type="email" placeholder="nome@esempio.it" value={form.email} onChange={e => set('email', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Telefono</label>
+            <input className="input-field" type="tel" placeholder="Telefono" value={form.telefono} onChange={e => set('telefono', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Password *</label>
+            <input className="input-field" type="password" placeholder="Password" value={form.password} onChange={e => set('password', e.target.value)} />
+          </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={form.ruolo} onChange={e => set('ruolo', e.target.value)}>
@@ -221,11 +237,27 @@ export default function UtentiPage() {
             <button onClick={() => setEditando(null)} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input className="input-field" placeholder="Nome *" value={editForm.nome} onChange={e => setE('nome', e.target.value)} />
-            <input className="input-field" placeholder="Cognome" value={editForm.cognome} onChange={e => setE('cognome', e.target.value)} />
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Nome</label>
+              <input className="input-field" placeholder="Nome" value={editForm.nome} onChange={e => setE('nome', e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Cognome</label>
+              <input className="input-field" placeholder="Cognome" value={editForm.cognome} onChange={e => setE('cognome', e.target.value)} />
+            </div>
           </div>
-          <input className="input-field" type="tel" placeholder="Telefono" value={editForm.telefono} onChange={e => setE('telefono', e.target.value)} />
-          <input className="input-field" type="password" placeholder="Nuova password (lascia vuoto per non cambiare)" value={editForm.password} onChange={e => setE('password', e.target.value)} />
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Email (serve per accedere)</label>
+            <input className="input-field" type="email" placeholder="nome@esempio.it" value={editForm.email ?? ''} onChange={e => setE('email', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Telefono</label>
+            <input className="input-field" type="tel" placeholder="Telefono" value={editForm.telefono} onChange={e => setE('telefono', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Nuova password</label>
+            <input className="input-field" type="password" placeholder="lascia vuoto per non cambiare" value={editForm.password} onChange={e => setE('password', e.target.value)} />
+          </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={editForm.ruolo} onChange={e => setE('ruolo', e.target.value)}>

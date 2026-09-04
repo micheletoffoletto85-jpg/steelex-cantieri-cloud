@@ -11,7 +11,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/cantieri', label: 'Cantieri', icon: HardHat, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','architetto','responsabile_sicurezza','artigiano','fornitore','cliente'] },
   { to: '/gantt-operatori', label: 'Gantt Operatori', icon: LayoutGrid, roles: ['admin','capo_cantiere','capo_cantiere_sub','amministrazione'] },
-  { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione','artigiano'] },
+  { to: '/rapportini', label: 'Rapportini', icon: ClipboardList, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'] },
   { to: '/ore-lavorate', label: 'Ore Lavorate', icon: Clock, roles: ['admin', 'amministrazione', 'artigiano', 'operativo', 'capo_cantiere', 'capo_cantiere_sub'] },
   { to: '/artigiani', label: 'Rubrica', icon: BookUser, roles: ['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','amministrazione'] },
   { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },

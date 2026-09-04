@@ -38,6 +38,7 @@ class UtenteCreate(UtenteBase):
 class UtenteUpdate(BaseModel):
     nome: Optional[str] = None
     cognome: Optional[str] = None
+    email: Optional[str] = None
     telefono: Optional[str] = None
     ruolo: Optional[str] = None
     attivo: Optional[bool] = None

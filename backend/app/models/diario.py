@@ -49,6 +49,8 @@ class OreExtra(Base):
     data = Column(Date, nullable=False)
     approvato = Column(Boolean, default=False)
     note = Column(Text)
+    # riga di ore di viaggio/trasferta (distinta dalle ore di lavoro effettive dello stesso operatore)
+    viaggio = Column(Boolean, default=False, nullable=False)
     # Lavorazione extra rispetto al preventivo — a livello di singola riga ore: un rapportino
     # può avere colleghi con ore normali e uno con ore extra preventivo, non è un flag unico
     # per tutta la nota diario

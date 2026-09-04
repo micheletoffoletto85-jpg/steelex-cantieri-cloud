@@ -35,6 +35,12 @@ def aggiorna_utente(utente_id: int, data: UtenteUpdate, db: Session = Depends(ge
     update_data = data.model_dump(mode='json', exclude_none=True)
     if "password" in update_data:
         utente.password_hash = hash_password(update_data.pop("password"))
+    if "email" in update_data:
+        nuova_email = (update_data.pop("email") or "").strip()
+        if nuova_email and nuova_email != utente.email:
+            if db.query(Utente).filter(Utente.email == nuova_email, Utente.id != utente_id).first():
+                raise HTTPException(status_code=400, detail="Email già usata da un altro utente")
+            update_data["email"] = nuova_email
     try:
         for k, v in update_data.items():
             setattr(utente, k, v)

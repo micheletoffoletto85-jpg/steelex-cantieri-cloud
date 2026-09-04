@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import {
   Mic, MicOff, Send, Clock, Package, AlertTriangle, CheckCircle, XCircle,
   FileText, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Camera, Plus, X, Info, Image, MapPin, Euro, Trash2, Pencil,
@@ -16,7 +16,8 @@ const RUOLI_ADMIN = ['admin', 'capo_cantiere', 'capo_cantiere_sub', 'direzione_l
 // ── Chip colorati ─────────────────────────────────────────────────────────────
 function Chips({ r }) {
   const chips = []
-  if (r.ore_lavorate) chips.push({ label: `${r.ore_lavorate}h`, color: 'bg-blue-100 text-blue-700' })
+  if (r.ore_lavorate) chips.push({ label: `${r.ore_lavorate}h${r.ore_viaggio ? ` +${r.ore_viaggio}h 🚗` : ''}`, color: 'bg-blue-100 text-blue-700' })
+  else if (r.ore_viaggio) chips.push({ label: `${r.ore_viaggio}h 🚗`, color: 'bg-blue-100 text-blue-700' })
   if (r.ore_extra)    chips.push({ label: `+${r.ore_extra}h extra`, color: 'bg-orange-100 text-orange-700' })
   if (r.materiali?.length) chips.push({ label: `${r.materiali.length} mat.`, color: 'bg-green-100 text-green-700' })
   if (r.materiale_extra) chips.push({ label: 'Mat. extra', color: 'bg-teal-100 text-teal-700' })
@@ -98,6 +99,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const [modificaTesto, setModificaTesto] = useState(false)
   const [testoEdit, setTestoEdit] = useState(r.descrizione_lavori || r.testo_italiano || '')
   const [oreEdit, setOreEdit] = useState(r.ore_lavorate ?? '')
+  const [viaggioEdit, setViaggioEdit] = useState(r.ore_viaggio ?? '')
   const [colleghiEdit, setColleghiEdit] = useState(() => (r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '', utente_id: c.utente_id ?? '' })))
   const { data: operatori = [] } = useQuery('operatori', () => api.get('/rapportini/operatori').then(r => r.data), { enabled: isAdmin, staleTime: 5 * 60 * 1000 })
   const [lavorazioniEdit, setLavorazioniEdit] = useState(() => r.lavorazioni?.length ? r.lavorazioni : [''])
@@ -137,6 +139,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     onModifica(r.id, {
       descrizione_lavori: testoEdit,
       ore_lavorate: oreEdit === '' ? null : parseFloat(oreEdit),
+      ore_viaggio: viaggioEdit === '' ? null : parseFloat(viaggioEdit),
       colleghi_ore: colleghiEdit
         .filter(c => c.nome.trim())
         .map(c => ({ nome: c.nome.trim(), ore: c.ore === '' ? null : parseFloat(c.ore), utente_id: c.utente_id === '' || c.utente_id == null ? null : parseInt(c.utente_id) })),
@@ -257,7 +260,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                     <Sparkles size={13} className={rianalizzando ? 'animate-pulse' : ''} />
                   </button>
                   <button onClick={() => {
-                    setTestoEdit(r.descrizione_lavori || r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? '')
+                    setTestoEdit(r.descrizione_lavori || r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? ''); setViaggioEdit(r.ore_viaggio ?? '')
                     setColleghiEdit((r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '' })))
                     setLavorazioniEdit(r.lavorazioni?.length ? r.lavorazioni : [''])
                     setMaterialiEdit(r.materiali?.length ? r.materiali : [''])
@@ -278,11 +281,20 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
               <div className="space-y-2">
                 <textarea value={testoEdit} onChange={e => setTestoEdit(e.target.value)} rows={5}
                   className="w-full text-xs leading-relaxed border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-gray-500 shrink-0">Ore lavorate</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500 shrink-0">Ore lavoro</label>
                   <input type="number" step="0.5" min="0" max="24" value={oreEdit}
                     onChange={e => setOreEdit(e.target.value)}
                     className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                  <label className="text-xs text-gray-500 shrink-0">Ore viaggio</label>
+                  <input type="number" step="0.5" min="0" max="24" value={viaggioEdit}
+                    onChange={e => setViaggioEdit(e.target.value)} placeholder="—"
+                    className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                  {(oreEdit || viaggioEdit) && (
+                    <span className="text-xs text-gray-400">
+                      totale {(parseFloat(oreEdit || 0) + parseFloat(viaggioEdit || 0)).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h
+                    </span>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs text-gray-500">Colleghi presenti (senza un proprio rapportino) — collegali a un operatore per aggiornare le sue ore</label>
@@ -414,8 +426,11 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                 </ul>
               </div>
             )}
-            {r.ore_lavorate != null && (
-              <p className="text-xs text-gray-600">Ore lavorate: <strong>{r.ore_lavorate}h</strong></p>
+            {(r.ore_lavorate != null || r.ore_viaggio != null) && (
+              <p className="text-xs text-gray-600">
+                Ore: <strong>{(Number(r.ore_lavorate || 0) + Number(r.ore_viaggio || 0)).toLocaleString('it-IT', { maximumFractionDigits: 2 })}h</strong>
+                {r.ore_viaggio ? <span className="text-gray-400"> ({r.ore_lavorate || 0}h lavoro + {r.ore_viaggio}h viaggio 🚗)</span> : null}
+              </p>
             )}
             {r.foto_extra_urls?.length > 0 && (
               <div>
@@ -1029,10 +1044,16 @@ function BannerCostiNonAssegnati({ lista }) {
 function VistaAdmin() {
   const qc = useQueryClient()
   const [tab, setTab] = useState('da-validare')
+  const [tabScelto, setTabScelto] = useState(false)  // l'utente ha cliccato un tab a mano?
 
-  const { data: daValidare = [] } = useQuery('rapp-da-validare',
+  const { data: daValidare = [], isSuccess: dvOk } = useQuery('rapp-da-validare',
     () => api.get('/rapportini/da-validare').then(r => r.data),
     { staleTime: 30000 })
+
+  // Se non c'è nulla da validare, apri direttamente "Tutti" invece di una schermata vuota
+  useEffect(() => {
+    if (!tabScelto && dvOk && daValidare.length === 0) setTab('tutti')
+  }, [tabScelto, dvOk, daValidare.length])
 
   const { data: tutti = [] } = useQuery('rapp-tutti',
     () => api.get('/rapportini').then(r => r.data),
@@ -1173,11 +1194,11 @@ function VistaAdmin() {
 
       <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
         {[
-          { key: 'da-validare', label: 'Da validare' },
+          { key: 'da-validare', label: `Da validare${daValidare.length ? ` (${daValidare.length})` : ''}` },
           { key: 'fuori', label: 'Fuori cantiere' },
-          { key: 'tutti', label: 'Tutti' },
+          { key: 'tutti', label: `Tutti${tutti.length ? ` (${tutti.length})` : ''}` },
         ].map(({ key, label }) => (
-          <button key={key} onClick={() => setTab(key)}
+          <button key={key} onClick={() => { setTab(key); setTabScelto(true) }}
             className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-colors ${
               tab === key ? 'bg-white text-steelex-orange shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}>
@@ -1214,7 +1235,11 @@ function VistaAdmin() {
       {lista.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <FileText size={40} className="mx-auto mb-3 opacity-30"/>
-          <p className="text-sm">{tab === 'fuori' ? 'Nessun costo non assegnato' : 'Nessun rapportino'}</p>
+          <p className="text-sm">
+            {tab === 'fuori' ? 'Nessun costo non assegnato'
+              : tab === 'da-validare' ? 'Niente da validare — i rapportini già validati sono nel tab «Tutti»'
+              : 'Nessun rapportino'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -1238,13 +1263,11 @@ function VistaAdmin() {
 // ── Entry point ───────────────────────────────────────────────────────────────
 export default function RapportiniPage() {
   const { utente } = useAuth()
-  const navigate = useNavigate()
   const isAdmin = RUOLI_ADMIN.includes(utente?.ruolo)
 
-  if (!isAdmin) {
-    navigate('/', { replace: true })
-    return null
-  }
+  // Gli operativi registrano i rapportini dalla Dashboard: qui non hanno nulla da fare
+  if (!isAdmin) return <Navigate to="/" replace />
+
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
