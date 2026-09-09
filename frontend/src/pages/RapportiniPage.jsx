@@ -617,157 +617,64 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   )
 }
 
-// ── Selettore foto ────────────────────────────────────────────────────────────
-function FotoInput({ label, name, files, onChange }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold text-gray-600 mb-1.5">{label}</p>
-      <label className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-steelex-orange transition-colors">
-        <Camera size={18} className="text-gray-400" />
-        <span className="text-sm text-gray-500">
-          {files.length > 0 ? `${files.length} foto selezionate` : 'Aggiungi foto'}
-        </span>
-        <input type="file" accept="image/*" multiple className="hidden"
-          onChange={e => onChange(Array.from(e.target.files))} />
-      </label>
-      {files.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {files.map((f, i) => (
-            <div key={i} className="relative">
-              <img src={URL.createObjectURL(f)} alt=""
-                className="w-14 h-14 object-cover rounded-lg border border-gray-200" />
-              <button onClick={() => onChange(files.filter((_, j) => j !== i))}
-                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center">
-                <X size={10}/>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Banner istruzioni ─────────────────────────────────────────────────────────
-function BannerIstruzioni({ onChiudi }) {
-  return (
-    <div className="bg-steelex-orange text-white rounded-2xl p-4 relative">
-      <button onClick={onChiudi}
-        className="absolute top-3 right-3 text-white/60 hover:text-white">
-        <X size={16}/>
-      </button>
-      <div className="flex gap-3">
-        <Info size={20} className="shrink-0 mt-0.5 text-white/80" />
-        <div className="space-y-1.5 text-sm">
-          <p className="font-bold text-base">Come compilare il rapportino</p>
-          <ol className="space-y-1 text-white/90 list-decimal list-inside text-xs">
-            <li>Seleziona il cantiere in cui hai lavorato oggi</li>
-            <li>Descrivi i lavori svolti (obbligatorio)</li>
-            <li>Aggiungi foto dello stato avanzamento</li>
-            <li>Indica eventuali lavori extra, ore extra, materiale aggiuntivo</li>
-            <li>Segnala criticità o non conformità riscontrate</li>
-            <li>Premi <strong>REGISTRA</strong> per inviare con la voce, oppure compila il modulo</li>
-          </ol>
-          <p className="text-xs text-white/70 pt-1">Il rapportino viene validato dal tuo responsabile.</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Vista operativo ───────────────────────────────────────────────────────────
-function VistaOperativo() {
+// ── Registrazione rapportino da parte di un admin ────────────────────────────
+// Stesso flusso degli operatori (voce/testo → IA → diario + ore + spese), ma l'admin
+// può registrarlo PER CONTO di un operatore o di un esterno senza account, e con
+// "valida subito" farlo diventare operativo all'istante.
+function RegistraRapportinoAdmin({ cantieri = [], onChiudi }) {
   const qc = useQueryClient()
-  const [fase, setFase] = useState('idle')
-  const [bannerVisible, setBannerVisible] = useState(true)
-  const mediaRef = useRef(null)
-  const chunksRef = useRef([])
+  const { utente } = useAuth()
+  const oggiStr = new Date().toISOString().slice(0, 10)
 
-  // Form fields
+  const [perConto, setPerConto] = useState('io')     // 'io' | '<id>' | 'esterno'
+  const [nomeEsterno, setNomeEsterno] = useState('')
+  const [dataRif, setDataRif] = useState(oggiStr)
   const [cantiereId, setCantiereId] = useState('')
-  const [descLavori, setDescLavori] = useState('')
-  const [fotoAv, setFotoAv] = useState([])
-  const [descExtra, setDescExtra] = useState('')
-  const [fotoEx, setFotoEx] = useState([])
-  const [oreExtra, setOreExtra] = useState('')
-  const [matExtra, setMatExtra] = useState('')
-  const [criticita, setCriticita] = useState('')
-  const [risultato, setRisultato] = useState(null)
+  const [validaSubito, setValidaSubito] = useState(true)
+  const [testo, setTesto] = useState('')
+  const [foto, setFoto] = useState([])
+  const [fase, setFase] = useState('idle')  // idle | recording | transcribing | inviando
   const [errore, setErrore] = useState(null)
 
-  const { data: cantieri = [] } = useQuery('cantieri-attivi-rap', () =>
-    api.get('/cantieri').then(r => r.data.filter(c => ['attivo','in_corso'].includes(c.stato))))
+  const mediaRef = useRef(null)
+  const chunksRef = useRef([])
+  const fotoInputRef = useRef(null)
 
-  const { data: miei = [] } = useQuery('rapportini-miei', () =>
-    api.get('/rapportini/miei').then(r => r.data), { staleTime: 30000 })
-
-  const { data: programmazione } = useQuery('mia-programmazione', () =>
-    api.get('/programmazione/mia').then(r => r.data))
-
-  const inviaMutation = useMutation(
-    async (fd) => {
-      const res = await api.post('/rapportini/invia', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 180000, // Whisper + Claude possono superare di molto i 12s di default
-      })
-      return res.data
-    },
-    {
-      onSuccess: (data) => {
-        setRisultato(data)
-        setFase('done')
-        resetForm()
-        qc.invalidateQueries('rapportini-miei')
-      },
-      onError: (err) => {
-        setErrore(err?.response?.data?.detail || 'Errore invio')
-        setFase('error')
-      }
-    }
-  )
-
-  const resetForm = () => {
-    setDescLavori(''); setFotoAv([]); setDescExtra(''); setFotoEx([])
-    setOreExtra(''); setMatExtra(''); setCriticita('')
-  }
-
-  const buildFormData = (audioBlob = null, audioExt = 'webm') => {
-    const fd = new FormData()
-    if (cantiereId) fd.append('cantiere_id', cantiereId)
-    if (descLavori) fd.append('descrizione_lavori', descLavori)
-    if (descExtra)  fd.append('descrizione_extra', descExtra)
-    if (oreExtra)   fd.append('ore_extra', oreExtra)
-    if (matExtra)   fd.append('materiale_extra', matExtra)
-    if (criticita)  fd.append('criticita', criticita)
-    fotoAv.forEach(f => fd.append('foto_avanzamento', f))
-    fotoEx.forEach(f => fd.append('foto_extra', f))
-    if (audioBlob) fd.append('audio', audioBlob, `rapportino.${audioExt}`)
-    return fd
-  }
+  const { data: operatori = [] } = useQuery('operatori',
+    () => api.get('/rapportini/operatori').then(r => r.data), { staleTime: 5 * 60 * 1000 })
 
   const startRec = async () => {
+    setErrore(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      // iOS Safari non supporta audio/webm — rileva il formato supportato
       const mimeType = ['audio/webm', 'audio/mp4', 'audio/ogg', ''].find(
-        m => m === '' || MediaRecorder.isTypeSupported(m)
-      )
+        m => m === '' || MediaRecorder.isTypeSupported(m))
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
       chunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
-        // mr.mimeType riflette il codec scelto davvero dal browser (utile quando mimeType era '' e il browser ha scelto da sé)
         const tipoReale = mr.mimeType || mimeType || 'audio/webm'
-        const extReale = tipoReale.includes('mp4') ? 'mp4' : tipoReale.includes('ogg') ? 'ogg' : 'webm'
+        const ext = tipoReale.includes('mp4') ? 'mp4' : tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('webm') ? 'webm' : 'm4a'
         const blob = new Blob(chunksRef.current, { type: tipoReale })
-        setFase('processing')
-        inviaMutation.mutate(buildFormData(blob, extReale))
+        if (blob.size < 2048) { setErrore('Registrazione troppo breve — riprova'); setFase('idle'); return }
+        setFase('transcribing')
+        try {
+          const fd = new FormData()
+          fd.append('audio', blob, `rapportino.${ext}`)
+          const res = await api.post('/rapportini/trascrivi', fd, { timeout: 180000 })
+          setTesto(t => (t ? t + '\n' : '') + (res.data.testo || ''))
+          setFase('idle')
+        } catch (err) {
+          setErrore(err?.response?.data?.detail || 'Errore trascrizione')
+          setFase('idle')
+        }
       }
-      mr.start(); mediaRef.current = mr
-      setFase('recording'); setErrore(null)
+      mr.start(1000)
+      mediaRef.current = mr
+      setFase('recording')
     } catch {
-      setErrore('Microfono non disponibile')
+      setErrore('Microfono non disponibile — controlla i permessi')
     }
   }
 
@@ -775,201 +682,154 @@ function VistaOperativo() {
     if (mediaRef.current?.state === 'recording') mediaRef.current.stop()
   }
 
-  const inviaForm = () => {
-    if (!descLavori.trim()) { setErrore('Inserisci la descrizione dei lavori svolti'); return }
-    setFase('processing'); setErrore(null)
-    inviaMutation.mutate(buildFormData())
-  }
+  const inviaMutation = useMutation(
+    async () => {
+      const fd = new FormData()
+      fd.append('testo', testo.trim())
+      if (dataRif) fd.append('data_riferimento', dataRif)
+      if (cantiereId) fd.append('cantiere_id', cantiereId)
+      if (perConto === 'esterno') fd.append('operatore_nome', nomeEsterno.trim())
+      else if (perConto !== 'io') fd.append('per_conto_id', perConto)
+      fd.append('valida_subito', validaSubito ? 'true' : 'false')
+      foto.forEach(f => fd.append('foto_avanzamento', f))
+      const res = await api.post('/rapportini/invia', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000,
+      })
+      return res.data
+    },
+    {
+      onSuccess: (data) => {
+        qc.invalidateQueries('rapp-da-validare')
+        qc.invalidateQueries('rapp-tutti')
+        qc.invalidateQueries('rapp-fuori')
+        toast.success(data.stato === 'validato'
+          ? 'Rapportino registrato e validato' : 'Rapportino in coda da validare')
+        onChiudi()
+      },
+      onError: (err) => {
+        setErrore(err?.response?.data?.detail || 'Errore invio')
+        setFase('idle')
+      },
+    }
+  )
 
-  // Cantiere del giorno (dalla programmazione)
-  const oggi = new Date()
-  const nomeGiorni = ['dom','lun','mar','mer','gio','ven','sab']
-  const giornoKey = nomeGiorni[oggi.getDay()]
-  const cantiereOggi = programmazione?.giorni?.[giornoKey]
+  const puoInviare = testo.trim().length > 3
+    && (perConto !== 'esterno' || nomeEsterno.trim().length > 1)
+    && fase === 'idle'
+
+  const invia = () => { setErrore(null); setFase('inviando'); inviaMutation.mutate() }
 
   return (
-    <div className="max-w-lg mx-auto space-y-4 pb-10">
-
-      {/* Banner istruzioni */}
-      {bannerVisible && <BannerIstruzioni onChiudi={() => setBannerVisible(false)} />}
-
-      {/* REGISTRA — bottone principale */}
-      <div className="flex flex-col items-center gap-3 pt-2">
-        {fase === 'idle' || fase === 'done' || fase === 'error' ? (
-          <button onClick={startRec}
-            className="w-36 h-36 rounded-full bg-steelex-orange text-white flex flex-col items-center justify-center shadow-2xl hover:bg-gray-800 active:scale-95 transition-all gap-2">
-            <Mic size={44}/>
-            <span className="text-xs font-bold tracking-widest">REGISTRA</span>
-          </button>
-        ) : fase === 'recording' ? (
-          <button onClick={stopRec}
-            className="w-36 h-36 rounded-full bg-red-600 text-white flex flex-col items-center justify-center shadow-2xl animate-pulse hover:bg-red-700 active:scale-95 transition-all gap-2">
-            <MicOff size={44}/>
-            <span className="text-xs font-bold tracking-widest">STOP</span>
-          </button>
-        ) : (
-          <div className="w-36 h-36 rounded-full bg-gray-200 flex flex-col items-center justify-center gap-2">
-            <div className="animate-spin w-10 h-10 border-4 border-steelex-orange border-t-transparent rounded-full"/>
-            <span className="text-xs text-gray-500">Elaboro...</span>
-          </div>
-        )}
-        <p className="text-xs text-gray-500 text-center">
-          {fase === 'idle' && 'Tocca per dettare il rapportino con la voce'}
-          {fase === 'recording' && '🔴 Parla... tocca per fermare'}
-          {fase === 'done' && '✅ Rapportino inviato!'}
-          {fase === 'error' && '❌ Errore — riprova o compila il modulo'}
-        </p>
-      </div>
-
-      {errore && (
-        <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm text-center">{errore}</div>
-      )}
-
-      {risultato && fase === 'done' && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-1.5">
-          <p className="font-semibold text-green-800 text-sm">{risultato.riassunto}</p>
-          {risultato.cantiere_nome && (
-            <p className="text-xs text-green-600">{risultato.cantiere_nome}</p>
-          )}
-          <button onClick={() => { setFase('idle'); setRisultato(null) }}
-            className="text-xs text-green-600 underline">Nuovo rapportino</button>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 px-4 pb-4 sm:pb-0 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4 my-6">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold text-gray-900 text-lg">Registra rapportino</h2>
+          <button onClick={onChiudi} className="text-gray-400 hover:text-gray-600 p-1"><X size={18} /></button>
         </div>
-      )}
 
-      {/* Form strutturato */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-4">
-        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Compila il modulo</p>
-
-        {/* Cantiere — evidenziato se c'è programmazione */}
+        {/* Per conto di */}
         <div>
-          <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
-            Cantiere
-            {cantiereOggi?.cantiere_nome && (
-              <span className="ml-2 text-steelex-orange font-normal">
-                (programma oggi: {cantiereOggi.cantiere_nome})
-              </span>
-            )}
-          </label>
-          <select
-            value={cantiereId}
-            onChange={e => setCantiereId(e.target.value)}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange">
-            <option value="">— seleziona cantiere —</option>
-            {cantieri.map(c => (
-              <option key={c.id} value={c.id}>{c.nome}</option>
-            ))}
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Per conto di</label>
+          <select value={perConto} onChange={e => setPerConto(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-steelex-orange">
+            <option value="io">Io stesso ({utente?.nome} {utente?.cognome})</option>
+            {operatori.map(o => <option key={o.id} value={String(o.id)}>{o.nome}</option>)}
+            <option value="esterno">Altro operatore esterno (senza account)…</option>
           </select>
-          {cantiereOggi?.cantiere_id && !cantiereId && (
-            <button
-              onClick={() => setCantiereId(String(cantiereOggi.cantiere_id))}
-              className="mt-1.5 text-xs text-steelex-orange underline">
-              Usa {cantiereOggi.cantiere_nome}
-            </button>
+          {perConto === 'esterno' && (
+            <input value={nomeEsterno} onChange={e => setNomeEsterno(e.target.value)}
+              placeholder="Nome e cognome dell'operatore esterno"
+              className="mt-2 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
           )}
         </div>
 
-        {/* Descrizione lavori */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
-            Descrizione lavori svolti <span className="text-red-500">*</span>
-          </label>
-          <textarea
-            value={descLavori}
-            onChange={e => setDescLavori(e.target.value)}
-            rows={3}
-            placeholder="Descrivi cosa hai fatto oggi..."
-            className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange"
-          />
-        </div>
-
-        {/* Foto avanzamento */}
-        <FotoInput
-          label="Foto stato avanzamento lavori"
-          files={fotoAv}
-          onChange={setFotoAv}
-        />
-
-        <hr className="border-gray-100"/>
-        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Extra (opzionale)</p>
-
-        {/* Descrizione extra */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Descrizione extra</label>
-          <textarea
-            value={descExtra}
-            onChange={e => setDescExtra(e.target.value)}
-            rows={2}
-            placeholder="Lavori extra, situazioni particolari..."
-            className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange"
-          />
-        </div>
-
-        {/* Foto extra */}
-        <FotoInput
-          label="Foto extra"
-          files={fotoEx}
-          onChange={setFotoEx}
-        />
-
-        {/* Ore extra + Materiale extra */}
+        {/* Data + cantiere */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Ore di lavoro extra</label>
-            <input
-              type="number" min="0" step="0.5"
-              value={oreExtra}
-              onChange={e => setOreExtra(e.target.value)}
-              placeholder="es. 2"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange"
-            />
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Giorno</label>
+            <input type="date" value={dataRif} max={oggiStr} onChange={e => setDataRif(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
           </div>
           <div>
-            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Materiale extra</label>
-            <input
-              type="text"
-              value={matExtra}
-              onChange={e => setMatExtra(e.target.value)}
-              placeholder="es. viti, stucco..."
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-steelex-orange"
-            />
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Cantiere</label>
+            <select value={cantiereId} onChange={e => setCantiereId(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-steelex-orange">
+              <option value="">Rileva da testo</option>
+              {cantieri.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
           </div>
         </div>
 
-        <hr className="border-gray-100"/>
+        {/* Registrazione voce / testo */}
+        <div className="flex items-center gap-3">
+          {fase === 'recording' ? (
+            <button onClick={stopRec}
+              className="w-12 h-12 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg animate-pulse shrink-0">
+              <MicOff size={20} />
+            </button>
+          ) : (
+            <button onClick={startRec} disabled={fase !== 'idle'}
+              className="w-12 h-12 rounded-full bg-steelex-orange text-white flex items-center justify-center shadow-lg disabled:opacity-40 shrink-0">
+              <Mic size={20} />
+            </button>
+          )}
+          <p className="text-xs text-gray-500 flex-1">
+            {fase === 'recording' && '🔴 Registrazione — tocca per fermare'}
+            {fase === 'transcribing' && 'Trascrizione in corso…'}
+            {fase === 'idle' && 'Detta il rapportino o scrivilo qui sotto'}
+            {fase === 'inviando' && 'Invio in corso…'}
+          </p>
+        </div>
 
-        {/* Criticità e NC */}
+        <textarea value={testo} onChange={e => setTesto(e.target.value)} rows={5}
+          placeholder="Cantiere, ore lavorate, attività svolte, materiali, eventuali problemi…"
+          className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+
+        {/* Foto */}
         <div>
-          <label className="text-xs font-semibold text-gray-600 mb-1.5 block flex items-center gap-1">
-            <AlertTriangle size={12} className="text-red-500"/>
-            Criticità e Non Conformità
-          </label>
-          <textarea
-            value={criticita}
-            onChange={e => setCriticita(e.target.value)}
-            rows={2}
-            placeholder="Segnala problemi riscontrati..."
-            className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-300"
-          />
+          <input ref={fotoInputRef} type="file" accept="image/*" multiple className="hidden"
+            onChange={e => setFoto(prev => [...prev, ...Array.from(e.target.files).filter(f => f.type.startsWith('image/'))].slice(0, 5))} />
+          <div className="flex gap-2 flex-wrap">
+            {foto.map((f, i) => (
+              <div key={i} className="relative">
+                <img src={URL.createObjectURL(f)} alt="" className="w-14 h-14 object-cover rounded-lg border border-gray-200" />
+                <button onClick={() => setFoto(prev => prev.filter((_, j) => j !== i))}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center"><X size={10} /></button>
+              </div>
+            ))}
+            {foto.length < 5 && (
+              <button onClick={() => fotoInputRef.current?.click()}
+                className="w-14 h-14 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 hover:border-steelex-orange hover:text-steelex-orange transition-colors">
+                <Camera size={18} />
+              </button>
+            )}
+          </div>
         </div>
 
-        <button
-          onClick={inviaForm}
-          disabled={fase === 'processing' || !descLavori.trim()}
-          className="w-full flex items-center justify-center gap-2 py-3.5 bg-steelex-orange text-white rounded-2xl font-bold text-sm hover:bg-gray-800 disabled:opacity-40 transition-colors">
-          <Send size={16}/> Invia rapportino
-        </button>
+        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" checked={validaSubito} onChange={e => setValidaSubito(e.target.checked)}
+            className="w-4 h-4 accent-steelex-orange" />
+          Valida subito (crea diario, ore e spese)
+        </label>
+
+        {errore && <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm">{errore}</div>}
+
+        <div className="flex gap-3">
+          <button onClick={onChiudi}
+            className="flex-1 py-3 border-2 border-gray-200 text-gray-600 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors">
+            Annulla
+          </button>
+          <button onClick={invia} disabled={!puoInviare || fase === 'inviando'}
+            className="flex-1 py-3 bg-steelex-orange text-white rounded-xl font-bold text-sm hover:bg-orange-600 disabled:opacity-40 flex items-center justify-center gap-2 transition-all">
+            <Send size={15} /> {validaSubito ? 'Registra e valida' : 'Registra'}
+          </button>
+        </div>
       </div>
-
-      {/* I miei ultimi rapportini */}
-      {miei.length > 0 && (
-        <div className="space-y-3 pt-2">
-          <h2 className="font-semibold text-gray-700 text-sm">Ultimi rapportini</h2>
-          {miei.slice(0, 10).map(r => <RapportinoCard key={r.id} r={r} isAdmin={false}/>)}
-        </div>
-      )}
     </div>
   )
 }
+
+
 
 // ── Banner costi non assegnati ────────────────────────────────────────────────
 function BannerCostiNonAssegnati({ lista }) {
@@ -1029,6 +889,7 @@ function BannerCostiNonAssegnati({ lista }) {
 function VistaAdmin() {
   const qc = useQueryClient()
   const [tab, setTab] = useState('da-validare')
+  const [registrando, setRegistrando] = useState(false)
 
   const { data: daValidare = [] } = useQuery('rapp-da-validare',
     () => api.get('/rapportini/da-validare').then(r => r.data),
@@ -1155,9 +1016,12 @@ function VistaAdmin() {
 
   return (
     <div className="space-y-5">
+      {registrando && (
+        <RegistraRapportinoAdmin cantieri={cantieri} onChiudi={() => setRegistrando(false)} />
+      )}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">Rapportini operativi</h1>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           {daValidare.length > 0 && (
             <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
               {daValidare.length} in attesa
@@ -1168,6 +1032,10 @@ function VistaAdmin() {
               {fuoriCount} fuori cant.
             </span>
           )}
+          <button onClick={() => setRegistrando(true)}
+            className="flex items-center gap-1.5 bg-steelex-orange text-white text-sm font-semibold px-3 py-1.5 rounded-lg hover:bg-orange-600 transition-colors">
+            <Plus size={15} /> Registra rapportino
+          </button>
         </div>
       </div>
 

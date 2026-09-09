@@ -9,6 +9,11 @@ class RapportinoOperativo(Base):
 
     id             = Column(Integer, primary_key=True, index=True)
     operativo_id   = Column(Integer, ForeignKey("utenti.id"), nullable=False)
+    # Nome libero dell'operatore quando un admin registra il rapportino PER CONTO di un
+    # esterno occasionale ("socio") senza account: operativo_id resta l'admin creatore
+    # (vincolo NOT NULL), ma diario/ore/registro a valle usano questo nome e lasciano
+    # utente_id NULL. Speculare a OreLavorate.operatore_nome.
+    operatore_nome = Column(Text, nullable=True)
     cantiere_id    = Column(Integer, ForeignKey("cantieri.id"), nullable=True)   # null = fuori cantiere
     diario_id      = Column(Integer, ForeignKey("diari_giornalieri.id"), nullable=True)  # after validation
 
