@@ -1725,10 +1725,20 @@ function DiarioTab({ cantiereId, utente }) {
       const mimeType = getSupportedMimeType()
       const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
       const blob = new Blob(chunksRef.current, { type: mimeType })
-      const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
-      await api.post(`/cantieri/${cantiereId}/diari/voce`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      qc.invalidateQueries(['diari', cantiereId])
-      toast.success('🎙️ Nota vocale salvata nel diario!')
+      // Passa dal flusso rapportino: crea un rapportino già validato per questo cantiere
+      // → ore e materiali finiscono nei costi e nel registro, e la nota diario resta
+      // modificabile (ore/materiali/ri-analisi) dalla scheda. Prima /diari/voce creava
+      // una nota "a secco" senza contabilizzare nulla.
+      const fd = new FormData()
+      fd.append('audio', blob, `audio.${ext}`)
+      fd.append('cantiere_id', cantiereId)
+      fd.append('valida_subito', 'true')
+      await api.post('/rapportini/invia', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000,
+      })
+      qc.invalidateQueries(['diari', cantiereId]); qc.invalidateQueries(['economia', cantiereId])
+      qc.invalidateQueries(['spese', cantiereId])
+      toast.success('🎙️ Nota vocale registrata — ore e materiali contabilizzati')
     } catch(err) {
       toast.error(err.response?.data?.detail || 'Errore trascrizione', { duration: 6000 })
     } finally { setRecStato('idle') }
