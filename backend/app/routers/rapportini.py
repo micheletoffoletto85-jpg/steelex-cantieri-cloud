@@ -527,6 +527,29 @@ def _whisper_prompt(db: Session) -> str:
     return WHISPER_PROMPT + f" Cantieri attivi: {', '.join(nomi[:15])}."
 
 
+def _trascrivi_con_fallback(client, tmp_path: str, whisper_kwargs: dict):
+    """gpt-4o-transcribe non supporta .ogg (a differenza di whisper-1) — i browser che
+    scelgono audio/ogg come formato di registrazione (es. Firefox quando webm/mp4 non
+    sono disponibili) causavano un 422 'formato non supportato' anche con un file valido.
+    Se il modello principale rifiuta il formato, ritenta una volta con whisper-1."""
+    with open(tmp_path, "rb") as af:
+        whisper_kwargs["file"] = af
+        try:
+            return client.audio.transcriptions.create(**whisper_kwargs)
+        except Exception as e:
+            err_str = str(e).lower()
+            if whisper_kwargs["model"] == "gpt-4o-transcribe" and any(
+                s in err_str for s in ("format", "codec", "invalid")
+            ):
+                pass
+            else:
+                raise
+    kwargs_fallback = {**whisper_kwargs, "model": "whisper-1"}
+    with open(tmp_path, "rb") as af:
+        kwargs_fallback["file"] = af
+        return client.audio.transcriptions.create(**kwargs_fallback)
+
+
 @router.post("/trascrivi")
 async def trascrivi_audio(
     audio: UploadFile = File(...),
@@ -554,9 +577,7 @@ async def trascrivi_audio(
         whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": _whisper_prompt(db)}
         if lingua_hint and lingua_hint != "auto":
             whisper_kwargs["language"] = lingua_hint
-        with open(tmp_path, "rb") as af:
-            whisper_kwargs["file"] = af
-            risposta = client.audio.transcriptions.create(**whisper_kwargs)
+        risposta = _trascrivi_con_fallback(client, tmp_path, whisper_kwargs)
         testo_originale = risposta.text.strip()
         lingua = lingua_hint if (lingua_hint and lingua_hint != "auto") else (getattr(risposta, "language", "it") or "it")
     except HTTPException:
@@ -689,9 +710,7 @@ async def invia_rapportino(
             whisper_kwargs = {"model": "gpt-4o-transcribe", "file": None, "response_format": "json", "prompt": _whisper_prompt(db)}
             if lingua_hint and lingua_hint != "auto":
                 whisper_kwargs["language"] = lingua_hint
-            with open(tmp_path, "rb") as af:
-                whisper_kwargs["file"] = af
-                risposta = client.audio.transcriptions.create(**whisper_kwargs)
+            risposta = _trascrivi_con_fallback(client, tmp_path, whisper_kwargs)
             testo_originale = risposta.text.strip()
             lingua = lingua_hint if (lingua_hint and lingua_hint != "auto") else (getattr(risposta, "language", "it") or "it")
         except HTTPException:
