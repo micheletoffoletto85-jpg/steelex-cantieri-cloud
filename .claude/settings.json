@@ -2,11 +2,25 @@
   "projectName": "STEELEX Cantieri App",
   "model": "claude-sonnet-4-6",
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(*)",
       "Read(*)",
       "Write(*)",
-      "Edit(*)"
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__computer-use__*",
+      "mcp__Claude_in_Chrome__*",
+      "mcp__Claude_Preview__*",
+      "mcp__visualize__*",
+      "mcp__ccd_session__*",
+      "mcp__f751ff84-eb7a-4ea5-b196-ad76bd483d96__*",
+      "mcp__scheduled-tasks__*",
+      "mcp__plugin_engineering_github__*",
+      "mcp__plugin_productivity_slack__*"
     ]
   },
   "autoApprove": true

@@ -3,13 +3,13 @@ il rapportino è registrato da un admin PER CONTO di un esterno occasionale ("so
 senza account. operativo_id resta valorizzato (creatore = admin, vincolo NOT NULL),
 ma le righe ore/diario a valle usano questo nome. Speculare a ore_lavorate.operatore_nome.
 
-revision = "0019_rapportino_operatore_esterno"
+revision = "0019_rapp_operatore_esterno"
 down_revision = "0018_ore_lavorate_esterno"
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0019_rapportino_operatore_esterno"
+revision = "0019_rapp_operatore_esterno"
 down_revision = "0018_ore_lavorate_esterno"
 branch_labels = None
 depends_on = None
