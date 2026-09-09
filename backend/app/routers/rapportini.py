@@ -1283,6 +1283,48 @@ def modifica_rapportino(
                 db.flush()
                 db.delete(ore_personali)
 
+    # Ore aggiunte a un rapportino validato che NON ne aveva (IA non le aveva estratte,
+    # oppure admin che le inserisce ora dalla scheda Diario) → crea le righe che mancano,
+    # come farebbe la validazione. Senza questo l'ora inserita non risulta da nessuna parte.
+    if ("ore_lavorate" in dati and r.ore_lavorate and r.ore_lavorate > 0
+            and r.stato == "validato" and r.diario_id):
+        esterno = bool(r.operatore_nome)
+        nome_op = r.operatore_nome or (f"{r.operativo.nome} {r.operativo.cognome}".strip() if r.operativo else "Operativo")
+        try:
+            _do = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
+        except Exception:
+            _do = date_today.today()
+        if r.cantiere_id and not r.ore_extra_id:
+            _tar = _costo_orario(None if esterno else r.operativo)
+            _oe = OreExtra(
+                cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
+                utente_id=(None if esterno else r.operativo_id), ore=float(r.ore_lavorate),
+                attivita=r.riassunto or "", tariffa_oraria=_tar,
+                totale=round(float(r.ore_lavorate) * _tar, 2), data=_do, approvato=False,
+                extra_preventivo=bool(r.extra_preventivo),
+                extra_preventivo_nota=r.extra_preventivo_nota if r.extra_preventivo else None,
+                creato_da=r.operativo_id,
+            )
+            db.add(_oe); db.flush(); r.ore_extra_id = _oe.id
+            _sync_voce_extra_ore_safe(db, _oe)
+        if not r.ore_lavorate_id:
+            _ol = OreLavorate(
+                utente_id=(None if esterno else r.operativo_id),
+                operatore_nome=r.operatore_nome or None,
+                data=_do, ore=float(r.ore_lavorate),
+                descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id,
+            )
+            db.add(_ol); db.flush(); r.ore_lavorate_id = _ol.id
+        # Mostra la voce ore anche nella scheda Diario
+        if r.diario_id:
+            _d = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == r.diario_id).first()
+            if _d is not None and not (_d.voci_estratte or []):
+                from sqlalchemy.orm.attributes import flag_modified as _fm
+                _d.voci_estratte = [{"tipo": "ore_extra", "operaio": nome_op,
+                                     "ore": float(r.ore_lavorate), "attivita": r.riassunto or "",
+                                     "approvato": True}]
+                _fm(_d, "voci_estratte")
+
     # Colleghi citati come presenti/al lavoro insieme — ricrea le loro righe ore se la
     # lista o le ore di riferimento sono cambiate (i colleghi senza ore proprie ereditano
     # le ore_lavorate del rapportino)

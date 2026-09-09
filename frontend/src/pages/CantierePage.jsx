@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, FileImage, FileSpreadsheet, FileArchive, PencilRuler, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check, Flag } from 'lucide-react'
+import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, FileImage, FileSpreadsheet, FileArchive, PencilRuler, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check, Flag, Sparkles } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ChiusuraTab from './ChiusuraTab'
 import MeteoMappa from '../components/MeteoMappa'
@@ -1565,6 +1565,9 @@ function DiarioTab({ cantiereId, utente }) {
   const [editId, setEditId] = useState(null)       // id nota in modifica
   const [confermaEliminaId, setConfermaEliminaId] = useState(null)
   const [editTesto, setEditTesto] = useState('')    // testo in modifica
+  const [editOre, setEditOre] = useState('')        // ore lavorate (solo note da rapportino)
+  const [editMateriali, setEditMateriali] = useState('') // materiali, uno per riga
+  const [rianalizzandoId, setRianalizzandoId] = useState(null)
   // Selezione note per la relazione PDF (extra preventivo da mandare al cliente)
   const [selRelazione, setSelRelazione] = useState(new Set())
   const [generandoRelazione, setGenerandoRelazione] = useState(false)
@@ -1632,6 +1635,24 @@ function DiarioTab({ cantiereId, utente }) {
   const updateMutation = useMutation(
     ({ id, attivita, condividi_cliente }) => api.put(`/cantieri/${cantiereId}/diari/${id}`, { attivita, condividi_cliente }),
     { onSuccess: () => { qc.invalidateQueries(['diari', cantiereId]); qc.invalidateQueries(['aggiornamenti-cliente', cantiereId]); setEditId(null) } }
+  )
+
+  // Modifica di una nota che nasce da un rapportino: passa dal rapportino così ore,
+  // materiali e testo restano allineati ovunque (diario, costi cantiere, registro ore)
+  const invalidaTutto = () => {
+    qc.invalidateQueries(['diari', cantiereId]); qc.invalidateQueries(['economia', cantiereId])
+    qc.invalidateQueries(['spese', cantiereId]); qc.invalidateQueries(['aggiornamenti-cliente', cantiereId])
+  }
+  const updateRapportinoMutation = useMutation(
+    ({ rapportinoId, ...body }) => api.put(`/rapportini/${rapportinoId}`, body),
+    { onSuccess: () => { invalidaTutto(); setEditId(null); toast.success('Modifiche salvate') },
+      onError: err => toast.error(err.response?.data?.detail || 'Errore salvataggio') }
+  )
+  const rianalizzaMutation = useMutation(
+    (rapportinoId) => api.put(`/rapportini/${rapportinoId}/rianalizza`, null, { timeout: 60000 }),
+    { onSuccess: () => { invalidaTutto(); toast.success('Rapportino ri-analizzato') },
+      onError: err => toast.error(err.response?.data?.detail || 'Errore ri-analisi'),
+      onSettled: () => setRianalizzandoId(null) }
   )
 
   const deleteMutation = useMutation(
@@ -2030,7 +2051,20 @@ function DiarioTab({ cantiereId, utente }) {
                 {d.meteo && <span className="text-sm text-gray-500">{d.meteo}</span>}
                 {d.operai_presenti > 0 && <span className="text-sm text-gray-500">👷 {d.operai_presenti}</span>}
                 {isAdminDiario && (<>
-                  <button onClick={() => { setEditId(d.id); setEditTesto(d.attivita || '') }}
+                  {d.rapportino_id && (
+                    <button onClick={() => { setRianalizzandoId(d.rapportino_id); rianalizzaMutation.mutate(d.rapportino_id) }}
+                      disabled={rianalizzandoId === d.rapportino_id}
+                      className="p-1 text-gray-400 hover:text-purple-600 transition-colors disabled:opacity-40"
+                      title="Ri-analizza il rapportino con l'IA">
+                      <Sparkles size={14} className={rianalizzandoId === d.rapportino_id ? 'animate-pulse' : ''} />
+                    </button>
+                  )}
+                  <button onClick={() => {
+                      setEditId(d.id)
+                      setEditTesto(d.rapportino_id ? (d.rapportino_descrizione_lavori || d.attivita || '') : (d.attivita || ''))
+                      setEditOre(d.rapportino_ore_lavorate ?? '')
+                      setEditMateriali((d.rapportino_materiali || []).join('\n'))
+                    }}
                     className="p-1 text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica">
                     <Edit2 size={14} />
                   </button>
@@ -2057,12 +2091,41 @@ function DiarioTab({ cantiereId, utente }) {
 
             {editId === d.id ? (
               <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-500">Lavori svolti</label>
                 <textarea className="input-field h-28 resize-none text-sm w-full" value={editTesto} onChange={e => setEditTesto(e.target.value)} autoFocus />
+                {d.rapportino_id && (
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">Ore lavorate</label>
+                      <input type="number" step="0.5" min="0" max="24" value={editOre}
+                        onChange={e => setEditOre(e.target.value)} placeholder="—"
+                        className="input-field text-sm w-full" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">Materiali usati (uno per riga)</label>
+                      <textarea value={editMateriali} onChange={e => setEditMateriali(e.target.value)} rows={2}
+                        placeholder="es. cartongesso 12.5mm" className="input-field text-sm w-full resize-none" />
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <button onClick={() => setEditId(null)} className="btn-secondary flex-1 text-sm">Annulla</button>
-                  <button onClick={() => updateMutation.mutate({ id: d.id, attivita: editTesto })}
-                    disabled={updateMutation.isLoading} className="btn-primary flex-1 text-sm">
-                    {updateMutation.isLoading ? 'Salvo...' : 'Salva'}
+                  <button
+                    onClick={() => {
+                      if (d.rapportino_id) {
+                        updateRapportinoMutation.mutate({
+                          rapportinoId: d.rapportino_id,
+                          descrizione_lavori: editTesto,
+                          ore_lavorate: editOre === '' ? null : Number(editOre),
+                          materiali: editMateriali.split('\n').map(s => s.trim()).filter(Boolean),
+                        })
+                      } else {
+                        updateMutation.mutate({ id: d.id, attivita: editTesto })
+                      }
+                    }}
+                    disabled={updateMutation.isLoading || updateRapportinoMutation.isLoading}
+                    className="btn-primary flex-1 text-sm">
+                    {(updateMutation.isLoading || updateRapportinoMutation.isLoading) ? 'Salvo...' : 'Salva'}
                   </button>
                 </div>
               </div>

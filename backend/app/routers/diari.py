@@ -45,6 +45,10 @@ def _diario_out(d: DiarioGiornaliero) -> dict:
         out["rapportino_materiali"] = rap.materiali or []
         out["rapportino_materiale_extra"] = rap.materiale_extra
         out["rapportino_materiali_spese"] = rap.materiali_spese or []
+        # Campi modificabili dalla scheda Diario (stesse leve della pagina Rapportini)
+        out["rapportino_descrizione_lavori"] = rap.descrizione_lavori or rap.testo_italiano or ""
+        out["rapportino_ore_lavorate"] = rap.ore_lavorate
+        out["rapportino_lavorazioni"] = rap.lavorazioni or []
 
     # Se il diario ha voci_estratte vuote ma viene da un rapportino, esponi le ore
     if not out.get("voci_estratte"):
