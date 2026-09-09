@@ -38,75 +38,141 @@ def _suffix_audio(upload_file) -> str:
 RUOLI_OPERATIVO = {RuoloUtente.artigiano}
 RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
 
-# ── Prompt estrazione da voce ──────────────────────────────────────────────────
+# ── Estrazione IA in pipeline a 2 fasi ─────────────────────────────────────────
+# Fase 1 (_segmenta_cantieri): decide quanti cantieri e spezza il racconto per cantiere.
+# Fase 2 (_estrai_campi): per OGNI segmento, estrae i campi strutturati con un prompt
+#   che parla di un cantiere solo (niente logica multi-cantiere = meno confusione).
+# Fase 3 (_verifica_ore): controlla che le ore siano durate vere, per segmento.
+# _estrai_dati orchestra le 3 fasi e ricompone la struttura legacy attesa dal resto
+# del codice (campi primari = 1° cantiere, altri_cantieri = 2°…N°).
 
-PROMPT_ESTRAI = """Analizza questo rapportino di lavoro di un operaio edile.
-Estrai le informazioni in formato JSON. Rispondi SOLO con il JSON.
+def _claude():
+    import anthropic
+    return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+
+def _json_da_risposta(raw: str):
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return _json.loads(raw)
+
+
+PROMPT_SEGMENTA = """Sei un assistente di cantiere. Ricevi il racconto della giornata di un operaio edile.
+Il tuo UNICO compito è capire in quanti cantieri DIVERSI ha lavorato e dividere il
+racconto di conseguenza. Rispondi SOLO con il JSON.
 
 {{
-  "cantiere": "nome del cantiere menzionato, null se non specificato",
-  "data_lavoro": "data YYYY-MM-DD se menzionata, null altrimenti",
-  "ore": numero_ore_lavorate oppure null,
-  "testo": "la porzione di racconto relativa SOLO a questo primo cantiere, riscritta in modo che si
-    legga da sola senza il resto — se il rapportino parla di UN SOLO cantiere, qui va l'intero racconto",
-  "descrizione_lavori": "descrizione chiara dei lavori principali svolti (in questo primo cantiere)",
-  "lavorazioni": ["lista sintetica lavorazioni, max 5-6 parole ciascuna"],
-  "materiali": ["lista materiali usati"],
-  "descrizione_extra": "eventuali lavori extra o situazioni particolari, null se nessuna",
-  "ore_extra": numero_ore_extra oppure null,
-  "materiale_extra": "materiale extra usato non previsto, null se nessuno",
-  "criticita": "problema emerso in una frase, null se nessuna criticità o non conformità",
-  "spese_extra": [{{"descrizione": "cosa", "importo": numero_o_null}}],
-  "colleghi": [{{"nome": "nome del collega citato come presente/al lavoro insieme",
-                 "ore": numero_ore_o_null}}],
-  "extra_preventivo": true_oppure_false,
-  "extra_preventivo_nota": "breve nota su cosa è extra rispetto al preventivo, null se extra_preventivo è false",
-  "riassunto": "frase di max 2 righe che riassume la giornata",
-  "altri_cantieri": [
-    {{"cantiere": "nome del secondo cantiere menzionato", "ore": numero_decimale_o_null,
-      "testo": "porzione di racconto relativa SOLO a questo cantiere, riscritta in modo che si legga da sola",
-      "lavorazioni": ["lavorazioni fatte in QUEL cantiere"], "riassunto": "frase breve su quel cantiere"}}
+  "data_lavoro": "data YYYY-MM-DD se il testo la indica, altrimenti null",
+  "segmenti": [
+    {{"cantiere": "nome del cantiere come lo dice l'operaio (null se non lo nomina)",
+      "testo": "la porzione di racconto relativa SOLO a questo cantiere, riscritta in modo
+        che si legga da sola. Insieme, i testi dei segmenti devono coprire tutto il
+        racconto originale senza perdere né duplicare frasi."}}
   ]
 }}
 
 Regole:
-- Non inventare dati non presenti nel testo — se un cantiere non è chiaramente riconoscibile lascialo
-  null piuttosto che indovinare
-- "ore" è la DURATA del lavoro in ore, numero decimale (mezz'ora = 0.5, un quarto d'ora = 0.25).
-  NON è un orario: "sono arrivato alle 8:30", "alle 17 ho staccato", "da mezzogiorno" sono ORARI,
-  non durate. Metti un numero in "ore" SOLO se l'operaio dice quante ore ha lavorato, oppure dà
-  sia l'ora di inizio sia quella di fine (allora calcola tu la durata). Se dà solo un orario o
-  niente, lascia "ore" a null. Mai convertire "8:30" in 8.3 (semmai una durata di 8 ore e mezza è 8.5).
-  Stessa regola per le "ore" dei colleghi e degli altri_cantieri.
-- Se l'operaio nomina un collega presente/al lavoro insieme a lui (es. "io e Mesedin",
-  "con Mario abbiamo fatto...", "eravamo in due, io e..."), inseriscilo in colleghi con il suo
-  nome — se non specifica ore diverse per il collega, lascia ore a null (si userà lo stesso
-  numero di ore del rapportino principale). Non confondere con menzioni generiche di altri
-  operai non presenti quel giorno o riferiti ad altri cantieri
-- Imposta extra_preventivo a true SOLO se l'operaio dice esplicitamente che il lavoro è extra,
-  fuori preventivo, non concordato o da fatturare a parte (es. "questo è un lavoro extra",
-  "non era nel preventivo", "da aggiungere al preventivo") — non dedurlo da solo, in caso di
-  dubbio lascialo false. È un concetto diverso da descrizione_extra/materiale_extra (che sono
-  note libere su lavori insoliti, non necessariamente fuori contratto)
-- lavorazioni e materiali devono essere liste di stringhe brevi
-- ATTENZIONE ai cantieri multipli: rileggi sempre il racconto cercando cambi di luogo — parole come
-  "poi sono andato a/al/da", "dopo pranzo mi sono spostato", "nel pomeriggio ero a", "stamattina invece",
-  "prima... poi...", o due nomi di cantiere diversi citati in punti diversi del racconto, sono il segnale
-  che si tratta di PIÙ cantieri nella stessa giornata, non uno solo con più fasi di lavoro
-- In quel caso: metti il primo cantiere nei campi principali (cantiere, ore, testo, descrizione_lavori,
-  lavorazioni, riassunto = SOLO quella parte, non tutto il racconto) e OGNI cantiere successivo come
-  voce separata in altri_cantieri, ciascuno con il proprio testo/ore/lavorazioni — il campo "testo" di
-  ogni voce deve coprire, insieme agli altri, l'intero racconto originale senza perdere né duplicare frasi
-- Esempio: "Stamattina ero al cantiere Rossi, ho fatto la posa del cartongesso per 4 ore. Poi nel
-  pomeriggio sono passato dal cantiere Bianchi per la rasatura, altre 3 ore" → cantiere: "Rossi", ore: 4,
-  testo: "Stamattina ho fatto la posa del cartongesso.", altri_cantieri: [{{"cantiere": "Bianchi", "ore": 3,
-  "testo": "Nel pomeriggio ho fatto la rasatura."}}]
-- Lascia altri_cantieri: [] se parla di un solo cantiere (caso normale, la maggioranza dei rapportini)
+- La maggioranza dei rapportini parla di UN SOLO cantiere → un solo segmento, "testo" = tutto il racconto.
+- Più cantieri SOLO se ci sono segnali chiari di spostamento: "poi sono andato a/al/da",
+  "dopo pranzo mi sono spostato", "nel pomeriggio ero a", "stamattina invece", "prima… poi…",
+  oppure due nomi di cantiere diversi in punti diversi del racconto.
+- Fasi diverse di lavoro NELLO STESSO posto NON sono cantieri diversi.
+- Non inventare nomi: se un cantiere non è nominato chiaramente, "cantiere": null.
 
-Rapportino:
+{hint}Racconto:
 {testo}
 
 JSON:"""
+
+
+PROMPT_CAMPI = """Analizza questo rapportino, che riguarda UN SOLO cantiere.
+Estrai i campi in JSON. Rispondi SOLO con il JSON.
+
+{{
+  "ore": numero_ore_lavorate_o_null,
+  "descrizione_lavori": "descrizione chiara dei lavori svolti",
+  "lavorazioni": ["lista sintetica lavorazioni, max 5-6 parole ciascuna"],
+  "materiali": ["lista materiali usati"],
+  "descrizione_extra": "lavori extra o situazioni particolari, null se nessuna",
+  "ore_extra": numero_ore_extra_o_null,
+  "materiale_extra": "materiale extra non previsto, null se nessuno",
+  "criticita": "problema o non conformità in una frase, null se nessuno",
+  "spese_extra": [{{"descrizione": "cosa", "importo": numero_o_null}}],
+  "colleghi": [{{"nome": "collega presente/al lavoro insieme", "ore": numero_o_null}}],
+  "extra_preventivo": true_o_false,
+  "extra_preventivo_nota": "cosa è fuori preventivo, null se extra_preventivo è false",
+  "riassunto": "frase di max 2 righe che riassume"
+}}
+
+Regole:
+- Non inventare dati non presenti nel testo.
+- "ore" è la DURATA del lavoro in ore (decimale: mezz'ora = 0.5, un quarto = 0.25).
+  NON è un orario: "arrivato alle 8:30", "alle 17 ho staccato", "da mezzogiorno" sono ORARI.
+  Metti un numero SOLO se l'operaio dice quante ore ha lavorato, o dà sia inizio sia fine
+  (allora calcola la durata). Altrimenti null. Mai "8:30" → 8.3 (otto ore e mezza = 8.5).
+  Stessa regola per le ore dei colleghi.
+- Collega = persona citata come presente/al lavoro insieme ("io e Mesedin", "con Mario
+  abbiamo…", "eravamo in due"). Se non dà ore diverse, lascia "ore" a null. Non confondere
+  con operai citati genericamente o non presenti.
+- extra_preventivo = true SOLO se l'operaio dice esplicitamente che è extra / fuori
+  preventivo / da fatturare a parte. In caso di dubbio false. Diverso da descrizione_extra
+  e materiale_extra (note libere su lavori insoliti).
+- lavorazioni e materiali = liste di stringhe brevi.
+
+{hint}Rapportino:
+{testo}
+
+JSON:"""
+
+
+def _campi_vuoti(testo: str) -> dict:
+    return {"ore": None, "descrizione_lavori": testo[:300], "lavorazioni": [], "materiali": [],
+            "descrizione_extra": None, "ore_extra": None, "materiale_extra": None, "criticita": None,
+            "spese_extra": [], "colleghi": [], "extra_preventivo": False,
+            "extra_preventivo_nota": None, "riassunto": testo[:200]}
+
+
+def _segmenta_cantieri(testo: str, cantieri_nomi: list) -> dict:
+    """Fase 1: quanti cantieri + racconto diviso per cantiere. Fail-open a segmento unico."""
+    unico = {"data_lavoro": None, "segmenti": [{"cantiere": None, "testo": testo}]}
+    if not settings.ANTHROPIC_API_KEY:
+        return unico
+    hint = f"Cantieri attivi: {', '.join(cantieri_nomi[:20])}\n" if cantieri_nomi else ""
+    try:
+        msg = _claude().messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=2048,
+            messages=[{"role": "user", "content": PROMPT_SEGMENTA.format(testo=testo, hint=hint)}],
+        )
+        out = _json_da_risposta(msg.content[0].text)
+        segs = [s for s in (out.get("segmenti") or []) if (s.get("testo") or "").strip()]
+        if not segs:
+            return unico
+        return {"data_lavoro": out.get("data_lavoro"), "segmenti": segs}
+    except Exception:
+        logger.exception("[segmenta_cantieri] fallback a segmento unico")
+        return unico
+
+
+def _estrai_campi(testo: str, cantieri_nomi: list) -> dict:
+    """Fase 2: estrazione campi per UN cantiere. Fail-open a campi vuoti."""
+    if not settings.ANTHROPIC_API_KEY:
+        return _campi_vuoti(testo)
+    hint = f"Cantieri attivi: {', '.join(cantieri_nomi[:20])}\n" if cantieri_nomi else ""
+    try:
+        msg = _claude().messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=3072,
+            messages=[{"role": "user", "content": PROMPT_CAMPI.format(testo=testo, hint=hint)}],
+        )
+        d = _json_da_risposta(msg.content[0].text)
+        base = _campi_vuoti(testo)
+        base.update({k: v for k, v in d.items() if k in base})
+        return base
+    except Exception:
+        logger.exception("[estrai_campi] fallback a campi vuoti")
+        return _campi_vuoti(testo)
 
 
 def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
@@ -117,29 +183,128 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
              "colleghi": [], "extra_preventivo": False, "extra_preventivo_nota": None, "altri_cantieri": []}
     if not settings.ANTHROPIC_API_KEY:
         return vuoto
-    import anthropic
-    claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    hint = ""
-    if cantieri_nomi:
-        hint = f"\nCantieri attivi: {', '.join(cantieri_nomi[:20])}\n"
+    seg_out = _segmenta_cantieri(testo, cantieri_nomi)
+    segmenti = seg_out.get("segmenti") or [{"cantiere": None, "testo": testo}]
 
-    prompt = PROMPT_ESTRAI.format(testo=testo) + hint
-    msg = claude.messages.create(
-        model="claude-haiku-4-5-20251001", max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    raw = msg.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"): raw = raw[4:]
-    try:
-        dati = _json.loads(raw)
-        if not dati.get("testo"):
-            dati["testo"] = testo
+    elaborati = []
+    for s in segmenti:
+        s_testo = (s.get("testo") or "").strip() or testo
+        campi = _verifica_ore(s_testo, _estrai_campi(s_testo, cantieri_nomi))
+        elaborati.append((s, campi))
+
+    s0, campi0 = elaborati[0]
+    dati = {**campi0,
+            "cantiere": s0.get("cantiere"),
+            "testo": (s0.get("testo") or testo),
+            "data_lavoro": seg_out.get("data_lavoro"),
+            "altri_cantieri": [
+                {"cantiere": s.get("cantiere"), "testo": s.get("testo"),
+                 "ore": c.get("ore"), "lavorazioni": c.get("lavorazioni") or [],
+                 "riassunto": c.get("riassunto")}
+                for s, c in elaborati[1:]
+            ]}
+    return dati
+
+
+def _ha_ore(dati: dict) -> bool:
+    if dati.get("ore") not in (None, 0):
+        return True
+    for c in (dati.get("colleghi") or []):
+        if c.get("ore") not in (None, 0):
+            return True
+    for a in (dati.get("altri_cantieri") or []):
+        if a.get("ore") not in (None, 0):
+            return True
+    return False
+
+
+PROMPT_VERIFICA_ORE = """Un sistema ha estratto dei valori di ORE da questo rapportino di un operaio edile.
+Il tuo unico compito è controllare che ogni valore sia una DURATA di lavoro davvero
+dichiarata nel testo. Rispondi SOLO con il JSON.
+
+Testo del rapportino:
+{testo}
+
+Valori estratti da verificare:
+{estratti}
+
+Regole:
+- "ore" deve essere una DURATA in ore (decimale: mezz'ora = 0.5, un quarto = 0.25).
+- Un ORARIO NON è una durata: "sono arrivato alle 8:30", "alle 17 ho staccato",
+  "da mezzogiorno", "verso le 8" sono orari → NON giustificano un valore di ore.
+- Vale come durata solo se: l'operaio dice quante ore ha lavorato ("ho fatto 8 ore",
+  "otto ore e mezza", "mezza giornata" = 4), OPPURE dà sia l'ora di inizio sia quella
+  di fine (allora la durata è fine - inizio: "dalle 8 alle 17" = 9).
+- Mai trasformare "8:30" (orario) in 8.3. Una durata di otto ore e mezza è 8.5.
+- Per ogni valore: se il testo lo giustifica, tienilo (correggilo se il calcolo è
+  sbagliato); se NON lo giustifica, mettilo a null.
+- Non aggiungere ore che non erano nell'elenco estratto.
+
+Rispondi con questo JSON:
+{{
+  "ore": numero_o_null,
+  "colleghi": [{{"nome": "come nell'elenco", "ore": numero_o_null}}],
+  "altri_cantieri": [{{"cantiere": "come nell'elenco", "ore": numero_o_null}}]
+}}
+
+JSON:"""
+
+
+def _verifica_ore(testo: str, dati: dict) -> dict:
+    """Seconda passata IA, focalizzata SOLO sulle ore: rilegge il testo e annulla i
+    valori di ore che non sono giustificati da una durata esplicita (orari di
+    arrivo/uscita scambiati per durate, "8:30" letto come 8.3, ecc.). Fail-open: a
+    qualunque errore restituisce `dati` invariato."""
+    if not settings.ANTHROPIC_API_KEY or not _ha_ore(dati):
         return dati
+    try:
+        estratti = {
+            "ore": dati.get("ore"),
+            "colleghi": [{"nome": c.get("nome"), "ore": c.get("ore")} for c in (dati.get("colleghi") or [])],
+            "altri_cantieri": [{"cantiere": a.get("cantiere"), "ore": a.get("ore")} for a in (dati.get("altri_cantieri") or [])],
+        }
+        import anthropic
+        claude = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        prompt = PROMPT_VERIFICA_ORE.format(testo=testo, estratti=_json.dumps(estratti, ensure_ascii=False))
+        msg = claude.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        v = _json.loads(raw)
     except Exception:
-        return vuoto
+        logger.exception("[verifica_ore] fallback ai dati originali")
+        return dati
+
+    cambi = []
+    if "ore" in v and v.get("ore") != dati.get("ore"):
+        cambi.append(f"ore {dati.get('ore')}→{v.get('ore')}")
+        dati["ore"] = v.get("ore")
+
+    ore_col = {(c.get("nome") or "").strip().lower(): c.get("ore")
+               for c in (v.get("colleghi") or []) if c.get("nome")}
+    for c in (dati.get("colleghi") or []):
+        k = (c.get("nome") or "").strip().lower()
+        if k in ore_col and ore_col[k] != c.get("ore"):
+            cambi.append(f"collega {c.get('nome')} {c.get('ore')}→{ore_col[k]}")
+            c["ore"] = ore_col[k]
+
+    ore_alt = {(a.get("cantiere") or "").strip().lower(): a.get("ore")
+               for a in (v.get("altri_cantieri") or []) if a.get("cantiere")}
+    for a in (dati.get("altri_cantieri") or []):
+        k = (a.get("cantiere") or "").strip().lower()
+        if k in ore_alt and ore_alt[k] != a.get("ore"):
+            cambi.append(f"cantiere {a.get('cantiere')} {a.get('ore')}→{ore_alt[k]}")
+            a["ore"] = ore_alt[k]
+
+    if cambi:
+        logger.info("[verifica_ore] corretti: %s", "; ".join(cambi))
+    return dati
 
 
 _PAROLE_NOISE = {"cantiere", "cliente", "via", "presso", "sig", "signor", "signora", "ditta", "azienda"}
@@ -279,7 +444,8 @@ def _rap_dict(r: RapportinoOperativo, db: Optional[Session] = None) -> dict:
     return {
         "id": r.id,
         "operativo_id": r.operativo_id,
-        "operativo_nome": f"{r.operativo.nome} {r.operativo.cognome}" if r.operativo else None,
+        "operatore_nome": r.operatore_nome,
+        "operativo_nome": r.operatore_nome or (f"{r.operativo.nome} {r.operativo.cognome}" if r.operativo else None),
         "cantiere_id": r.cantiere_id,
         "cantiere_nome": r.cantiere.nome if r.cantiere else None,
         "cantiere_rilevato": r.cantiere_rilevato,
@@ -472,13 +638,34 @@ async def invia_rapportino(
     # Testo alternativo all'audio
     testo: str = Form(None),
     data_riferimento: Optional[str] = Form(None),
+    # Registrazione da parte di un admin PER CONTO di qualcun altro (ignorati se il
+    # chiamante non è admin)
+    per_conto_id: Optional[int] = Form(None),      # operatore con account
+    operatore_nome: Optional[str] = Form(None),    # nome libero (esterno senza account)
+    valida_subito: Optional[bool] = Form(False),   # crea subito diario + ore + spese
     # Foto
     foto_avanzamento: List[UploadFile] = File(default=[]),
     foto_extra: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    """Operativo invia rapportino: form strutturato + foto, oppure audio → AI."""
+    """Operativo invia rapportino: form strutturato + foto, oppure audio → AI.
+    Un admin può registrarlo per conto di un operatore (per_conto_id) o di un esterno
+    senza account (operatore_nome), e con valida_subito farlo validare all'istante."""
+
+    is_admin = user.ruolo in RUOLI_ADMIN
+    op_id = user.id
+    op_nome_libero = None
+    if is_admin:
+        if per_conto_id:
+            u_pc = db.query(Utente).filter(Utente.id == per_conto_id).first()
+            if not u_pc:
+                raise HTTPException(404, "Operatore non trovato")
+            op_id = u_pc.id
+        elif operatore_nome and operatore_nome.strip():
+            op_nome_libero = operatore_nome.strip()
+    else:
+        valida_subito = False
 
     testo_originale = None
     testo_ita = None
@@ -605,7 +792,8 @@ async def invia_rapportino(
 
     # ── Crea rapportino ───────────────────────────────────────────────────────
     rapportino = RapportinoOperativo(
-        operativo_id      = user.id,
+        operativo_id      = op_id,
+        operatore_nome    = op_nome_libero,
         cantiere_id       = cantiere_id,
         data_lavoro       = data_riferimento or dati_ai.get("data_lavoro") or str(date_today.today()),
         testo_originale   = testo_originale,
@@ -635,15 +823,23 @@ async def invia_rapportino(
     )
     db.add(rapportino); db.commit(); db.refresh(rapportino)
 
-    # Notifica admin
-    try:
-        admins = db.query(Utente).filter(Utente.ruolo.in_(["admin","capo_cantiere"])).all()
-        from app.routers.notifiche import invia_notifica
-        for a in admins:
-            invia_notifica(db, [a.id], "📋 Nuovo rapportino",
-                           f"{user.nome} {user.cognome}: {rapportino.riassunto[:80]}", url="/rapportini")
-    except Exception:
-        pass
+    # Registrazione da admin con "valida subito": crea diario + ore + registro all'istante
+    if valida_subito and is_admin:
+        _esegui_validazione(db, rapportino, cantiere_id, user)
+        db.commit(); db.refresh(rapportino)
+        return _rap_dict(rapportino, db)
+
+    # Notifica admin (non serve se l'ha inviato un admin)
+    if not is_admin:
+        try:
+            admins = db.query(Utente).filter(Utente.ruolo.in_(["admin","capo_cantiere"])).all()
+            from app.routers.notifiche import invia_notifica
+            autore = rapportino.operatore_nome or f"{user.nome} {user.cognome}"
+            for a in admins:
+                invia_notifica(db, [a.id], "📋 Nuovo rapportino",
+                               f"{autore}: {rapportino.riassunto[:80]}", url="/rapportini")
+        except Exception:
+            pass
 
     return _rap_dict(rapportino, db)
 
@@ -778,7 +974,9 @@ def _registro_ore_fuori_cantiere(db: Session, r: RapportinoOperativo, data_obj) 
             row.ore = float(r.ore_lavorate)
             row.aggiornato_il = datetime.utcnow()
         else:
-            row = OreLavorate(utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
+            row = OreLavorate(utente_id=(None if r.operatore_nome else r.operativo_id),
+                              operatore_nome=r.operatore_nome or None,
+                              data=data_obj, ore=float(r.ore_lavorate),
                               descrizione=r.riassunto or "Rapportino (fuori cantiere)", rapportino_id=r.id)
             db.add(row); db.flush()
             r.ore_lavorate_id = row.id
@@ -860,9 +1058,12 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
     # Costruisce voci_estratte con le ore del rapportino — già segnate come registrate
     # perché le ore vengono imputate automaticamente al cantiere (vedi sotto), senza bisogno
     # che l'admin clicchi "→ Ore" a mano
-    nome_op = ""
-    if r.operativo:
+    # Operatore esterno senza account (registrato da admin) → nome libero, utente_id NULL
+    esterno = bool(r.operatore_nome)
+    nome_op = r.operatore_nome or ""
+    if not nome_op and r.operativo:
         nome_op = f"{r.operativo.nome} {r.operativo.cognome}".strip()
+    op_utente_id = None if esterno else r.operativo_id
     voci = []
     if r.ore_lavorate and r.ore_lavorate > 0:
         voci.append({
@@ -913,13 +1114,13 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
     # Calcolo automatico ore lavorate → registrazione diretta nella sezione ore del cantiere,
     # valorizzata col costo orario dell'operativo (entra nei costi del cantiere)
     if r.ore_lavorate and r.ore_lavorate > 0:
-        tariffa_op = _costo_orario(r.operativo)
+        tariffa_op = _costo_orario(None if esterno else r.operativo)
         ore_val = float(r.ore_lavorate)
         ore_extra_row = OreExtra(
             cantiere_id    = cantiere_id,
             diario_id      = diario.id,
             operaio_nome   = nome_op or "Operativo",
-            utente_id      = r.operativo_id,
+            utente_id      = op_utente_id,
             ore            = ore_val,
             attivita       = r.riassunto or "",
             tariffa_oraria = tariffa_op,
@@ -937,7 +1138,8 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
         # Aggiorna anche il registro ore personale dell'operativo — così non deve
         # inserirle a mano una seconda volta nella sezione "Ore lavorate"
         ore_personali = OreLavorate(
-            utente_id   = r.operativo_id,
+            utente_id   = op_utente_id,
+            operatore_nome = r.operatore_nome or None,
             data        = data_obj,
             ore         = float(r.ore_lavorate),
             descrizione = r.riassunto or "Rapportino di cantiere",
@@ -1062,7 +1264,8 @@ def modifica_rapportino(
                 tariffa = ore_extra_row.tariffa_oraria or _costo_orario(r.operativo)
                 ore_extra_row.ore = float(r.ore_lavorate)
                 ore_extra_row.tariffa_oraria = tariffa
-                ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
+                if not r.operatore_nome:
+                    ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
                 ore_extra_row.totale = round(ore_extra_row.ore * tariffa, 2)
             else:
                 r.ore_extra_id = None
@@ -1258,7 +1461,7 @@ def rianalizza_rapportino(
     # Se le ore sono cambiate e c'era già una registrazione automatica, aggiornala; se il
     # rapportino era già validato ma non aveva ancora ore registrate (dati vecchi, da prima
     # che questa automazione esistesse) e ora ne emergono, le crea ora invece di lasciarle perse
-    nome_op = f"{r.operativo.nome} {r.operativo.cognome}".strip() if r.operativo else "Operativo"
+    nome_op = r.operatore_nome or (f"{r.operativo.nome} {r.operativo.cognome}".strip() if r.operativo else "Operativo")
     try:
         data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
     except Exception:
@@ -1272,12 +1475,13 @@ def rianalizza_rapportino(
         if ore_extra_row:
             ore_extra_row.ore = float(r.ore_lavorate)
             ore_extra_row.tariffa_oraria = tariffa
-            ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
+            if not r.operatore_nome:
+                ore_extra_row.utente_id = ore_extra_row.utente_id or r.operativo_id
             ore_extra_row.totale = round(ore_extra_row.ore * tariffa, 2)
         elif r.diario_id and r.cantiere_id:
             ore_extra_row = OreExtra(
                 cantiere_id=r.cantiere_id, diario_id=r.diario_id, operaio_nome=nome_op,
-                utente_id=r.operativo_id,
+                utente_id=(None if r.operatore_nome else r.operativo_id),
                 ore=float(r.ore_lavorate), attivita=r.riassunto or "", tariffa_oraria=tariffa,
                 totale=round(float(r.ore_lavorate) * tariffa, 2), data=data_obj,
                 approvato=False, creato_da=r.operativo_id,
@@ -1292,7 +1496,9 @@ def rianalizza_rapportino(
         elif r.stato == "validato":
             # anche i rapportini senza cantiere (fuori commessa) lasciano traccia nel registro
             ore_personali = OreLavorate(
-                utente_id=r.operativo_id, data=data_obj, ore=float(r.ore_lavorate),
+                utente_id=(None if r.operatore_nome else r.operativo_id),
+                operatore_nome=r.operatore_nome or None,
+                data=data_obj, ore=float(r.ore_lavorate),
                 descrizione=r.riassunto or "Rapportino di cantiere", rapportino_id=r.id,
             )
             db.add(ore_personali); db.flush()
@@ -1407,6 +1613,31 @@ def dividi_rapportino(
     return [_rap_dict(n, db) for n in creati]
 
 
+def _esegui_validazione(db: Session, r: RapportinoOperativo, cantiere_id: Optional[int],
+                        user: Utente, note_admin: Optional[str] = None) -> None:
+    """Porta un rapportino a "validato": assegna il cantiere, crea la nota diario + le
+    ore nei costi cantiere (o solo il registro personale se fuori cantiere), marca
+    validato_da/il. Non fa commit — lo fa il chiamante. Condiviso tra l'endpoint
+    /valida e la registrazione da admin con valida_subito."""
+    r.cantiere_id = cantiere_id
+    r.fuori_cantiere = cantiere_id is None
+
+    if cantiere_id:
+        _crea_diario_da_rapportino(db, r, cantiere_id)
+    else:
+        try:
+            data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
+        except Exception:
+            data_obj = date_today.today()
+        _registro_ore_fuori_cantiere(db, r, data_obj)
+
+    r.stato = "validato"
+    if note_admin is not None:
+        r.note_admin = note_admin
+    r.validato_da_id = user.id
+    r.validato_il = datetime.utcnow()
+
+
 @router.put("/{rapportino_id}/valida")
 def valida_rapportino(
     rapportino_id: int,
@@ -1427,24 +1658,7 @@ def valida_rapportino(
         db.commit()
         return _rap_dict(r, db)
 
-    cantiere_id = body.cantiere_id or r.cantiere_id
-    r.cantiere_id = cantiere_id
-    r.fuori_cantiere = cantiere_id is None
-
-    if cantiere_id:
-        _crea_diario_da_rapportino(db, r, cantiere_id)
-    else:
-        # Nessun cantiere: le ore vanno comunque nel registro personale
-        try:
-            data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
-        except Exception:
-            data_obj = date_today.today()
-        _registro_ore_fuori_cantiere(db, r, data_obj)
-
-    r.stato = "validato"
-    r.note_admin = body.note_admin
-    r.validato_da_id = user.id
-    r.validato_il = datetime.utcnow()
+    _esegui_validazione(db, r, body.cantiere_id or r.cantiere_id, user, note_admin=body.note_admin)
     db.commit()
 
     try:

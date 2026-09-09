@@ -15,6 +15,9 @@ router = APIRouter(prefix="/assegnazioni", tags=["Assegnazioni"])
 
 RUOLI_ADMIN = {"admin", "capo_cantiere", "capo_cantiere_sub", "amministrazione", "direzione_lavori"}
 RUOLI_OPERATIVI = {"artigiano", "capo_cantiere", "capo_cantiere_sub"}
+# Ruoli ufficio: non lavorano in cantiere ma vanno comunque nel Gantt per segnare
+# ferie / permessi / corsi (prima non comparivano e non era possibile registrarle)
+RUOLI_UFFICIO = {"admin", "amministrazione"}
 
 # Programmazione libera: attività fuori cantiere
 TIPI_ASSEGNAZIONE = {"cantiere", "ferie", "corso", "permesso", "altro"}
@@ -69,6 +72,16 @@ def lista_operatori(
         .order_by(Utente.cognome, Utente.nome)
         .all()
     )
+    utenti_ufficio = (
+        db.query(Utente)
+        .filter(
+            Utente.ruolo.in_(list(RUOLI_UFFICIO)),
+            Utente.attivo == True,
+            ~Utente.id.in_(utenti_in_rubrica) if utenti_in_rubrica else True,
+        )
+        .order_by(Utente.cognome, Utente.nome)
+        .all()
+    )
 
     result = []
     for a in artigiani:
@@ -80,6 +93,16 @@ def lista_operatori(
             "categoria": a.categoria,
         })
     for u in utenti_op:
+        result.append({
+            "tipo": "utente",
+            "id": u.id,
+            "nome": f"{u.nome} {u.cognome}",
+            "azienda": None,
+            "categoria": u.ruolo.replace("_", " "),
+        })
+    for u in utenti_ufficio:
+        # stesso tipo "utente" degli operativi interni (così assMap/payload/impegnati
+        # funzionano senza casi speciali) — la categoria li distingue in UI
         result.append({
             "tipo": "utente",
             "id": u.id,
