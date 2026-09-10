@@ -65,6 +65,13 @@ export default function CantierePage() {
   const data = editing ? form : cantiere
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const ruolo = utente?.ruolo
+  const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+  const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
+  // Il capo cantiere vede l'economia solo dei cantieri di cui è responsabile (regola backend)
+  const puoVedereEconomia = ['admin','amministrazione','direzione_lavori'].includes(ruolo)
+    || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -96,13 +103,6 @@ export default function CantierePage() {
 
       {/* Tab bar — scroll orizzontale su mobile */}
       {(() => {
-        const ruolo = utente?.ruolo
-        const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
-        const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
-        // Il capo cantiere vede l'economia solo dei cantieri di cui è responsabile (regola backend)
-        const puoVedereEconomia = ['admin','amministrazione','direzione_lavori'].includes(ruolo)
-          || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
-
         const tabs = [
           ['info','Info',null],
           ...(isStaffInterno || isStaffExt ? [['team','Team',Users]] : []),
@@ -130,16 +130,16 @@ export default function CantierePage() {
       })()}
 
       {tab === 'info'          && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
-      {tab === 'team'          && <TeamTab cantiereId={id} utente={utente} />}
+      {tab === 'team' && (isStaffInterno || isStaffExt) && <TeamTab cantiereId={id} utente={utente} />}
       {tab === 'gantt'         && <GanttTab cantiereId={id} cantiere={cantiere} />}
       {tab === 'diario'        && <DiarioTab cantiereId={id} utente={utente} />}
       {tab === 'mappe'         && <MappeTab cantiereId={id} />}
       {tab === 'foto'          && <FotoTab cantiereId={id} utente={utente} />}
 
-      {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
-      {tab === 'nc'            && <NCTab cantiereId={id} utente={utente} />}
+      {tab === 'economia' && puoVedereEconomia && <EconomiaTab cantiereId={id} />}
+      {tab === 'nc' && isStaffInterno && <NCTab cantiereId={id} utente={utente} />}
       {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
-      {tab === 'chiusura'      && <ChiusuraTab cantiereId={id} utente={utente} />}
+      {tab === 'chiusura' && isStaffInterno && <ChiusuraTab cantiereId={id} utente={utente} />}
     </div>
   )
 }
