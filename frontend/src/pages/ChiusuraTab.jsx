@@ -286,6 +286,44 @@ export default function ChiusuraTab({ cantiereId, utente }) {
         {selezionate.length > 0 && <p className="text-[11px] text-gray-400">La <Star size={10} className="inline -mt-0.5" /> segna la foto di copertina del verbale.</p>}
       </div>
 
+      {/* Riepilogo contabilità misure (sola lettura — si compila nella tab Misure) */}
+      {(ctx.misure_riepilogo || []).length > 0 && (
+        <div className="card space-y-2">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Riepilogo contabilità misure</p>
+          <div className="overflow-x-auto -mx-1">
+            <table className="w-full text-sm min-w-[460px]">
+              <thead>
+                <tr className="text-[11px] uppercase text-gray-400 text-left">
+                  <th className="py-1.5 px-1 font-semibold">Voce</th>
+                  <th className="py-1.5 px-1 font-semibold">U.M.</th>
+                  <th className="py-1.5 px-1 font-semibold text-right">Qt computo</th>
+                  <th className="py-1.5 px-1 font-semibold text-right">Qt misurata</th>
+                  <th className="py-1.5 px-1 font-semibold text-right">Scostam.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ctx.misure_riepilogo.map((r, i) => {
+                  const nf = (x) => (x == null ? '—' : Number(x).toLocaleString('it-IT', { maximumFractionDigits: 3 }))
+                  return (
+                    <tr key={i} className="border-t border-steelex-border">
+                      <td className="py-2 px-1 text-gray-800">{r.descrizione}{!r.nel_computo && <span className="text-amber-600 ml-1">⚠</span>}</td>
+                      <td className="py-2 px-1 text-gray-500">{r.um || '—'}</td>
+                      <td className="py-2 px-1 text-right tabular-nums">{nf(r.qt_computo)}</td>
+                      <td className="py-2 px-1 text-right tabular-nums font-semibold">{nf(r.qt_misurata)}</td>
+                      <td className="py-2 px-1 text-right tabular-nums text-gray-600">
+                        {r.scostamento == null ? '—' : `${r.scostamento > 0 ? '+' : ''}${nf(r.scostamento)}`}
+                        {r.scostamento_perc != null && <span className="text-[10px] ml-1 text-gray-400">({r.scostamento_perc > 0 ? '+' : ''}{r.scostamento_perc}%)</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-gray-400">Dal libretto delle misure (tab <b>Misure</b>). Nel verbale PDF compare come riepilogo; il dettaglio è nel Libretto delle misure.</p>
+        </div>
+      )}
+
       {/* Consegne */}
       <div className="card space-y-2">
         <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Consegne al committente</p>
