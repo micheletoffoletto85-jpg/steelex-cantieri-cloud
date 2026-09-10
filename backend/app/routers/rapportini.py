@@ -215,10 +215,12 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
     for s in segmenti:
         s_testo = (s.get("testo") or "").strip() or testo
         campi = _estrai_campi(s_testo, cantieri_nomi)
-        # La durata letta in fase 1 (dal titolo del blocco) fa fede se la fase 2 non ne trova
+        # Verifica SOLO le ore che ha estratto la fase 2 dal testo del blocco
+        campi = _verifica_ore(s_testo, campi)
+        # La durata letta in fase 1 (dal titolo del blocco, es. "(8 ore e 30 minuti)")
+        # fa fede quando la fase 2 non la trova nel testo riscritto — NON va ri-verificata.
         if campi.get("ore") is None and s.get("ore") is not None:
             campi["ore"] = s["ore"]
-        campi = _verifica_ore(s_testo, campi)
         elaborati.append((s, campi))
 
     s0, campi0 = elaborati[0]
