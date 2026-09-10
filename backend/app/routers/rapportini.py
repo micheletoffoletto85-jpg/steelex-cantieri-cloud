@@ -39,12 +39,14 @@ RUOLI_OPERATIVO = {RuoloUtente.artigiano}
 RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
 
 # ── Estrazione IA in pipeline a 2 fasi ─────────────────────────────────────────
-# Fase 1 (_segmenta_cantieri): decide quanti cantieri e spezza il racconto per cantiere.
-# Fase 2 (_estrai_campi): per OGNI segmento, estrae i campi strutturati con un prompt
-#   che parla di un cantiere solo (niente logica multi-cantiere = meno confusione).
-# Fase 3 (_verifica_ore): controlla che le ore siano durate vere, per segmento.
+# Fase 1 (_segmenta_giornata): spezza la giornata in BLOCCHI (per luogo / intervallo di
+#   tempo / gruppo di attività) e legge la DURATA di ogni blocco — la durata è quasi
+#   sempre scritta nel blocco stesso ("(8 ore e 30 minuti)", "8:00 - 17:30").
+# Fase 2 (_estrai_campi): per OGNI blocco, estrae i dettagli (lavorazioni, materiali,
+#   criticità, colleghi, extra, riassunto) — non tronca mai il contenuto.
+# Fase 3 (_verifica_ore): sanity check finale sulle ore di lavoro.
 # _estrai_dati orchestra le 3 fasi e ricompone la struttura legacy attesa dal resto
-# del codice (campi primari = 1° cantiere, altri_cantieri = 2°…N°).
+# del codice (campi primari = 1° blocco, altri_cantieri = 2°…N°).
 
 def _claude():
     import anthropic
@@ -60,27 +62,36 @@ def _json_da_risposta(raw: str):
     return _json.loads(raw)
 
 
-PROMPT_SEGMENTA = """Sei un assistente di cantiere. Ricevi il racconto della giornata di un operaio edile.
-Il tuo UNICO compito è capire in quanti cantieri DIVERSI ha lavorato e dividere il
-racconto di conseguenza. Rispondi SOLO con il JSON.
+PROMPT_SEGMENTA = """Ricevi il racconto della giornata di un operaio edile. Dividilo in BLOCCHI
+di lavoro e, per ogni blocco, leggi quanto è durato. Rispondi SOLO con il JSON.
 
 {{
   "data_lavoro": "data YYYY-MM-DD se il testo la indica, altrimenti null",
-  "segmenti": [
-    {{"cantiere": "nome del cantiere come lo dice l'operaio (null se non lo nomina)",
-      "testo": "la porzione di racconto relativa SOLO a questo cantiere, riscritta in modo
-        che si legga da sola. Insieme, i testi dei segmenti devono coprire tutto il
-        racconto originale senza perdere né duplicare frasi."}}
+  "blocchi": [
+    {{"luogo": "dove si è svolto questo blocco: nome del cantiere se c'è, altrimenti
+        'ufficio' / 'sede' / 'magazzino' / 'officina' / 'corso' / 'trasferta'. null se non si capisce",
+      "ore": durata del LAVORO in questo blocco (numero decimale) oppure null,
+      "testo": "la parte di racconto di QUESTO blocco, riscritta perché si legga da sola.
+        Insieme i testi dei blocchi coprono tutto il racconto, senza perdere né duplicare frasi."}}
   ]
 }}
 
-Regole:
-- La maggioranza dei rapportini parla di UN SOLO cantiere → un solo segmento, "testo" = tutto il racconto.
-- Più cantieri SOLO se ci sono segnali chiari di spostamento: "poi sono andato a/al/da",
-  "dopo pranzo mi sono spostato", "nel pomeriggio ero a", "stamattina invece", "prima… poi…",
-  oppure due nomi di cantiere diversi in punti diversi del racconto.
-- Fasi diverse di lavoro NELLO STESSO posto NON sono cantieri diversi.
-- Non inventare nomi: se un cantiere non è nominato chiaramente, "cantiere": null.
+Come si apre un blocco nuovo:
+- cambia il LUOGO (un altro cantiere, l'ufficio, il magazzino, un corso), OPPURE
+- il racconto è scandito da fasce orarie / durate diverse (titoli tipo "7:00 - 8:00",
+  "**Mattina**", "**Pomeriggio**", "Cantiere X (8 ore e 30 minuti)").
+Fasi diverse di lavoro NELLO STESSO posto e senza un tempo proprio = stesso blocco.
+La MAGGIORANZA dei rapportini è UN BLOCCO SOLO: un luogo, "testo" = tutto il racconto.
+
+Come leggere "ore" di un blocco — la durata è quasi sempre scritta lì:
+- durata esplicita: "(8 ore e 30 minuti)" = 8.5 · "1 ora" = 1 · "1 ora e 30 minuti" = 1.5 ·
+  "mezza giornata" = 4 · "9 e mezza" / "9:30 di lavoro" = 9.5 · "8,45" = 8.75.
+  "H,MM" / "H:MM" di DURATA sono ore e minuti: "9,30" = 9.5 (mai 9.3).
+- INTERVALLO inizio–fine (calcola fine meno inizio, togli le pause dette):
+  "7:00 - 8:00" = 1 · "8:00 - 17:30" = 9.5 · "dalle 7 alle 17 con un'ora di pausa" = 9.
+- solo un orario singolo senza fine ("arrivato alle 8:30", "alle 17 ho staccato") → null.
+- niente → null.
+Non inventare un luogo o una durata che non ci sono.
 
 {hint}Racconto:
 {testo}
@@ -88,14 +99,14 @@ Regole:
 JSON:"""
 
 
-PROMPT_CAMPI = """Analizza questo rapportino, che riguarda UN SOLO cantiere.
-Estrai i campi in JSON. Rispondi SOLO con il JSON.
+PROMPT_CAMPI = """Analizza questo blocco di lavoro di un operaio edile ed estrai i dettagli in JSON.
+Rispondi SOLO con il JSON. Non tralasciare nessun lavoro descritto nel testo.
 
 {{
-  "ore": numero_ore_lavorate_o_null,
-  "descrizione_lavori": "descrizione chiara dei lavori svolti",
-  "lavorazioni": ["lista sintetica lavorazioni, max 5-6 parole ciascuna"],
-  "materiali": ["lista materiali usati"],
+  "ore": durata del LAVORO EFFETTIVO in questo blocco (decimale) oppure null,
+  "descrizione_lavori": "descrizione chiara di TUTTI i lavori svolti nel blocco",
+  "lavorazioni": ["ogni lavorazione svolta, frase breve — includile TUTTE"],
+  "materiali": ["materiali usati"],
   "descrizione_extra": "lavori extra o situazioni particolari, null se nessuna",
   "ore_extra": numero_ore_extra_o_null,
   "materiale_extra": "materiale extra non previsto, null se nessuno",
@@ -104,25 +115,20 @@ Estrai i campi in JSON. Rispondi SOLO con il JSON.
   "colleghi": [{{"nome": "collega presente/al lavoro insieme", "ore": numero_o_null}}],
   "extra_preventivo": true_o_false,
   "extra_preventivo_nota": "cosa è fuori preventivo, null se extra_preventivo è false",
-  "riassunto": "frase di max 2 righe che riassume"
+  "riassunto": "1-2 righe che riassumono QUESTO blocco"
 }}
 
 Regole:
-- Non inventare dati non presenti nel testo.
-- "ore" è la DURATA del lavoro in ore (decimale: mezz'ora = 0.5, un quarto = 0.25).
-  NON è un orario: "arrivato alle 8:30", "alle 17 ho staccato", "da mezzogiorno" sono ORARI.
-  Metti un numero SOLO se l'operaio dice quante ore ha lavorato, o dà sia inizio sia fine
-  (allora calcola la durata). Altrimenti null. Mai "8:30" → 8.3 (otto ore e mezza = 8.5).
-  Stessa regola per le ore dei colleghi.
-- Collega = persona citata come presente/al lavoro insieme ("io e Mesedin", "con Mario
-  abbiamo…", "eravamo in due"). Se non dà ore diverse, lascia "ore" a null. Non confondere
-  con operai citati genericamente o non presenti.
-- extra_preventivo = true SOLO se l'operaio dice esplicitamente che è extra / fuori
-  preventivo / da fatturare a parte. In caso di dubbio false. Diverso da descrizione_extra
-  e materiale_extra (note libere su lavori insoliti).
-- lavorazioni e materiali = liste di stringhe brevi.
+- Non inventare dati non presenti nel testo. Ma NON scartare lavori che ci sono: se il
+  blocco elenca 7 lavorazioni, "lavorazioni" ne ha 7 e "descrizione_lavori" le copre tutte.
+- "ore" = DURATA del lavoro (decimale): durata esplicita ("1 ora" = 1, "8 ore e 30 minuti" = 8.5,
+  "9 e mezza" = 9.5, "8,45" = 8.75; "H,MM"/"H:MM" di durata sono ore:minuti, "9,30" = 9.5 non 9.3);
+  INTERVALLO inizio–fine → calcola ("7:00 - 8:00" = 1, "8:00 - 17:30" = 9.5, "dalle 7 alle 17" = 10);
+  solo un orario singolo → null; niente → null. Stessa regola per le ore dei colleghi.
+- Collega = persona al lavoro insieme ("io e Mesedin", "eravamo in due"). Non gli operai citati genericamente.
+- extra_preventivo = true SOLO se l'operaio dice che è extra / fuori preventivo / da fatturare a parte.
 
-{hint}Rapportino:
+{hint}Blocco:
 {testo}
 
 JSON:"""
@@ -135,9 +141,17 @@ def _campi_vuoti(testo: str) -> dict:
             "extra_preventivo_nota": None, "riassunto": testo[:200]}
 
 
-def _segmenta_cantieri(testo: str, cantieri_nomi: list) -> dict:
-    """Fase 1: quanti cantieri + racconto diviso per cantiere. Fail-open a segmento unico."""
-    unico = {"data_lavoro": None, "segmenti": [{"cantiere": None, "testo": testo}]}
+def _num_o_none(v):
+    try:
+        return float(v) if v is not None and float(v) > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _segmenta_giornata(testo: str, cantieri_nomi: list) -> dict:
+    """Fase 1: spezza la giornata in blocchi (luogo / fascia oraria) e legge la durata
+    di ognuno. Fail-open a un blocco unico con tutto il testo."""
+    unico = {"data_lavoro": None, "segmenti": [{"cantiere": None, "testo": testo, "ore": None}]}
     if not settings.ANTHROPIC_API_KEY:
         return unico
     hint = f"Cantieri attivi: {', '.join(cantieri_nomi[:20])}\n" if cantieri_nomi else ""
@@ -147,17 +161,27 @@ def _segmenta_cantieri(testo: str, cantieri_nomi: list) -> dict:
             messages=[{"role": "user", "content": PROMPT_SEGMENTA.format(testo=testo, hint=hint)}],
         )
         out = _json_da_risposta(msg.content[0].text)
-        segs = [s for s in (out.get("segmenti") or []) if (s.get("testo") or "").strip()]
+        blocchi = out.get("blocchi") or out.get("segmenti") or []
+        segs = []
+        for b in blocchi:
+            t = (b.get("testo") or "").strip()
+            if not t:
+                continue
+            segs.append({
+                "cantiere": (b.get("luogo") or b.get("cantiere")) or None,
+                "testo": t,
+                "ore": _num_o_none(b.get("ore")),
+            })
         if not segs:
             return unico
         return {"data_lavoro": out.get("data_lavoro"), "segmenti": segs}
     except Exception:
-        logger.exception("[segmenta_cantieri] fallback a segmento unico")
+        logger.exception("[segmenta_giornata] fallback a blocco unico")
         return unico
 
 
 def _estrai_campi(testo: str, cantieri_nomi: list) -> dict:
-    """Fase 2: estrazione campi per UN cantiere. Fail-open a campi vuoti."""
+    """Fase 2: dettagli di UN blocco di lavoro. Fail-open a campi vuoti."""
     if not settings.ANTHROPIC_API_KEY:
         return _campi_vuoti(testo)
     hint = f"Cantieri attivi: {', '.join(cantieri_nomi[:20])}\n" if cantieri_nomi else ""
@@ -184,13 +208,19 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
     if not settings.ANTHROPIC_API_KEY:
         return vuoto
 
-    seg_out = _segmenta_cantieri(testo, cantieri_nomi)
+    seg_out = _segmenta_giornata(testo, cantieri_nomi)
     segmenti = seg_out.get("segmenti") or [{"cantiere": None, "testo": testo}]
 
     elaborati = []
     for s in segmenti:
         s_testo = (s.get("testo") or "").strip() or testo
-        campi = _verifica_ore(s_testo, _estrai_campi(s_testo, cantieri_nomi))
+        campi = _estrai_campi(s_testo, cantieri_nomi)
+        # Verifica SOLO le ore che ha estratto la fase 2 dal testo del blocco
+        campi = _verifica_ore(s_testo, campi)
+        # La durata letta in fase 1 (dal titolo del blocco, es. "(8 ore e 30 minuti)")
+        # fa fede quando la fase 2 non la trova nel testo riscritto — NON va ri-verificata.
+        if campi.get("ore") is None and s.get("ore") is not None:
+            campi["ore"] = s["ore"]
         elaborati.append((s, campi))
 
     s0, campi0 = elaborati[0]
@@ -231,14 +261,14 @@ Valori estratti da verificare:
 
 Regole:
 - "ore" deve essere una DURATA in ore (decimale: mezz'ora = 0.5, un quarto = 0.25).
-- Un ORARIO NON è una durata: "sono arrivato alle 8:30", "alle 17 ho staccato",
-  "da mezzogiorno", "verso le 8" sono orari → NON giustificano un valore di ore.
-- Vale come durata solo se: l'operaio dice quante ore ha lavorato ("ho fatto 8 ore",
-  "otto ore e mezza", "mezza giornata" = 4), OPPURE dà sia l'ora di inizio sia quella
-  di fine (allora la durata è fine - inizio: "dalle 8 alle 17" = 9).
-- Mai trasformare "8:30" (orario) in 8.3. Una durata di otto ore e mezza è 8.5.
-- Per ogni valore: se il testo lo giustifica, tienilo (correggilo se il calcolo è
-  sbagliato); se NON lo giustifica, mettilo a null.
+- Vale come durata (TIENI il valore, correggi solo se il calcolo è sbagliato) se il testo dà:
+  * quante ore ha lavorato: "ho fatto 8 ore", "otto ore e mezza" = 8.5, "mezza giornata" = 4,
+    una durata tra parentesi nel titolo "(8 ore e 30 minuti)" = 8.5, "(1 ora)" = 1;
+  * un INTERVALLO inizio–fine, in QUALSIASI forma: "dalle 8 alle 17" = 9, "8:00 - 17:30" = 9.5,
+    "7:00 - 8:00" = 1, "dalle 7 alle 12" = 5. Calcola fine meno inizio, togli le pause dette.
+    Un titolo tipo "**7:00 - 8:00**" o "**8:00 - 17:30**" È un intervallo: usalo.
+- METTI A NULL solo se c'è UN SOLO orario, senza fine e senza durata: "arrivato alle 8:30",
+  "alle 17 ho staccato", "verso le 8". "8:30" da solo NON diventa 8.3.
 - Non aggiungere ore che non erano nell'elenco estratto.
 
 Rispondi con questo JSON:
