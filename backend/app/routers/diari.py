@@ -1045,8 +1045,19 @@ def leggi_chiusura(cantiere_id: int, db: Session = Depends(get_db), user: Utente
             "id": f.id, "url": f.url, "nota": f.nota or "",
             "data": f.creato_il.date().isoformat() if f.creato_il else None,
         } for f in foto],
+        "misure_riepilogo": _misure_riepilogo_safe(db, cantiere_id),
     }
     return out
+
+
+def _misure_riepilogo_safe(db: Session, cantiere_id: int):
+    """Riepilogo contabilità misure per il verbale di chiusura. Fail-open: se il
+    modulo non è disponibile il verbale esce comunque."""
+    try:
+        from app.routers.contabilita import riepilogo_misure
+        return [r for r in riepilogo_misure(db, cantiere_id) if r["n_misure"] > 0]
+    except Exception:
+        return []
 
 
 @chiusura_router.put("")
@@ -1429,6 +1440,41 @@ def genera_verbale_pdf(cantiere_id: int, db: Session = Depends(get_db), user: Ut
         story.append(wt)
     else:
         story.append(Paragraph("Nessuna fase registrata nel cronoprogramma.", st_meta))
+
+    # Riepilogo contabilità misure (qt a computo vs qt misurata in cantiere).
+    # Solo riepilogo: il dettaglio sta nel "Libretto delle misure" (PDF a parte).
+    misure_riep = _misure_riepilogo_safe(db, cantiere_id)
+    if misure_riep:
+        story.append(Spacer(1, 8*mm))
+        story.append(Paragraph("Riepilogo contabilità misure", st_h2))
+        mrows = [[Paragraph("VOCE", st_cellh), Paragraph("U.M.", st_cellh),
+                  Paragraph("QT COMPUTO", st_cellh), Paragraph("QT MISURATA", st_cellh),
+                  Paragraph("SCOSTAM.", st_cellh)]]
+        for r in misure_riep:
+            def _n(x):
+                return "—" if x is None else f"{float(x):.3f}".rstrip("0").rstrip(".").replace(".", ",")
+            sc = r.get("scostamento")
+            sc_txt = _n(sc)
+            if sc is not None and r.get("scostamento_perc") is not None:
+                sc_txt += f" ({r['scostamento_perc']:+g}%)"
+            mrows.append([
+                Paragraph(escape((r["descrizione"] or "")[:80]), st_cell),
+                Paragraph(escape(r["um"] or "—"), st_cell),
+                Paragraph(_n(r["qt_computo"]), st_cell),
+                Paragraph(_n(r["qt_misurata"]), st_cell),
+                Paragraph(sc_txt, st_cell),
+            ])
+        mt2 = Table(mrows, colWidths=[62*mm, 16*mm, 26*mm, 26*mm, "*"], repeatRows=1)
+        mt2.setStyle(TableStyle([
+            ("LINEBELOW", (0, 0), (-1, 0), 1.4, PRIMARIO),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.5, colors.HexColor("#E6E0D6")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBFAF8")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(mt2)
+        story.append(Paragraph("Dettaglio completo nel Libretto delle misure.", st_meta))
+
     story.append(Spacer(1, 6*mm))
     story.append(footer(3, TOT_PAG))
     story.append(PageBreak())
