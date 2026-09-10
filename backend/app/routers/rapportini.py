@@ -26,14 +26,15 @@ _MIME_EXT_AUDIO = {
 
 
 def _suffix_audio(upload_file) -> str:
-    """Estensione per il file temporaneo: preferisce quella del filename, altrimenti
-    la deriva dal content_type reale — un filename con estensione errata (es. mobile
-    che tagga sempre .webm anche col codec di fallback del browser) mandava in
-    errore Whisper con 'formato non supportato'."""
-    suffix = os.path.splitext(upload_file.filename or "")[1]
-    if suffix:
-        return suffix
-    return _MIME_EXT_AUDIO.get((upload_file.content_type or "").split(";")[0].strip(), ".webm")
+    """Estensione per il file temporaneo: preferisce quella derivata dal content_type
+    reale (impostato dal browser sul Blob registrato) quando riconosciuto — il filename
+    lo etichetta a volte con un'estensione sbagliata (es. mobile che tagga sempre .webm
+    anche col codec di fallback del browser), il che mandava in errore Whisper con
+    'formato non supportato'. Il filename resta come fallback per content_type ignoti."""
+    ct_suffix = _MIME_EXT_AUDIO.get((upload_file.content_type or "").split(";")[0].strip())
+    if ct_suffix:
+        return ct_suffix
+    return os.path.splitext(upload_file.filename or "")[1] or ".webm"
 
 RUOLI_OPERATIVO = {RuoloUtente.artigiano}
 RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione}
