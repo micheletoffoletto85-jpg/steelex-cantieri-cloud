@@ -1,10 +1,55 @@
 {
-  "since_id_steelex": 39,
+  "since_id_steelex": 43,
   "since_id_fr": 135,
   "deleted_id_steelex": 39,
   "deleted_id_fr": 135,
   "pending": {
-    "steelex": [],
+    "steelex": [
+      {
+        "id": 40,
+        "creato_il": "2026-09-11T08:53:13.905306+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/3/sal",
+        "metodo": "GET",
+        "status_code": 404,
+        "messaggio": "Request failed with status code 404",
+        "url_pagina": "/cantieri/3",
+        "dettagli": "{\"status\":\"error\",\"code\":404,\"message\":\"Application not found\",\"request_id\":\"5R2z1Or3SFCbC1Ru9fVATg\"}"
+      },
+      {
+        "id": 41,
+        "creato_il": "2026-09-11T08:53:15.100742+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/3/sal",
+        "metodo": "GET",
+        "status_code": 404,
+        "messaggio": "Request failed with status code 404",
+        "url_pagina": "/cantieri/3",
+        "dettagli": "{\"status\":\"error\",\"code\":404,\"message\":\"Application not found\",\"request_id\":\"5R2z1Or3SFCbC1Ru9fVATg\"}"
+      },
+      {
+        "id": 42,
+        "creato_il": "2026-09-11T08:53:17.847020+00:00",
+        "ruolo": "admin",
+        "endpoint": "/artigiani",
+        "metodo": "GET",
+        "status_code": 404,
+        "messaggio": "Request failed with status code 404",
+        "url_pagina": "/cantieri/3",
+        "dettagli": "{\"status\":\"error\",\"code\":404,\"message\":\"Application not found\",\"request_id\":\"fs9oGNFFTCGm0YIq9fVATg\"}"
+      },
+      {
+        "id": 43,
+        "creato_il": "2026-09-11T08:53:19.016355+00:00",
+        "ruolo": "admin",
+        "endpoint": "/artigiani",
+        "metodo": "GET",
+        "status_code": 404,
+        "messaggio": "Request failed with status code 404",
+        "url_pagina": "/cantieri/3",
+        "dettagli": "{\"status\":\"error\",\"code\":404,\"message\":\"Application not found\",\"request_id\":\"fs9oGNFFTCGm0YIq9fVATg\"}"
+      }
+    ],
     "fr": []
   }
 }
