@@ -655,7 +655,10 @@ function RegistraRapportinoAdmin({ cantieri = [], onChiudi }) {
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
         const tipoReale = mr.mimeType || mimeType || 'audio/webm'
-        const ext = tipoReale.includes('mp4') ? 'mp4' : tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('webm') ? 'webm' : 'm4a'
+        // Estensione dal sottotipo MIME reale (non da un elenco fisso): se il browser
+        // registra in un formato diverso da webm/mp4/ogg (es. aac, 3gpp su alcuni Android),
+        // taggarlo comunque come .m4a mandava in errore Whisper con "formato non supportato"
+        const ext = (tipoReale.split(';')[0].split('/')[1] || 'webm').replace('x-', '')
         const blob = new Blob(chunksRef.current, { type: tipoReale })
         if (blob.size < 2048) { setErrore('Registrazione troppo breve — riprova'); setFase('idle'); return }
         setFase('transcribing')
