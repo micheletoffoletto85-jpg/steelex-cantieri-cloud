@@ -381,7 +381,10 @@ function ArtigianoDashboard({ utente, cantieri }) {
         // era '' (fallback): usarlo invece della stima pre-registrazione evita
         // di taggare come .webm un file che in realtà non lo è
         const tipoReale = mr.mimeType || mimeType || 'audio/webm'
-        const ext = tipoReale.includes('mp4') ? 'mp4' : tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('webm') ? 'webm' : 'm4a'
+        // Estensione dal sottotipo MIME reale (non da un elenco fisso): se il browser
+        // registra in un formato diverso da webm/mp4/ogg (es. aac, 3gpp su alcuni Android),
+        // taggarlo comunque come .m4a mandava in errore Whisper con "formato non supportato"
+        const ext = (tipoReale.split(';')[0].split('/')[1] || 'webm').replace('x-', '')
         const blob = new Blob(chunksRef.current, { type: tipoReale })
         // Blob vuoto/minuscolo = registrazione corrotta o troppo breve: inutile inviarla
         if (blob.size < 2048) {
