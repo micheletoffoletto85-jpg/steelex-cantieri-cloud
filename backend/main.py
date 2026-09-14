@@ -25,6 +25,7 @@ from app.routers import error_log as error_log_router
 from app.routers import appunti as appunti_router
 from app.routers import assegnazioni as assegnazioni_router
 from app.routers import ore_lavorate as ore_lavorate_router
+from app.routers import contabilita as contabilita_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -389,6 +390,7 @@ app.include_router(error_log_router.router, prefix="/api/v1")
 app.include_router(appunti_router.router, prefix="/api/v1")
 app.include_router(assegnazioni_router.router, prefix="/api/v1")
 app.include_router(ore_lavorate_router.router, prefix="/api/v1")
+app.include_router(contabilita_router.router, prefix="/api/v1")
 
 @app.get("/")
 def root():

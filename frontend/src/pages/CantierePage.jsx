@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, FileImage, FileSpreadsheet, FileArchive, PencilRuler, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check, Flag } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ChiusuraTab from './ChiusuraTab'
+import MisureTab from './MisureTab'
 import MeteoMappa from '../components/MeteoMappa'
 import MaterialiUsati from '../components/MaterialiUsati'
 import ClienteView from './ClienteView'
@@ -102,6 +103,9 @@ export default function CantierePage() {
         // Il capo cantiere vede l'economia solo dei cantieri di cui è responsabile (regola backend)
         const puoVedereEconomia = ['admin','amministrazione','direzione_lavori'].includes(ruolo)
           || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
+        // Contabilità misure: admin/amministrazione ovunque, capocantiere solo sui suoi cantieri
+        const puoVedereMisure = ['admin','amministrazione'].includes(ruolo)
+          || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
 
         const tabs = [
           ['info','Info',null],
@@ -115,6 +119,7 @@ export default function CantierePage() {
           ...(puoVedereEconomia ? [['economia','Economia',Euro]] : []),
           ...(isStaffInterno ? [['nc','NC',AlertCircle]] : []),
           ['documenti','Documenti',FolderOpen],
+          ...(puoVedereMisure ? [['misure','Misure',PencilRuler]] : []),
           ...(isStaffInterno ? [['chiusura','Chiusura',Flag]] : []),
         ]
         return (
@@ -139,6 +144,7 @@ export default function CantierePage() {
       {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
       {tab === 'nc'            && <NCTab cantiereId={id} utente={utente} />}
       {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
+      {tab === 'misure'        && <MisureTab cantiereId={id} utente={utente} />}
       {tab === 'chiusura'      && <ChiusuraTab cantiereId={id} utente={utente} />}
     </div>
   )
