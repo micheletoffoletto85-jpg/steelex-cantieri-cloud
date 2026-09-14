@@ -23,6 +23,15 @@ function PrivateRoute({ children }) {
   return children
 }
 
+// La pagina Utenti è riservata all'admin (l'API rifiuta chiunque altro con 403):
+// senza questo guard, un utente non-admin che apre /utenti direttamente
+// (link salvato, storico browser) genera una chiamata destinata a fallire.
+function AdminRoute({ children }) {
+  const { utente } = useAuth()
+  if (utente?.ruolo !== 'admin') return <Navigate to="/" replace />
+  return children
+}
+
 function AppContent() {
   const { utente } = useAuth()
   const prevUtente = useRef(undefined)
@@ -48,7 +57,7 @@ function AppContent() {
           <Route index element={<DashboardPage />} />
           <Route path="cantieri" element={<CantieriPage />} />
           <Route path="cantieri/:id" element={<CantierePage />} />
-          <Route path="utenti" element={<UtentiPage />} />
+          <Route path="utenti" element={<AdminRoute><UtentiPage /></AdminRoute>} />
           <Route path="fornitori" element={<ForniturePage />} />
           <Route path="artigiani" element={<ArtigianiPage />} />
           <Route path="rapportini" element={<RapportiniPage />} />

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ArrowLeft, Edit2, Save, X, MapPin, Calendar, Euro, BookOpen, Plus, Trash2, Camera, CheckCircle2, Mic, MicOff, Loader2, Languages, Map, Upload, FileText, FileImage, FileSpreadsheet, FileArchive, PencilRuler, AlertTriangle, Wrench, BarChart2, Users, UserPlus, UserMinus, FolderOpen, ClipboardCheck, Clock, Download, ThumbsUp, ThumbsDown, MessageSquare, CheckCheck, AlertCircle, HardHat, Minus, Pen, Type, Eraser, RotateCcw, Images, ChevronLeft, ChevronRight, Eye, EyeOff, ChevronUp, ChevronDown, Check, Flag } from 'lucide-react'
 import EconomiaTab from './EconomiaTab'
 import ChiusuraTab from './ChiusuraTab'
+import MisureTab from './MisureTab'
 import MeteoMappa from '../components/MeteoMappa'
 import MaterialiUsati from '../components/MaterialiUsati'
 import ClienteView from './ClienteView'
@@ -65,6 +66,16 @@ export default function CantierePage() {
   const data = editing ? form : cantiere
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const ruolo = utente?.ruolo
+  const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
+  const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
+  // Il capo cantiere vede l'economia solo dei cantieri di cui è responsabile (regola backend)
+  const puoVedereEconomia = ['admin','amministrazione','direzione_lavori'].includes(ruolo)
+    || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
+  // Contabilità misure: admin/amministrazione ovunque, capocantiere solo sui suoi cantieri
+  const puoVedereMisure = ['admin','amministrazione'].includes(ruolo)
+    || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -96,13 +107,6 @@ export default function CantierePage() {
 
       {/* Tab bar — scroll orizzontale su mobile */}
       {(() => {
-        const ruolo = utente?.ruolo
-        const isStaffInterno = ['admin','capo_cantiere','amministrazione'].includes(ruolo)
-        const isStaffExt = ['capo_cantiere_sub','direzione_lavori','architetto','responsabile_sicurezza'].includes(ruolo)
-        // Il capo cantiere vede l'economia solo dei cantieri di cui è responsabile (regola backend)
-        const puoVedereEconomia = ['admin','amministrazione','direzione_lavori'].includes(ruolo)
-          || (ruolo === 'capo_cantiere' && cantiere?.responsabile_id === utente?.id)
-
         const tabs = [
           ['info','Info',null],
           ...(isStaffInterno || isStaffExt ? [['team','Team',Users]] : []),
@@ -115,6 +119,7 @@ export default function CantierePage() {
           ...(puoVedereEconomia ? [['economia','Economia',Euro]] : []),
           ...(isStaffInterno ? [['nc','NC',AlertCircle]] : []),
           ['documenti','Documenti',FolderOpen],
+          ...(puoVedereMisure ? [['misure','Misure',PencilRuler]] : []),
           ...(isStaffInterno ? [['chiusura','Chiusura',Flag]] : []),
         ]
         return (
@@ -130,16 +135,17 @@ export default function CantierePage() {
       })()}
 
       {tab === 'info'          && <InfoTab cantiere={cantiere} editing={editing} form={form} set={set} utente={utente} />}
-      {tab === 'team'          && <TeamTab cantiereId={id} utente={utente} />}
+      {tab === 'team' && (isStaffInterno || isStaffExt) && <TeamTab cantiereId={id} utente={utente} />}
       {tab === 'gantt'         && <GanttTab cantiereId={id} cantiere={cantiere} />}
       {tab === 'diario'        && <DiarioTab cantiereId={id} utente={utente} />}
       {tab === 'mappe'         && <MappeTab cantiereId={id} />}
       {tab === 'foto'          && <FotoTab cantiereId={id} utente={utente} />}
 
-      {tab === 'economia'      && <EconomiaTab cantiereId={id} />}
-      {tab === 'nc'            && <NCTab cantiereId={id} utente={utente} />}
+      {tab === 'economia' && puoVedereEconomia && <EconomiaTab cantiereId={id} />}
+      {tab === 'nc' && isStaffInterno && <NCTab cantiereId={id} utente={utente} />}
       {tab === 'documenti'     && <RaccoltaDocumentiTab cantiereId={id} utente={utente} />}
-      {tab === 'chiusura'      && <ChiusuraTab cantiereId={id} utente={utente} />}
+      {tab === 'misure' && puoVedereMisure && <MisureTab cantiereId={id} utente={utente} />}
+      {tab === 'chiusura' && isStaffInterno && <ChiusuraTab cantiereId={id} utente={utente} />}
     </div>
   )
 }
@@ -280,7 +286,7 @@ function VoceAITab({ cantiereId }) {
       const recorder = new MediaRecorder(stream, { mimeType: getSupportedMimeType() })
       chunksRef.current = []
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      recorder.onstop = () => elaboraAudio(stream)
+      recorder.onstop = () => elaboraAudio(stream, recorder)
       recorder.start()
       mediaRef.current = recorder
       setStato('recording')
@@ -296,13 +302,12 @@ function VoceAITab({ cantiereId }) {
     mediaRef.current?.stop()
   }
 
-  const elaboraAudio = async (stream) => {
+  const elaboraAudio = async (stream, recorder) => {
     stream.getTracks().forEach(t => t.stop())
     setStato('processing')
     try {
-      const mimeType = getSupportedMimeType()
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(chunksRef.current, { type: mimeType })
+      const ext = _extAudioReale(recorder)
+      const blob = new Blob(chunksRef.current, { type: recorder?.mimeType || 'audio/webm' })
       const fd = new FormData()
       fd.append('file', blob, `audio.${ext}`)
       const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
@@ -854,7 +859,7 @@ function MappeTab({ cantiereId }) {
       const recorder = new MediaRecorder(stream, { mimeType })
       pinChunksRef.current = []
       recorder.ondataavailable = e => { if (e.data.size > 0) pinChunksRef.current.push(e.data) }
-      recorder.onstop = () => elaboraPinAudio(stream)
+      recorder.onstop = () => elaboraPinAudio(stream, recorder)
       recorder.start()
       pinRecorderRef.current = recorder
       setPinRecStato('recording')
@@ -863,13 +868,12 @@ function MappeTab({ cantiereId }) {
     } catch { toast.error('Microfono non accessibile') }
   }
   const fermaPinRec = () => { clearInterval(pinTimerRef.current); pinRecorderRef.current?.stop() }
-  const elaboraPinAudio = async (stream) => {
+  const elaboraPinAudio = async (stream, recorder) => {
     stream.getTracks().forEach(t => t.stop())
     setPinRecStato('processing')
     try {
-      const mimeType = getSupportedMimeType()
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(pinChunksRef.current, { type: mimeType })
+      const ext = _extAudioReale(recorder)
+      const blob = new Blob(pinChunksRef.current, { type: recorder?.mimeType || 'audio/webm' })
       const fd = new FormData()
       fd.append('file', blob, `audio.${ext}`)
       const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
@@ -895,8 +899,8 @@ function MappeTab({ cantiereId }) {
         stream.getTracks().forEach(t => t.stop())
         setPinFormRecStato('processing')
         try {
-          const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-          const blob = new Blob(pinChunksRef.current, { type: mimeType })
+          const ext = _extAudioReale(recorder, mimeType)
+          const blob = new Blob(pinChunksRef.current, { type: recorder?.mimeType || mimeType })
           const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
           const r = await api.post('/trascrizioni', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 })
           setPinForm(f => ({ ...f, nota: f.nota ? f.nota + ' ' + r.data.testo_italiano : r.data.testo_italiano }))
@@ -1455,6 +1459,15 @@ function getSupportedMimeType() {
   return types.find(t => MediaRecorder.isTypeSupported(t)) || 'audio/webm'
 }
 
+// recorder.mimeType riflette il codec reale scelto dal browser (utile su WebView/browser
+// mobili dove nessuno dei tipi di getSupportedMimeType() è supportato): usarlo per l'estensione
+// invece di ri-derivarla dalla stima pre-registrazione evita di taggare come .webm un file
+// che in realtà non lo è, causando 422 "Formato audio non supportato" da Whisper.
+function _extAudioReale(recorder, mimeTypeStimato) {
+  const tipoReale = recorder?.mimeType || mimeTypeStimato || 'audio/webm'
+  return tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('mp4') ? 'mp4' : 'webm'
+}
+
 /* ─── Riga ore extra editabile (dentro "Voci da contabilizzare" del diario) ─── */
 function VoceOreRow({ ore, cantiereId }) {
   const qc = useQueryClient()
@@ -1687,7 +1700,7 @@ function DiarioTab({ cantiereId, utente }) {
       const recorder = new MediaRecorder(stream, { mimeType })
       chunksRef.current = []
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      recorder.onstop = () => elaboraVoce(stream)
+      recorder.onstop = () => elaboraVoce(stream, recorder)
       recorder.start()
       mediaRef.current = recorder
       setRecStato('recording'); setRecSecondi(0)
@@ -1697,13 +1710,12 @@ function DiarioTab({ cantiereId, utente }) {
 
   const fermaRec = () => { clearInterval(timerRef.current); mediaRef.current?.stop() }
 
-  const elaboraVoce = async (stream) => {
+  const elaboraVoce = async (stream, recorder) => {
     stream.getTracks().forEach(t => t.stop())
     setRecStato('processing')
     try {
-      const mimeType = getSupportedMimeType()
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(chunksRef.current, { type: mimeType })
+      const ext = _extAudioReale(recorder)
+      const blob = new Blob(chunksRef.current, { type: recorder?.mimeType || 'audio/webm' })
       const fd = new FormData(); fd.append('file', blob, `audio.${ext}`)
       await api.post(`/cantieri/${cantiereId}/diari/voce`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       qc.invalidateQueries(['diari', cantiereId])

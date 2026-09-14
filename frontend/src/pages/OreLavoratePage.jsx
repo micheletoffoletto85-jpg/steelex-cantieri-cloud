@@ -144,6 +144,11 @@ export default function OreLavoratePage() {
         </div>
       </div>
 
+      {/* Blocco copia/stampa dei dati per gli operativi: le proprie ore restano
+          visibili in app ma non selezionabili né stampabili/salvabili in PDF
+          dal browser (l'export ufficiale resta riservato ad admin/amministrazione). */}
+      <div className="space-y-4" {...(!isAdmin ? { style: { userSelect: 'none', WebkitUserSelect: 'none' }, 'data-noprint': 'true' } : {})}>
+
       {/* Riepilogo per utente (admin, vista "tutti") */}
       {isAdmin && !filtroUtente && perUtente.length > 1 && (
         <div className="flex items-center gap-2 flex-wrap">
@@ -292,6 +297,7 @@ export default function OreLavoratePage() {
           </table>
         </div>
       )}
+      </div>
     </div>
   )
 }

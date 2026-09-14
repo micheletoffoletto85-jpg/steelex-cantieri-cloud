@@ -379,12 +379,16 @@ function ArtigianoDashboard({ utente, cantieri }) {
         stream.getTracks().forEach(t => t.stop())
         // mr.mimeType riflette il codec reale scelto dal browser quando mimeType
         // era '' (fallback): usarlo invece della stima pre-registrazione evita
-        // di taggare come .webm un file che in realtà non lo è
-        const tipoReale = mr.mimeType || mimeType || 'audio/webm'
+        // di taggare come .webm un file che in realtà non lo è.
+        // Se anche mr.mimeType torna vuoto (bug noto di alcune WebView Android),
+        // NON assumere webm: a quel punto webm è già stato scartato da
+        // isTypeSupported, quindi è l'unico formato che sappiamo per certo
+        // essere sbagliato — mp4/aac è il default nativo più diffuso su mobile.
+        const tipoReale = mr.mimeType || mimeType || 'audio/mp4'
         // Estensione dal sottotipo MIME reale (non da un elenco fisso): se il browser
         // registra in un formato diverso da webm/mp4/ogg (es. aac, 3gpp su alcuni Android),
         // taggarlo comunque come .m4a mandava in errore Whisper con "formato non supportato"
-        const ext = (tipoReale.split(';')[0].split('/')[1] || 'webm').replace('x-', '')
+        const ext = (tipoReale.split(';')[0].split('/')[1] || 'mp4').replace('x-', '')
         const blob = new Blob(chunksRef.current, { type: tipoReale })
         // Blob vuoto/minuscolo = registrazione corrotta o troppo breve: inutile inviarla
         if (blob.size < 2048) {
