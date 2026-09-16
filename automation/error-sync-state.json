@@ -1,10 +1,44 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 138,
+  "since_id_fr": 141,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 138,
   "pending": {
     "steelex": [],
-    "fr": []
+    "fr": [
+      {
+        "id": 139,
+        "creato_il": "2026-09-16T05:55:23.214882+00:00",
+        "ruolo": "capo_cantiere",
+        "endpoint": "/rapportini/miei",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
+      },
+      {
+        "id": 140,
+        "creato_il": "2026-09-16T06:13:55.323387+00:00",
+        "ruolo": "capo_cantiere",
+        "endpoint": "/rapportini/invia",
+        "metodo": "POST",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 60000ms",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 60000ms exceeded\"}"
+      },
+      {
+        "id": 141,
+        "creato_il": "2026-09-16T06:30:42.275768+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/118/rianalizza",
+        "metodo": "PUT",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      }
+    ]
   }
 }
