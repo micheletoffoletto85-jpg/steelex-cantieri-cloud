@@ -966,7 +966,9 @@ function VistaAdmin() {
   )
 
   const rianalizzaMutation = useMutation(
-    (id) => api.put(`/rapportini/${id}/rianalizza`),
+    // Ri-analisi passa da Claude: col timeout di default (12s) scade spesso prima
+    // che il server finisca (vedi timeout più alto già usato in rianalizzaTutti sotto)
+    (id) => api.put(`/rapportini/${id}/rianalizza`, null, { timeout: 60000 }),
     {
       onSuccess: () => {
         qc.invalidateQueries('rapp-da-validare')
