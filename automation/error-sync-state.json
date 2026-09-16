@@ -5,18 +5,6 @@
   "deleted_id_fr": 138,
   "pending": {
     "steelex": [],
-    "fr": [
-      {
-        "id": 139,
-        "creato_il": "2026-09-16T05:55:23.214882+00:00",
-        "ruolo": "capo_cantiere",
-        "endpoint": "/rapportini/miei",
-        "metodo": "GET",
-        "status_code": null,
-        "messaggio": "Network Error",
-        "url_pagina": "/",
-        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
-      }
-    ]
+    "fr": []
   }
 }
