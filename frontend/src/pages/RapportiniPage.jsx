@@ -966,7 +966,7 @@ function VistaAdmin() {
   )
 
   const rianalizzaMutation = useMutation(
-    (id) => api.put(`/rapportini/${id}/rianalizza`),
+    (id) => api.put(`/rapportini/${id}/rianalizza`, null, { timeout: 60000 }),
     {
       onSuccess: () => {
         qc.invalidateQueries('rapp-da-validare')
