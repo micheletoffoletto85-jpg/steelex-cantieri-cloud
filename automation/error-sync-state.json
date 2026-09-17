@@ -1,10 +1,33 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 144,
+  "since_id_fr": 146,
   "deleted_id_steelex": 43,
-  "deleted_id_fr": 142,
+  "deleted_id_fr": 144,
   "pending": {
     "steelex": [],
-    "fr": []
+    "fr": [
+      {
+        "id": 145,
+        "creato_il": "2026-09-17T09:05:17.908239+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/119/rianalizza",
+        "metodo": "PUT",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      },
+      {
+        "id": 146,
+        "creato_il": "2026-09-17T11:12:49.727007+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/121/rianalizza",
+        "metodo": "PUT",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      }
+    ]
   }
 }
