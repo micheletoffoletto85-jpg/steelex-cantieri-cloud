@@ -880,6 +880,9 @@ def elimina_ore(cantiere_id: int, ore_id: int, db: Session = Depends(get_db), us
         ore.extra_preventivo = False
         db.flush()
         _sync_voce_extra(db, ore)
+    # Sgancia eventuali rapportini che puntano a questa riga (FK senza cascade)
+    from app.models.rapportino import RapportinoOperativo
+    db.query(RapportinoOperativo).filter(RapportinoOperativo.ore_extra_id == ore_id).update({"ore_extra_id": None})
     db.delete(ore); db.commit()
 
 
