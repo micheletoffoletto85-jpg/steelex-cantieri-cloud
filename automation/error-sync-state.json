@@ -1,10 +1,33 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 156,
+  "since_id_fr": 158,
   "deleted_id_steelex": 43,
-  "deleted_id_fr": 155,
+  "deleted_id_fr": 156,
   "pending": {
     "steelex": [],
-    "fr": []
+    "fr": [
+      {
+        "id": 157,
+        "creato_il": "2026-09-18T08:24:23.214785+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/86",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 158,
+        "creato_il": "2026-09-18T09:35:15.226329+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/3/ore-extra/141",
+        "metodo": "DELETE",
+        "status_code": 500,
+        "messaggio": "Request failed with status code 500",
+        "url_pagina": "/cantieri/3",
+        "dettagli": "\"Internal Server Error\""
+      }
+    ]
   }
 }
