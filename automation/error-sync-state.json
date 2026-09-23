@@ -1,10 +1,33 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 160,
+  "since_id_fr": 162,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 160,
   "pending": {
     "steelex": [],
-    "fr": []
+    "fr": [
+      {
+        "id": 161,
+        "creato_il": "2026-09-23T15:30:31.081346+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/cantieri/18/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/18",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      },
+      {
+        "id": 162,
+        "creato_il": "2026-09-23T15:30:32.386733+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/cantieri/18/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/18",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      }
+    ]
   }
 }
