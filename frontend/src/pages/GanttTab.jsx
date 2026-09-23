@@ -465,7 +465,7 @@ export default function GanttTab({ cantiereId, cantiere }) {
   const { data: salList = [] } = useQuery(
     ['sal', cantiereId],
     () => api.get(`/cantieri/${cantiereId}/sal`).then(r => r.data),
-    { staleTime: 0, retry: 1 }
+    { staleTime: 0, retry: 1, enabled: canValidaComputo }
   )
   // Rubrica artigiani per l'assegnazione delle fasi
   const { data: artigiani = [] } = useQuery(
