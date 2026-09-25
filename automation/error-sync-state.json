@@ -1,10 +1,22 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 162,
+  "since_id_fr": 163,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 162,
   "pending": {
     "steelex": [],
-    "fr": []
+    "fr": [
+      {
+        "id": 163,
+        "creato_il": "2026-09-25T05:47:26.249438+00:00",
+        "ruolo": "capo_cantiere",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
+      }
+    ]
   }
 }
