@@ -5,29 +5,6 @@
   "deleted_id_fr": 162,
   "pending": {
     "steelex": [],
-    "fr": [
-      {
-        "id": 163,
-        "creato_il": "2026-09-25T05:47:26.249438+00:00",
-        "ruolo": "capo_cantiere",
-        "endpoint": "/rapportini/trascrivi",
-        "metodo": "POST",
-        "status_code": null,
-        "messaggio": "Network Error",
-        "url_pagina": "/",
-        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
-      },
-      {
-        "id": 164,
-        "creato_il": "2026-09-25T16:46:58.225919+00:00",
-        "ruolo": "artigiano",
-        "endpoint": "/rapportini/trascrivi",
-        "metodo": "POST",
-        "status_code": 422,
-        "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
-        "url_pagina": "/",
-        "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
-      }
-    ]
+    "fr": []
   }
 }
