@@ -5,18 +5,6 @@
   "deleted_id_fr": 164,
   "pending": {
     "steelex": [],
-    "fr": [
-      {
-        "id": 165,
-        "creato_il": "2026-09-28T06:24:53.374076+00:00",
-        "ruolo": "capo_cantiere",
-        "endpoint": "/rapportini/invia",
-        "metodo": "POST",
-        "status_code": null,
-        "messaggio": "Timeout client dopo 60000ms",
-        "url_pagina": "/",
-        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 60000ms exceeded\"}"
-      }
-    ]
+    "fr": []
   }
 }
