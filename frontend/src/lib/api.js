@@ -12,8 +12,11 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
-  // Upload file (foto, PDF, DXF): sulla rete di cantiere 12s spesso non bastano
-  if (config.headers['Content-Type'] === 'multipart/form-data') config.timeout = 60000
+  // Upload file (foto, PDF, DXF): sulla rete di cantiere 12s spesso non bastano.
+  // Non sovrascrivere un timeout già impostato esplicitamente dal chiamante (es. 180000ms
+  // per gli endpoint Whisper+Claude) — altrimenti qui viene rimesso a 60000 e la richiesta
+  // scade prima che l'IA finisca, anche se il chiamante aveva chiesto più tempo.
+  if (config.headers['Content-Type'] === 'multipart/form-data' && config.timeout === api.defaults.timeout) config.timeout = 60000
   return config
 })
 
