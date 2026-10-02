@@ -1386,6 +1386,32 @@ class ModificaBody(BaseModel):
     colleghi_ore: Optional[List[CollegaOre]] = None
     extra_preventivo: Optional[bool] = None
     extra_preventivo_nota: Optional[str] = None
+    data_lavoro: Optional[str] = None   # YYYY-MM-DD — giorno a cui si riferisce il rapportino
+
+
+def _sposta_data_rapportino(db: Session, r: RapportinoOperativo, nuova_data: str) -> None:
+    """Correzione manuale della data del rapportino (registrato sul giorno sbagliato): se
+    è già validato sposta anche tutto ciò che ne è nato — nota diario (una per
+    rapportino), righe ore nei costi cantiere (operativo, colleghi, viaggio) e registro
+    ore personale — così niente resta agganciato al giorno vecchio."""
+    data_obj = date_today.fromisoformat(nuova_data)
+    r.data_lavoro = nuova_data
+    if r.diario_id:
+        diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == r.diario_id).first()
+        if diario:
+            diario.data = data_obj
+        for oe in db.query(OreExtra).filter(OreExtra.diario_id == r.diario_id).all():
+            oe.data = data_obj
+    if r.ore_extra_id:
+        oe = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
+        if oe:
+            oe.data = data_obj
+    for ol in db.query(OreLavorate).filter(OreLavorate.rapportino_id == r.id).all():
+        ol.data = data_obj
+    if r.ore_lavorate_id:
+        ol = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
+        if ol:
+            ol.data = data_obj
 
 
 @router.put("/{rapportino_id}")
@@ -1401,8 +1427,16 @@ def modifica_rapportino(
         raise HTTPException(403)
     r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
     if not r: raise HTTPException(404)
+    if r.stato == "diviso":
+        raise HTTPException(400, "Rapportino già diviso: modifica i rapportini creati dalla divisione")
 
     dati = body.model_dump(exclude_unset=True)
+    if dati.get("data_lavoro") and dati["data_lavoro"] != r.data_lavoro:
+        try:
+            date_today.fromisoformat(dati["data_lavoro"])
+        except ValueError:
+            raise HTTPException(400, "Data non valida")
+        _sposta_data_rapportino(db, r, dati["data_lavoro"])
     for campo in ("testo_italiano", "descrizione_lavori", "descrizione_extra", "riassunto",
                   "ore_lavorate", "ore_extra", "materiale_extra", "lavorazioni", "materiali", "criticita",
                   "colleghi_ore", "extra_preventivo", "extra_preventivo_nota"):

@@ -146,6 +146,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const [modificaCantiere, setModificaCantiere] = useState(false)
   const [nuovoCantiere, setNuovoCantiere] = useState('')
   const [modificaTesto, setModificaTesto] = useState(false)
+  const [dataEdit, setDataEdit] = useState(r.data_lavoro || '')
   const [testoEdit, setTestoEdit] = useState(r.descrizione_lavori || r.testo_italiano || '')
   const [oreEdit, setOreEdit] = useState(r.ore_lavorate ?? '')
   const [colleghiEdit, setColleghiEdit] = useState(() => (r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '', utente_id: c.utente_id ?? '' })))
@@ -183,8 +184,25 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     inviato: 'Da validare', validato: 'Validato', rifiutato: 'Rifiutato', diviso: 'Diviso',
   }[r.stato] || r.stato
 
+  // Apre il pannello di modifica precompilato coi valori attuali del rapportino
+  const apriModifica = () => {
+    setTestoEdit(r.descrizione_lavori || r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? '')
+    setColleghiEdit((r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '', utente_id: c.utente_id ?? '' })))
+    setLavorazioniEdit(r.lavorazioni?.length ? r.lavorazioni : [''])
+    setMaterialiEdit(r.materiali?.length ? r.materiali : [''])
+    setCriticitaEdit(r.criticita || '')
+    setDescrizioneExtraEdit(r.descrizione_extra || '')
+    setMaterialeExtraEdit(r.materiale_extra || '')
+    setExtraPreventivoEdit(!!r.extra_preventivo)
+    setExtraPreventivoNotaEdit(r.extra_preventivo_nota || '')
+    setDataEdit(r.data_lavoro || '')
+    setModificaTesto(true)
+    setAperto(false)
+  }
+
   const salvaTesto = () => {
     onModifica(r.id, {
+      ...(dataEdit && dataEdit !== r.data_lavoro ? { data_lavoro: dataEdit } : {}),
       descrizione_lavori: testoEdit,
       ore_lavorate: oreEdit === '' ? null : parseFloat(oreEdit),
       colleghi_ore: colleghiEdit
@@ -298,7 +316,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
         <FotoPreview urls={r.foto_avanzamento_urls} />
 
         {/* Testo completo — sempre visibile in anteprima, non più nascosto in "dettagli" */}
-        {(r.descrizione_lavori || r.testo_italiano) && (
+        {(r.descrizione_lavori || r.testo_italiano || modificaTesto) && (
           <div className="mt-2.5">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-semibold text-gray-500">Lavori svolti</p>
@@ -309,18 +327,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                     title="Ri-analizza con IA (matching cantiere e rilevamento multi-cantiere aggiornati)">
                     <Sparkles size={13} className={rianalizzando ? 'animate-pulse' : ''} />
                   </button>
-                  <button onClick={() => {
-                    setTestoEdit(r.descrizione_lavori || r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? '')
-                    setColleghiEdit((r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '' })))
-                    setLavorazioniEdit(r.lavorazioni?.length ? r.lavorazioni : [''])
-                    setMaterialiEdit(r.materiali?.length ? r.materiali : [''])
-                    setCriticitaEdit(r.criticita || '')
-                    setDescrizioneExtraEdit(r.descrizione_extra || '')
-                    setMaterialeExtraEdit(r.materiale_extra || '')
-                    setExtraPreventivoEdit(!!r.extra_preventivo)
-                    setExtraPreventivoNotaEdit(r.extra_preventivo_nota || '')
-                    setModificaTesto(true)
-                  }}
+                  <button onClick={apriModifica}
                     className="text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica testo">
                     <Edit3 size={13} />
                   </button>
@@ -329,6 +336,14 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
             </div>
             {modificaTesto ? (
               <div className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500 shrink-0">Data lavoro</label>
+                  <input type="date" value={dataEdit} onChange={e => setDataEdit(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                  {dataEdit && dataEdit !== r.data_lavoro && (
+                    <span className="text-xs text-amber-600">diario e ore verranno spostati a questa data</span>
+                  )}
+                </div>
                 <textarea value={testoEdit} onChange={e => setTestoEdit(e.target.value)} rows={5}
                   className="w-full text-xs leading-relaxed border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
                 <div className="flex items-center gap-2">
@@ -445,11 +460,25 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
               <span className="ml-2 text-gray-300">({r.lingua_originale.toUpperCase()})</span>
             )}
           </span>
-          <button onClick={() => setAperto(v => !v)}
-            className="text-xs text-gray-500 flex items-center gap-1 hover:text-gray-700">
-            {aperto ? <><ChevronUp size={12}/> meno</> : <><ChevronDown size={12}/> altri dettagli</>}
-          </button>
+          <div className="flex items-center gap-3">
+            {isAdmin && r.stato !== 'diviso' && !modificaTesto && (
+              <button onClick={apriModifica}
+                className="text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg px-2.5 py-1 flex items-center gap-1 hover:text-steelex-orange hover:border-gray-300">
+                <Edit3 size={12} /> Modifica
+              </button>
+            )}
+            <button onClick={() => setAperto(v => !v)}
+              className="text-xs text-gray-500 flex items-center gap-1 hover:text-gray-700">
+              {aperto ? <><ChevronUp size={12}/> meno</> : <><ChevronDown size={12}/> altri dettagli</>}
+            </button>
+          </div>
         </div>
+        {isAdmin && r.stato === 'diviso' && (
+          <p className="mt-2 text-xs text-purple-700 bg-purple-50 rounded-lg px-2 py-1.5">
+            Questo è l'originale già diviso e non si modifica più: modifica i rapportini creati dalla divisione
+            {r.note_admin?.includes('#') ? <> ({r.note_admin.replace(/^.*?:\s*/, '')})</> : null}.
+          </p>
+        )}
 
         {aperto && (
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-3 text-sm text-gray-700">
@@ -1004,10 +1033,12 @@ function VistaAdmin() {
     ({ id, ...dati }) => api.put(`/rapportini/${id}`, dati),
     {
       onSuccess: () => {
+        toast.success('Rapportino aggiornato')
         qc.invalidateQueries('rapp-da-validare')
         qc.invalidateQueries('rapp-tutti')
         qc.invalidateQueries('rapp-fuori')
-      }
+      },
+      onError: (err) => toast.error(err.response?.data?.detail || 'Errore nel salvataggio del rapportino'),
     }
   )
 
