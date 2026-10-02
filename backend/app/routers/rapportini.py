@@ -1678,7 +1678,10 @@ def rianalizza_rapportino(
 
 
 class SegmentoDividi(BaseModel):
-    cantiere_id: int
+    # None = questa parte resta FUORI CANTIERE (es. lavoro presso un cliente che non è un
+    # cantiere aperto): diventa un rapportino senza cantiere, ore solo nel registro personale
+    cantiere_id: Optional[int] = None
+    cantiere: Optional[str] = None   # nome citato, conservato per le parti fuori cantiere
     testo: Optional[str] = None
     ore: Optional[float] = None
     lavorazioni: Optional[List[str]] = []
@@ -1731,9 +1734,11 @@ def dividi_rapportino(
 
     creati = []
     for i, seg in enumerate(segmenti):
-        cantiere = db.query(Cantiere).filter(Cantiere.id == seg.cantiere_id).first()
-        if not cantiere:
-            raise HTTPException(404, f"Cantiere non trovato (segmento {i + 1})")
+        cantiere = None
+        if seg.cantiere_id is not None:
+            cantiere = db.query(Cantiere).filter(Cantiere.id == seg.cantiere_id).first()
+            if not cantiere:
+                raise HTTPException(404, f"Cantiere non trovato (segmento {i + 1})")
 
         # Testo specifico per questo cantiere: se l'admin l'ha scritto/incollato nel pannello
         # di divisione si usa quello, altrimenti il testo completo va solo sul primo segmento
@@ -1745,13 +1750,14 @@ def dividi_rapportino(
 
         nuovo = RapportinoOperativo(
             operativo_id       = r.operativo_id,
-            cantiere_id        = cantiere.id,
+            operatore_nome     = r.operatore_nome,
+            cantiere_id        = cantiere.id if cantiere else None,
             data_lavoro        = r.data_lavoro,
             testo_originale    = r.testo_originale,
             testo_elaborato    = testo_seg,
             testo_italiano     = testo_seg,
             lingua_originale   = r.lingua_originale,
-            cantiere_rilevato  = cantiere.nome,
+            cantiere_rilevato  = (cantiere.nome if cantiere else ((seg.cantiere or "").strip()[:300] or None)),
             descrizione_lavori = testo_seg,
             foto_avanzamento_urls = r.foto_avanzamento_urls or [],
             descrizione_extra  = r.descrizione_extra if i == 0 else None,
@@ -1765,7 +1771,7 @@ def dividi_rapportino(
             spese_extra        = r.spese_extra if i == 0 else [],
             riassunto          = seg.riassunto or (testo_seg[:200] if testo_seg else r.riassunto),
             stato              = "inviato",
-            fuori_cantiere     = False,
+            fuori_cantiere     = cantiere is None,
         )
         db.add(nuovo)
         creati.append(nuovo)

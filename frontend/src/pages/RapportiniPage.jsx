@@ -230,10 +230,13 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     setDividendo(true)
   }
 
+  // cantiere_id === 'fuori' = quella parte resta fuori cantiere (cliente senza cantiere aperto)
   const confermaDivisione = () => {
     if (segmenti.some(s => !s.cantiere_id)) return
     onDividi(r.id, segmenti.map(s => ({
-      cantiere_id: parseInt(s.cantiere_id), ore: s.ore ? parseFloat(s.ore) : null,
+      cantiere_id: s.cantiere_id === 'fuori' ? null : parseInt(s.cantiere_id),
+      cantiere: s.cantiere || null,
+      ore: s.ore ? parseFloat(s.ore) : null,
       lavorazioni: s.lavorazioni || [], riassunto: s.riassunto || null, testo: s.testo || null,
     })))
     setDividendo(false)
@@ -568,17 +571,21 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                       )}
                     </div>
                     {!s.cantiere_id && s.cantiere && (
-                      <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — seleziona a mano</p>
+                      <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — scegli un cantiere oppure "fuori cantiere"</p>
                     )}
                     <select
                       value={s.cantiere_id}
                       onChange={e => aggiornaSegmento(i, 'cantiere_id', e.target.value)}
                       className="w-full border border-purple-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
                       <option value="">— scegli cantiere —</option>
+                      <option value="fuori">🚫 Lascia fuori cantiere</option>
                       {cantieri.map(c => (
                         <option key={c.id} value={c.id}>{c.nome}</option>
                       ))}
                     </select>
+                    {s.cantiere_id === 'fuori' && (
+                      <p className="text-xs text-gray-500">Questa parte diventa un rapportino senza cantiere: le ore vanno solo nel registro personale, nessun costo su cantieri.</p>
+                    )}
                     <div>
                       <label className="text-xs text-gray-500 block mb-1">Testo per questo cantiere</label>
                       <textarea value={s.testo ?? ''} rows={4}
