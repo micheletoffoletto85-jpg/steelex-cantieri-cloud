@@ -1,13 +1,22 @@
 /**
  * Gantt mensile/settimanale operatori
- * Desktop: griglia M/P separata + drag con pointermove
- * Mobile: griglia M/P sovrapposta (mattina sopra, pomeriggio sotto)
- *   - modalità normale: scroll orizzontale + click per popover
- *   - modalità assegna (FAB): touch drag per assegnare più celle
+ *
+ * Una sola griglia per desktop e smartphone: una riga per operatore, due slot
+ * (Mattina / Pomeriggio) per giorno. I turni uguali consecutivi sono disegnati
+ * come un'unica barra col nome del cantiere.
+ *
+ * Selezione a rettangolo: trascinando si seleziona un blocco di turni anche su
+ * più operatori. La selezione resta evidenziata (tratteggio + bordo) finché il
+ * pannello di assegnazione è aperto, anche sopra celle già colorate.
+ *   - mouse: click o trascina
+ *   - touch: tap apre il pannello; con "Modalità assegna" il trascinamento seleziona
+ * Il pannello è montato in un portal sul body e posizionato dentro la finestra
+ * (su smartphone è un foglio dal basso), quindi non esce mai dalla pagina.
  */
-import React, { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, PenLine, Send } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, PenLine, Send, FileDown, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -17,12 +26,18 @@ import 'dayjs/locale/it'
 dayjs.extend(isoWeek)
 dayjs.locale('it')
 
+// ── Brand (unica parte che cambia tra STEELEX e FR) ───────────────────────────
+const ACCENTO = '#FF6B00'
+const SCURO = '#1A1A2E'
+const ACCENTO_TENUE = 'rgba(255,107,0,0.07)'
+
+// Stessa palette del PDF (backend/app/routers/assegnazioni.py → PALETTE_CANTIERI)
 const PALETTE = [
-  '#FF6B00','#3b82f6','#22c55e','#a855f7','#f59e0b',
+  ACCENTO,'#3b82f6','#22c55e','#a855f7','#f59e0b',
   '#06b6d4','#ec4899','#64748b','#84cc16','#f97316',
   '#6366f1','#14b8a6','#e11d48','#0ea5e9','#8b5cf6',
 ]
-const getColore = id => id ? PALETTE[(id - 1) % PALETTE.length] : null
+const getColore = id => id ? PALETTE[(id - 1) % PALETTE.length] : '#94a3b8'
 
 // Programmazione libera: attività fuori cantiere con colori fissi
 const TIPI_LIBERI = {
@@ -33,477 +48,319 @@ const TIPI_LIBERI = {
 }
 const isLibera = ass => ass?.tipo && ass.tipo !== 'cantiere'
 const coloreAss = ass => !ass ? null : (isLibera(ass) ? (TIPI_LIBERI[ass.tipo]?.colore || '#475569') : getColore(ass.cantiere_id))
-const siglaAss = ass => isLibera(ass)
+const labelAss = ass => !ass ? '' : isLibera(ass) ? (TIPI_LIBERI[ass.tipo]?.label || 'Altro') : (ass.cantiere_nome || 'Senza cantiere')
+const siglaAss = (ass, sigle) => !ass ? '' : isLibera(ass)
   ? (TIPI_LIBERI[ass.tipo]?.sigla || 'ALT')
-  : (ass?.cantiere_nome ? ass.cantiere_nome.slice(0,3).toUpperCase() : null)
-const labelAss = ass => isLibera(ass) ? (TIPI_LIBERI[ass.tipo]?.label || 'Altro') : (ass?.cantiere_nome || '')
+  : (ass.cantiere_id ? (sigle[ass.cantiere_id] || '?') : '—')
+// Due turni fanno parte della stessa barra se l'attività è identica
+const stessoBlocco = (a, b) => !!a && !!b && (a.tipo || 'cantiere') === (b.tipo || 'cantiere')
+  && (a.cantiere_id || null) === (b.cantiere_id || null) && (a.lavorazione || '') === (b.lavorazione || '')
+
+// Testo scuro su colori chiari (giallo, lime...) — stessa soglia del PDF
+function testoScuro(hex) {
+  const h = (hex || '#000000').replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16)
+  return 0.299 * r + 0.587 * g + 0.114 * b > 165
+}
+
+// Sigle univoche per cantiere: prime 3 lettere, doppioni risolti come nel PDF
+function siglePerCantieri(lista) {
+  const out = {}, usate = new Set()
+  ;[...lista].sort((a, b) => a.id - b.id).forEach(c => {
+    const parole = (c.nome || '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).filter(Boolean)
+    const base = (parole[0]?.slice(0, 3) || 'CAN').toUpperCase()
+    let sigla = base
+    if (usate.has(sigla) && parole.length > 1) sigla = (parole[0].slice(0, 2) + parole[1].slice(0, 1)).toUpperCase()
+    let n = 2
+    while (usate.has(sigla)) { sigla = `${base.slice(0, 2)}${n}`; n++ }
+    usate.add(sigla); out[c.id] = sigla
+  })
+  return out
+}
 
 function ck(tipo, id, data, turno) { return `${tipo}__${id}__${data}__${turno}` }
-function parseKey(k) { const [tipo, id, data, turno] = k.split('__'); return { tipo, id: parseInt(id), data, turno } }
+const opKey = op => `${op.tipo}_${op.id}`
+const normSel = s => s && ({ r0: Math.min(s.ar, s.cr), r1: Math.max(s.ar, s.cr), s0: Math.min(s.as, s.cs), s1: Math.max(s.as, s.cs) })
 
-// ── Popover ───────────────────────────────────────────────────────────────────
-function Popover({ op, data, turno, ass, cantieri, onSalva, onChiudi, rangeCelle, cantiereIdIniziale, lavorazioneIniziale, tipoIniziale }) {
-  const [tipoAtt, setTipoAtt] = useState(tipoIniziale ?? ass?.tipo ?? 'cantiere')
-  const [cantiereId, setCantiereId] = useState(cantiereIdIniziale ?? ass?.cantiere_id ?? '')
-  const [lavorazione, setLavorazione] = useState(lavorazioneIniziale ?? ass?.lavorazione ?? '')
+const isTouch = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
+
+// ── Pannello assegnazione (portal, sempre dentro la finestra) ─────────────────
+function PannelloAssegna({ celle, iniziale, anchor, cantieri, sigle, salvando, onSalva, onChiudi, mobile }) {
+  const [tipoAtt, setTipoAtt] = useState(iniziale?.tipo || 'cantiere')
+  const [cantiereId, setCantiereId] = useState(iniziale?.cantiere_id ?? '')
+  const [lavorazione, setLavorazione] = useState(iniziale?.lavorazione ?? '')
   const ref = useRef(null)
-  const isRange = rangeCelle?.length > 1
-  const celle = isRange ? rangeCelle : [{ op, data, turno }]
+  const [pos, setPos] = useState({ top: -9999, left: -9999 })
 
+  // Posizionamento: sotto la cella, sopra se non c'è spazio, sempre dentro la viewport
+  const posiziona = useCallback(() => {
+    if (mobile || !ref.current) return
+    const el = document.querySelector(`[data-r="${anchor.r}"][data-s="${anchor.s}"]`)
+    const W = window.innerWidth, H = window.innerHeight, M = 8
+    const pw = ref.current.offsetWidth, ph = ref.current.offsetHeight
+    const rc = el ? el.getBoundingClientRect() : { top: H / 2, bottom: H / 2, left: W / 2 - pw / 2, right: W / 2 }
+    let top = rc.bottom + 6
+    if (top + ph > H - M) top = rc.top - ph - 6 >= M ? rc.top - ph - 6 : Math.max(M, H - ph - M)
+    let left = Math.min(Math.max(M, rc.left - 8), W - pw - M)
+    setPos({ top, left })
+  }, [anchor, mobile])
+
+  useLayoutEffect(() => { posiziona() }, [posiziona])
   useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) onChiudi() }
-    const t = setTimeout(() => document.addEventListener('pointerdown', h), 50)
-    return () => { clearTimeout(t); document.removeEventListener('pointerdown', h) }
+    if (mobile) return
+    window.addEventListener('scroll', posiziona, true)
+    window.addEventListener('resize', posiziona)
+    return () => { window.removeEventListener('scroll', posiziona, true); window.removeEventListener('resize', posiziona) }
+  }, [posiziona, mobile])
+
+  // Chiusura: click fuori (ma non su una cella: lì parte una nuova selezione) ed Esc
+  useEffect(() => {
+    const h = e => {
+      if (ref.current?.contains(e.target)) return
+      if (e.target.closest?.('[data-s]')) return
+      onChiudi()
+    }
+    const k = e => { if (e.key === 'Escape') onChiudi() }
+    const t = setTimeout(() => document.addEventListener('pointerdown', h), 0)
+    document.addEventListener('keydown', k)
+    return () => { clearTimeout(t); document.removeEventListener('pointerdown', h); document.removeEventListener('keydown', k) }
   }, [onChiudi])
 
+  // Riepilogo di cosa c'è adesso nella selezione
+  const riepilogo = useMemo(() => {
+    const m = new Map()
+    celle.forEach(c => {
+      const k = c.ass ? `${c.ass.tipo || 'cantiere'}_${c.ass.cantiere_id || ''}` : 'vuota'
+      const v = m.get(k) || { n: 0, label: c.ass ? labelAss(c.ass) : 'libere', colore: coloreAss(c.ass) }
+      v.n++; m.set(k, v)
+    })
+    return [...m.values()].sort((a, b) => b.n - a.n)
+  }, [celle])
+
+  const ops = new Set(celle.map(c => opKey(c.op)))
+  const giorniSel = [...new Set(celle.map(c => c.data))].sort()
+  const singola = celle.length === 1
+  const titolo = singola
+    ? celle[0].op.nome
+    : ops.size === 1 ? celle[0].op.nome : `${ops.size} operatori`
+  const sottotitolo = singola
+    ? `${dayjs(celle[0].data).format('ddd D MMM')} · ${celle[0].turno === 'M' ? 'Mattina' : 'Pomeriggio'}`
+    : `${celle.length} turni · ${giorniSel.length === 1 ? dayjs(giorniSel[0]).format('ddd D MMM')
+        : `${dayjs(giorniSel[0]).format('D MMM')} → ${dayjs(giorniSel[giorniSel.length - 1]).format('D MMM')}`}`
+  const almenoUnaPiena = celle.some(c => c.ass)
+  const puoSalvare = tipoAtt !== 'cantiere' || !!cantiereId || !!lavorazione.trim()
+
+  // Un cantiere già assegnato ma non più "attivo" resta selezionabile (altrimenti la select appare vuota)
+  const opzioniCantieri = useMemo(() => {
+    const lista = [...cantieri]
+    celle.forEach(c => {
+      if (c.ass?.cantiere_id && !lista.some(x => x.id === c.ass.cantiere_id))
+        lista.push({ id: c.ass.cantiere_id, nome: c.ass.cantiere_nome || `Cantiere ${c.ass.cantiere_id}` })
+    })
+    return lista
+  }, [cantieri, celle])
+
   const salva = () => {
-    celle.forEach(c => onSalva({
-      ...(c.op.tipo === 'artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }),
-      data: c.data, turno: c.turno,
+    if (!puoSalvare || salvando) return
+    onSalva({
       tipo: tipoAtt,
       cantiere_id: tipoAtt === 'cantiere' && cantiereId ? parseInt(cantiereId) : null,
-      lavorazione: lavorazione || null,
-    }))
-    onChiudi()
+      lavorazione: lavorazione.trim() || null,
+    })
   }
-  const svuota = () => {
-    celle.forEach(c => onSalva({
-      ...(c.op.tipo === 'artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }),
-      data: c.data, turno: c.turno, tipo: 'cantiere', cantiere_id: null, lavorazione: null,
-    }))
-    onChiudi()
-  }
+  const svuota = () => !salvando && onSalva({ tipo: 'cantiere', cantiere_id: null, lavorazione: null })
 
-  return (
+  const corpo = (
     <div ref={ref} onPointerDown={e => e.stopPropagation()}
-      className="absolute z-50 bg-white border border-gray-200 rounded-xl shadow-2xl p-3"
-      style={{ top: '100%', left: 0, minWidth: 230, width: 250 }}>
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold text-gray-800 truncate pr-2">
-          {isRange
-            ? `${op.nome} — ${rangeCelle.length} turni`
-            : `${op.nome} — ${turno === 'M' ? 'Mattina' : 'Pomeriggio'} ${dayjs(data).format('D/M')}`}
-        </p>
-        <button onClick={onChiudi} className="text-gray-400 hover:text-gray-500"><X size={14}/></button>
+      className={mobile
+        ? 'fixed inset-x-0 bottom-0 z-[60] bg-white rounded-t-2xl shadow-2xl p-4 pb-6 max-h-[85vh] overflow-y-auto'
+        : 'fixed z-[60] bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto'}
+      style={mobile ? undefined : { top: pos.top, left: pos.left }}>
+      {mobile && <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-3"/>}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-gray-900 truncate">{titolo}</p>
+          <p className="text-xs text-gray-500 capitalize">{sottotitolo}</p>
+        </div>
+        <button onClick={onChiudi} className="p-1 -m-1 text-gray-400 hover:text-gray-600" aria-label="Chiudi"><X size={16}/></button>
       </div>
+
+      {/* Cosa contiene adesso la selezione */}
+      <div className="flex flex-wrap gap-1 mb-3">
+        {riepilogo.map(v => (
+          <span key={v.label} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-100 text-[11px] text-gray-600">
+            <span className="w-2.5 h-2.5 rounded-sm border border-gray-200" style={{ background: v.colore || '#fff' }}/>
+            {!singola && <strong className="font-semibold">{v.n}×</strong>} {v.label}
+          </span>
+        ))}
+      </div>
+
       {/* Tipo attività: cantiere o programmazione libera */}
       <div className="flex gap-1 mb-2 flex-wrap">
-        {[['cantiere','Cantiere'], ...Object.entries(TIPI_LIBERI).map(([k,v]) => [k, v.label])].map(([k,l]) => (
+        {[['cantiere', 'Cantiere'], ...Object.entries(TIPI_LIBERI).map(([k, v]) => [k, v.label])].map(([k, l]) => (
           <button key={k} onClick={() => setTipoAtt(k)}
-            className={`px-2 py-1 rounded-full text-[10px] font-semibold border transition-colors ${tipoAtt===k ? 'text-white' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
-            style={tipoAtt===k ? { background: k==='cantiere' ? '#FF6B00' : TIPI_LIBERI[k].colore, borderColor: 'transparent' } : undefined}>
+            className={`px-2.5 py-1.5 rounded-full text-xs font-semibold border transition-colors ${tipoAtt === k ? 'text-white' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
+            style={tipoAtt === k ? { background: k === 'cantiere' ? ACCENTO : TIPI_LIBERI[k].colore, borderColor: 'transparent' } : undefined}>
             {l}
           </button>
         ))}
       </div>
       {tipoAtt === 'cantiere' && (
-        <select autoFocus value={cantiereId} onChange={e => setCantiereId(e.target.value)}
-          className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange">
-          <option value="">— nessun cantiere —</option>
-          {cantieri.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+        <select autoFocus={!mobile} value={cantiereId} onChange={e => setCantiereId(e.target.value)}
+          className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange">
+          <option value="">— scegli il cantiere —</option>
+          {opzioniCantieri.map(c => <option key={c.id} value={c.id}>{sigle[c.id] ? `${sigle[c.id]} · ` : ''}{c.nome}</option>)}
         </select>
       )}
-      <input type="text" placeholder={tipoAtt === 'cantiere' ? 'Lavorazione...' : 'Descrizione (facoltativa)...'} value={lavorazione}
+      <input type="text" placeholder={tipoAtt === 'cantiere' ? 'Lavorazione (facoltativa)…' : 'Descrizione (facoltativa)…'} value={lavorazione}
         onChange={e => setLavorazione(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && salva()}
-        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
       <div className="flex gap-1.5">
-        <button onClick={salva}
-          className="flex-1 py-2 bg-steelex-orange text-white text-xs font-bold rounded-lg hover:bg-orange-600 transition-colors">
-          Salva{isRange ? ` (${rangeCelle.length})` : ''}
+        <button onClick={salva} disabled={!puoSalvare || salvando}
+          className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 bg-steelex-orange text-white text-sm font-bold rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity">
+          {salvando && <Loader2 size={14} className="animate-spin"/>}
+          Assegna{singola ? '' : ` ${celle.length} turni`}
         </button>
-        {(ass || isRange) && (
-          <button onClick={svuota}
-            className="px-3 py-2 border border-red-200 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap">
-            {isRange ? `Svuota (${rangeCelle.length})` : 'Rimuovi'}
+        {almenoUnaPiena && (
+          <button onClick={svuota} disabled={salvando}
+            className="px-3 py-2.5 border border-red-200 text-red-500 text-sm font-semibold rounded-lg hover:bg-red-50 disabled:opacity-40 transition-colors whitespace-nowrap">
+            {singola ? 'Rimuovi' : 'Svuota'}
           </button>
         )}
       </div>
+      {!puoSalvare && <p className="text-[11px] text-gray-400 mt-1.5">Scegli un cantiere o scrivi la lavorazione.</p>}
     </div>
   )
-}
 
-// ── Legenda ───────────────────────────────────────────────────────────────────
-function Legenda({ cantieri, usatiIds, tipiUsati = new Set() }) {
-  const usati = cantieri.filter(c => usatiIds.has(c.id))
-  const liberi = Object.entries(TIPI_LIBERI).filter(([k]) => tipiUsati.has(k))
-  if (!usati.length && !liberi.length) return null
-  return (
-    <div className="flex flex-wrap gap-2 mt-2 px-1">
-      {usati.map(c => (
-        <div key={c.id} className="flex items-center gap-1.5 text-xs text-gray-600">
-          <div className="w-3 h-3 rounded-sm" style={{ background: getColore(c.id) }}/>{c.nome}
-        </div>
-      ))}
-      {liberi.map(([k, t]) => (
-        <div key={k} className="flex items-center gap-1.5 text-xs text-gray-600">
-          <div className="w-3 h-3 rounded-sm" style={{ background: t.colore }}/>{t.label}
-        </div>
-      ))}
-    </div>
+  return createPortal(
+    mobile ? <><div className="fixed inset-0 z-[59] bg-black/30" onClick={onChiudi}/>{corpo}</> : corpo,
+    document.body,
   )
 }
 
-// ── Hook drag condiviso (desktop pointer + mobile touch in modalità assegna) ──
-function useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopover }) {
-  const dragRef = useRef(null)
-  const selRef  = useRef(new Set())
-
-  const startDrag = (op, data, turno) => {
-    if (!canWrite) return
-    const ass = assMapRef.current[ck(op.tipo, op.id, data, turno)]
-    dragRef.current = { op, startData: data, startTurno: turno, cantiereId: ass?.cantiere_id ?? null, lavorazione: ass?.lavorazione ?? null, tipoAss: ass?.tipo ?? 'cantiere' }
-    selRef.current = new Set([ck(op.tipo, op.id, data, turno)])
-    setSelKeys(new Set(selRef.current))
-    setPopover(null)
-  }
-
-  const moveDrag = (x, y) => {
-    if (!dragRef.current) return
-    const td = document.elementFromPoint(x, y)?.closest('[data-cella]')
-    if (!td) return
-    const { tipo, id, data, turno } = td.dataset
-    const d = dragRef.current
-    if (tipo !== d.op.tipo || parseInt(id) !== d.op.id) return
-    const key = ck(tipo, id, data, turno)
-    if (!selRef.current.has(key)) {
-      selRef.current = new Set([...selRef.current, key])
-      setSelKeys(new Set(selRef.current))
+// ── Riga operatore (memo: durante il trascinamento si ridisegnano solo le righe toccate) ──
+const RigaOperatore = memo(function RigaOperatore({ op, r, celle, slots, slotW, nameW, rowH, selCols, selRow, sigle, impegnato, giorniPianificati, zebra, canWrite, interazione }) {
+  // Barre: sequenze di turni consecutivi con la stessa attività
+  const runs = useMemo(() => {
+    const out = new Array(celle.length).fill(null)
+    let i = 0
+    while (i < celle.length) {
+      if (!celle[i]) { i++; continue }
+      let j = i
+      while (j + 1 < celle.length && stessoBlocco(celle[j + 1], celle[i])) j++
+      out[i] = { fine: j }
+      i = j + 1
     }
-  }
-
-  const endDrag = () => {
-    const d = dragRef.current
-    if (!d) return
-    dragRef.current = null
-    const sel = [...selRef.current]
-    selRef.current = new Set()
-    setSelKeys(new Set())
-
-    if (sel.length <= 1) {
-      setPopover({ op: d.op, data: d.startData, turno: d.startTurno })
-      return
-    }
-    const celle = sel.map(k => {
-      const p = parseKey(k)
-      const op2 = opRef.current.find(o => o.tipo === p.tipo && o.id === p.id)
-      return op2 ? { op: op2, data: p.data, turno: p.turno } : null
-    }).filter(Boolean)
-
-    setPopover({ op: d.op, data: d.startData, turno: d.startTurno, rangeCelle: celle, cantiereIdIniziale: d.cantiereId, lavorazioneIniziale: d.lavorazione, tipoIniziale: d.tipoAss })
-  }
-
-  return { dragRef, startDrag, moveDrag, endDrag }
-}
-
-// ── Griglia DESKTOP ───────────────────────────────────────────────────────────
-function GrigliaDesktop({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi, opImpegnati = new Set() }) {
-  const [popover, setPopover] = useState(null)
-  const [selKeys, setSelKeys] = useState(new Set())
-  const assMapRef  = useRef(assMap)
-  const opRef      = useRef(operatori)
-  const onSalvaRef = useRef(onSalva)
-  useEffect(() => { assMapRef.current = assMap }, [assMap])
-  useEffect(() => { opRef.current = operatori }, [operatori])
-  useEffect(() => { onSalvaRef.current = onSalva }, [onSalva])
-
-  const { startDrag, moveDrag, endDrag } = useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopover })
-
-  useEffect(() => {
-    if (!canWrite) return
-    const onMove = e => { if (!e.buttons) return; moveDrag(e.clientX, e.clientY) }
-    const onUp = () => endDrag()
-    document.addEventListener('pointermove', onMove)
-    document.addEventListener('pointerup', onUp)
-    return () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp) }
-  }, [canWrite]) // eslint-disable-line
-
-  const CellaMP = ({ op, d, zebraRow }) => {
-    const dataStr = d.format('YYYY-MM-DD')
-    const isWeekend = d.day() === 0 || d.day() === 6
-    const isOggi = d.isSame(oggi, 'day')
-    // Separiamo ogni giorno con un border-right leggero, nessun border interno tra M e P
-    return ['M','P'].map((turno, ti) => {
-      const key = ck(op.tipo, op.id, dataStr, turno)
-      const ass = assMap[key]
-      const col = coloreAss(ass)
-      const isSel = selKeys.has(key)
-      const isOpen = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno===turno
-      const isEmpty = !ass && !isSel
-
-      // Sfondo cella vuota: appena percettibile, diverso solo per weekend e zebra
-      const emptyBg = isWeekend ? '#f5f6f8' : (zebraRow ? '#fafafa' : '#fff')
-
-      return (
-        <td key={key} data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno={turno}
-          className="relative p-0 select-none"
-          style={{
-            width: 22, minWidth: 22, height: 32,
-            background: isEmpty ? emptyBg : (isSel ? (col || '#fdba74') : col),
-            // Bordo solo a destra dell'ultimo turno del giorno (P), separatore tra giorni
-            borderRight: ti === 1 ? (isOggi ? '2px solid #FF6B00' : '1px solid #e5e7eb') : '1px solid rgba(0,0,0,0.04)',
-            borderBottom: '1px solid #f0f0f0',
-            borderLeft: ti === 0 && isOggi ? '2px solid #FF6B00' : 'none',
-            borderTop: isOggi ? '2px solid #FF6B00' : 'none',
-          }}
-          onPointerDown={canWrite ? e => { e.preventDefault(); startDrag(op, dataStr, turno) } : undefined}>
-          {!isEmpty ? (
-            <div className="w-full h-full flex items-center justify-center cursor-pointer"
-              title={`${labelAss(ass)}${ass?.lavorazione?' — '+ass.lavorazione:''}`}>
-              {siglaAss(ass) && (
-                <span className="text-white font-black pointer-events-none leading-none"
-                  style={{ fontSize: 8, textShadow: '0 1px 2px rgba(0,0,0,0.25)' }}>
-                  {siglaAss(ass)}
-                </span>
-              )}
-            </div>
-          ) : canWrite ? (
-            <div className="w-full h-full cursor-pointer hover:bg-orange-50/60 transition-colors"/>
-          ) : null}
-          {isOpen && <Popover op={op} data={dataStr} turno={turno} ass={ass} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} tipoIniziale={popover.tipoIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
-        </td>
-      )
-    })
-  }
-
-  const Riga = ({ op, zebra }) => {
-    const impegnato = opImpegnati.has(`${op.tipo}_${op.id}`)
-    return (
-      <tr>
-        <td className="sticky left-0 z-10 border-r border-gray-200 px-2 py-1"
-          style={{ background: zebra ? '#fafafa' : '#fff', minWidth: 140, maxWidth: 140, borderBottom: '1px solid #f0f0f0' }}>
-          <div className="flex items-center gap-1.5">
-            {impegnato && <div className="w-1.5 h-1.5 rounded-full bg-steelex-orange flex-shrink-0"/>}
-            <p className="text-xs font-semibold text-gray-800 truncate">{op.nome}</p>
-          </div>
-          <p className="text-[10px] text-gray-400 truncate capitalize">{op.azienda || op.categoria}</p>
-        </td>
-        {giorni.map(d => <CellaMP key={d.format('YYYY-MM-DD')} op={op} d={d} zebraRow={zebra}/>)}
-      </tr>
-    )
-  }
-
-  const Gruppo = ({ label }) => (
-    <tr><td colSpan={1 + giorni.length * 2}
-      className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-400 border-b border-gray-100"
-      style={{ position: 'sticky', left: 0, background: '#f8fafc' }}>{label}</td></tr>
-  )
+    return out
+  }, [celle])
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden" style={{ userSelect: 'none' }}>
-      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 220px)' }}>
-        <table style={{ borderCollapse: 'collapse', minWidth: 140 + giorni.length * 44 }}>
-          <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
-            <tr style={{ background: '#1e293b' }}>
-              <th className="sticky left-0 z-20 px-2 py-2 text-left border-r border-gray-700"
-                style={{ background: '#1e293b', minWidth: 140 }}>
-                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Operatore</span>
-              </th>
-              {giorni.map(d => {
-                const isOggi = d.isSame(oggi,'day')
-                const isWeekend = d.day()===0||d.day()===6
-                return <th key={d.format('YYYY-MM-DD')} colSpan={2}
-                  style={{ minWidth: 44, borderLeft: '1px solid rgba(255,255,255,0.08)', opacity: isWeekend ? 0.4 : 1 }}>
-                  <div className={`text-xs font-bold py-1 ${isOggi?'text-steelex-orange':'text-white'}`}>{d.format('D')}</div>
-                  <div className="text-[9px] uppercase text-gray-400 pb-1">{d.format('dd')}</div>
-                </th>
-              })}
-            </tr>
-            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-              <th className="sticky left-0 z-20 border-r border-gray-200" style={{ background: '#f8fafc', minWidth: 140 }}/>
-              {giorni.map(d => ['M','P'].map((t, ti) => (
-                <th key={`${d.format('YYYY-MM-DD')}_${t}`}
-                  style={{
-                    width: 22, fontSize: 9, fontWeight: 600, color: '#9ca3af',
-                    padding: '3px 0', textAlign: 'center',
-                    borderLeft: ti === 0 ? '1px solid #e5e7eb' : '1px solid rgba(0,0,0,0.04)',
-                    background: (d.day()===0||d.day()===6) ? '#f5f6f8' : '#f8fafc',
-                  }}>
-                  {t}
-                </th>
-              )))}
-            </tr>
-          </thead>
-          <tbody>
-            {operatori.map((op, i) => {
-              const prevTipo = i > 0 ? operatori[i-1].tipo : null
-              const header = op.tipo !== prevTipo
-                ? <Gruppo key={`hdr_${op.tipo}`} label={op.tipo === 'artigiano' ? 'Artigiani / Esterni' : 'Operativi Interni'}/>
-                : null
-              return <React.Fragment key={`${op.tipo}_${op.id}`}>{header}<Riga op={op} zebra={i%2!==0}/></React.Fragment>
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ── Griglia MOBILE ────────────────────────────────────────────────────────────
-function GrigliaMobile({ operatori, giorni, assMap, cantieri, onSalva, canWrite, oggi, modalitaAssegna, opImpegnati = new Set() }) {
-  const [popover, setPopover] = useState(null)
-  const [selKeys, setSelKeys] = useState(new Set())
-  const assMapRef  = useRef(assMap)
-  const opRef      = useRef(operatori)
-  const onSalvaRef = useRef(onSalva)
-  useEffect(() => { assMapRef.current = assMap }, [assMap])
-  useEffect(() => { opRef.current = operatori }, [operatori])
-  useEffect(() => { onSalvaRef.current = onSalva }, [onSalva])
-
-  const { startDrag, moveDrag, endDrag } = useDrag({ canWrite, assMapRef, opRef, onSalvaRef, setSelKeys, setPopover })
-
-  // Listener touch solo quando modalità assegna è attiva
-  useEffect(() => {
-    if (!canWrite || !modalitaAssegna) return
-    const onMove = e => {
-      e.preventDefault()
-      const t = e.touches[0]
-      moveDrag(t.clientX, t.clientY)
-    }
-    const onEnd = () => endDrag()
-    document.addEventListener('touchmove', onMove, { passive: false })
-    document.addEventListener('touchend', onEnd)
-    return () => {
-      document.removeEventListener('touchmove', onMove)
-      document.removeEventListener('touchend', onEnd)
-    }
-  }, [canWrite, modalitaAssegna]) // eslint-disable-line
-
-  // Larghezza cella: adatta allo schermo, minimo 40px per essere toccabile
-  const NAME_W = 90
-  const CELL_W = Math.max(40, Math.floor((window.innerWidth - NAME_W - 2) / Math.min(giorni.length, 10)))
-  const CELL_H = 48
-
-  // Una riga per operatore, una td per giorno divisa in sinistra=M / destra=P
-  const RigaOp = ({ op, zebra }) => (
-    <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-      <td className="sticky left-0 z-10 border-r-2 border-gray-200 px-2"
-        style={{ background: zebra ? '#f9fafb' : '#fff', width: NAME_W, minWidth: NAME_W, maxWidth: NAME_W, height: CELL_H, verticalAlign: 'middle' }}>
-        <div className="flex items-center gap-1">
-          {opImpegnati.has(`${op.tipo}_${op.id}`) && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF6B00', flexShrink: 0 }}/>}
-          <p className="font-semibold text-gray-800 leading-tight truncate" style={{ fontSize: 11 }}>
-            {op.nome.split(' ').slice(0,2).join(' ')}
-          </p>
+    <tr className="group">
+      <td className={`sticky left-0 z-20 px-2 border-r border-gray-200 ${zebra ? 'bg-gray-50' : 'bg-white'} group-hover:bg-orange-50`}
+        style={{ width: nameW, minWidth: nameW, maxWidth: nameW, height: rowH, borderBottom: '1px solid #f1f2f4' }}>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {impegnato && <span className="w-1.5 h-1.5 rounded-full bg-steelex-orange flex-shrink-0"/>}
+          <p className="text-xs font-semibold text-gray-800 truncate flex-1" title={op.nome}>{op.nome}</p>
+          {giorniPianificati > 0 && nameW > 120 && (
+            <span className="text-[10px] font-semibold text-gray-400 flex-shrink-0" title="Giornate pianificate nel periodo">
+              {String(giorniPianificati).replace('.', ',')}g
+            </span>
+          )}
         </div>
-        <p className="text-gray-400 truncate capitalize" style={{ fontSize: 9 }}>{op.azienda || op.categoria}</p>
+        <p className="text-[10px] text-gray-400 truncate capitalize">{op.azienda || op.categoria}</p>
       </td>
-      {giorni.map(d => {
-        const dataStr = d.format('YYYY-MM-DD')
-        const isWeekend = d.day() === 0 || d.day() === 6
-        const isOggi = d.isSame(oggi, 'day')
-        const assM = assMap[ck(op.tipo, op.id, dataStr, 'M')]
-        const assP = assMap[ck(op.tipo, op.id, dataStr, 'P')]
-        const colM = coloreAss(assM)
-        const colP = coloreAss(assP)
-        const selM = selKeys.has(ck(op.tipo, op.id, dataStr, 'M'))
-        const selP = selKeys.has(ck(op.tipo, op.id, dataStr, 'P'))
-        const openM = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno==='M'
-        const openP = popover?.op.id===op.id && popover?.op.tipo===op.tipo && popover?.data===dataStr && popover?.turno==='P'
-
+      {slots.map((sl, s) => {
+        const ass = celle[s]
+        const prima = s > 0 && stessoBlocco(celle[s - 1], ass)
+        const dopo = s < celle.length - 1 && stessoBlocco(celle[s + 1], ass)
+        const sel = selRow && s >= selCols[0] && s <= selCols[1]
+        const col = coloreAss(ass)
+        const run = runs[s]
+        const inizioGiorno = sl.turno === 'M'
+        const sfondo = sl.oggi ? ACCENTO_TENUE : sl.weekend ? '#f6f6f4' : 'transparent'
+        const larghezzaRun = run ? (run.fine - s + 1) * slotW - 4 : 0
+        const lungo = ass && larghezzaRun >= 76
+        const testo = !run ? '' : lungo
+          ? `${labelAss(ass)}${ass.lavorazione && larghezzaRun >= 150 ? ` · ${ass.lavorazione}` : ''}`
+          : siglaAss(ass, sigle)
         return (
-          <td key={dataStr}
-            className="relative p-0"
+          <td key={s} data-r={r} data-s={s}
+            className="relative p-0 select-none"
             style={{
-              width: CELL_W, minWidth: CELL_W, height: CELL_H,
-              background: isWeekend ? '#f8fafc' : '#fff',
-              border: '1px solid #f3f4f6',
-              outline: isOggi ? '2px solid #FF6B00' : undefined,
-              outlineOffset: isOggi ? '-2px' : undefined,
-            }}>
-            <div style={{ display: 'flex', height: '100%' }}>
-              {/* Metà sinistra — Mattina */}
-              <div
-                data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno="M"
+              width: slotW, minWidth: slotW, maxWidth: slotW, height: rowH,
+              background: sfondo,
+              borderLeft: inizioGiorno ? (sl.lunedi ? '1.5px solid #d4d4d8' : '1px solid #eceef1') : 'none',
+              borderBottom: '1px solid #f1f2f4',
+              cursor: canWrite ? 'pointer' : 'default',
+              touchAction: interazione.touchAction,
+            }}
+            onPointerDown={canWrite ? e => interazione.onPointerDown(e, r, s) : undefined}
+            onClick={canWrite ? e => interazione.onClick(e, r, s) : undefined}
+            title={ass ? `${labelAss(ass)}${ass.lavorazione ? ' — ' + ass.lavorazione : ''}\n${sl.d.format('ddd D MMM')} · ${sl.turno === 'M' ? 'Mattina' : 'Pomeriggio'}` : undefined}>
+            {ass && (
+              <div className="absolute pointer-events-none"
                 style={{
-                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  background: selM ? (colM || '#fdba74') : (colM || 'transparent'),
-                  borderRight: '1px solid rgba(0,0,0,0.06)',
-                  position: 'relative',
-                }}
-                onTouchStart={canWrite && modalitaAssegna ? e => { e.stopPropagation(); e.preventDefault(); startDrag(op, dataStr, 'M') } : undefined}
-                onClick={canWrite && !modalitaAssegna ? e => { e.stopPropagation(); setPopover({ op, data: dataStr, turno: 'M' }) } : undefined}>
-                {siglaAss(assM)
-                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{siglaAss(assM)}</span>
-                  : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>M</span>}
-                {openM && <Popover op={op} data={dataStr} turno="M" ass={assM} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} tipoIniziale={popover.tipoIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
-              </div>
-              {/* Metà destra — Pomeriggio */}
-              <div
-                data-cella="1" data-tipo={op.tipo} data-id={op.id} data-data={dataStr} data-turno="P"
+                  top: 4, bottom: 4, left: prima ? -2 : 2, right: dopo ? 0 : 2,  // -2: copre il separatore del giorno
+                  background: col,
+                  borderTopLeftRadius: prima ? 0 : 5, borderBottomLeftRadius: prima ? 0 : 5,
+                  borderTopRightRadius: dopo ? 0 : 5, borderBottomRightRadius: dopo ? 0 : 5,
+                }}/>
+            )}
+            {run && testo && larghezzaRun >= 14 && (
+              <span className="absolute pointer-events-none font-bold truncate leading-none"
                 style={{
-                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  background: selP ? (colP || '#fdba74') : (colP || 'transparent'),
-                  position: 'relative',
-                }}
-                onTouchStart={canWrite && modalitaAssegna ? e => { e.stopPropagation(); e.preventDefault(); startDrag(op, dataStr, 'P') } : undefined}
-                onClick={canWrite && !modalitaAssegna ? e => { e.stopPropagation(); setPopover({ op, data: dataStr, turno: 'P' }) } : undefined}>
-                {siglaAss(assP)
-                  ? <span className="font-black text-white leading-none pointer-events-none" style={{ fontSize: 9, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{siglaAss(assP)}</span>
-                  : <span style={{ fontSize: 8, color: '#d1d5db', fontWeight: 600 }}>P</span>}
-                {openP && <Popover op={op} data={dataStr} turno="P" ass={assP} cantieri={cantieri} rangeCelle={popover.rangeCelle} cantiereIdIniziale={popover.cantiereIdIniziale} lavorazioneIniziale={popover.lavorazioneIniziale} tipoIniziale={popover.tipoIniziale} onSalva={onSalva} onChiudi={() => setPopover(null)}/>}
-              </div>
-            </div>
+                  zIndex: 2, top: '50%', transform: 'translateY(-50%)', left: 6, width: larghezzaRun - 8,
+                  fontSize: lungo ? 11 : 9, letterSpacing: lungo ? 0 : 0.2,
+                  color: testoScuro(col) ? '#1B1B24' : '#fff',
+                }}>
+                {testo}
+              </span>
+            )}
+            {sel && (
+              <div className="absolute inset-0 pointer-events-none"
+                style={{
+                  zIndex: 3,
+                  background: ass
+                    ? 'repeating-linear-gradient(135deg, rgba(255,255,255,0.65) 0 3px, rgba(255,255,255,0) 3px 7px)'
+                    : 'repeating-linear-gradient(135deg, rgba(255,107,0,0.35) 0 3px, rgba(255,107,0,0.12) 3px 7px)',
+                  boxShadow: [
+                    r === selRow.r0 && `inset 0 2px 0 ${SCURO}`,
+                    r === selRow.r1 && `inset 0 -2px 0 ${SCURO}`,
+                    s === selCols[0] && `inset 2px 0 0 ${SCURO}`,
+                    s === selCols[1] && `inset -2px 0 0 ${SCURO}`,
+                  ].filter(Boolean).join(',') || undefined,
+                }}/>
+            )}
           </td>
         )
       })}
     </tr>
   )
+})
 
-  const Gruppo = ({ label, colSpan }) => (
-    <tr><td colSpan={colSpan}
-      className="px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-400 bg-gray-100 border-b border-gray-200"
-      style={{ position: 'sticky', left: 0 }}>{label}</td></tr>
-  )
-
-  const totalCols = 1 + giorni.length
-
+// ── Legenda ───────────────────────────────────────────────────────────────────
+function Legenda({ assegnazioni, sigle }) {
+  const voci = useMemo(() => {
+    const m = new Map()
+    assegnazioni.forEach(a => {
+      const k = isLibera(a) ? a.tipo : `c${a.cantiere_id || 0}`
+      const v = m.get(k) || { colore: coloreAss(a), sigla: siglaAss(a, sigle), label: labelAss(a), n: 0 }
+      v.n++; m.set(k, v)
+    })
+    return [...m.values()].sort((a, b) => b.n - a.n)
+  }, [assegnazioni, sigle])
+  if (!voci.length) return null
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 220px)', WebkitOverflowScrolling: 'touch' }}>
-        <table className="border-collapse" style={{ tableLayout: 'fixed', width: NAME_W + giorni.length * CELL_W }}>
-          <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
-            <tr style={{ background: '#1e293b' }}>
-              <th className="sticky left-0 z-20 px-2 py-2 text-left border-r-2 border-gray-600"
-                style={{ background: '#1e293b', width: NAME_W, minWidth: NAME_W }}>
-                <span style={{ fontSize: 9 }} className="font-bold text-gray-300 uppercase tracking-widest">Nome</span>
-              </th>
-              {giorni.map(d => {
-                const isOggi = d.isSame(oggi,'day')
-                const isWeekend = d.day()===0||d.day()===6
-                return <th key={d.format('YYYY-MM-DD')}
-                  className={`text-center border-l border-gray-700 py-1 ${isWeekend?'opacity-50':''}`}
-                  style={{ width: CELL_W, minWidth: CELL_W }}>
-                  <div className={`font-bold ${isOggi?'text-steelex-orange':'text-white'}`} style={{ fontSize: 12 }}>{d.format('D')}</div>
-                  <div className="uppercase text-gray-400" style={{ fontSize: 8 }}>{d.format('dd')}</div>
-                </th>
-              })}
-            </tr>
-            {/* Sottotestata M | P */}
-            <tr style={{ background: '#f8fafc' }}>
-              <th className="sticky left-0 z-20 border-r-2 border-gray-200 border-b border-gray-200"
-                style={{ background: '#f8fafc', width: NAME_W }}/>
-              {giorni.map(d => (
-                <th key={d.format('YYYY-MM-DD')} className="border-l border-gray-200 border-b border-gray-200 p-0"
-                  style={{ width: CELL_W }}>
-                  <div style={{ display: 'flex', fontSize: 8, color: '#94a3b8', fontWeight: 700 }}>
-                    <span style={{ flex: 1, textAlign: 'center', borderRight: '1px solid #f1f5f9', padding: '2px 0' }}>M</span>
-                    <span style={{ flex: 1, textAlign: 'center', padding: '2px 0' }}>P</span>
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {operatori.map((op, i) => {
-              const prevTipo = i > 0 ? operatori[i-1].tipo : null
-              const header = op.tipo !== prevTipo
-                ? <Gruppo key={`hdr_${op.tipo}`} label={op.tipo === 'artigiano' ? 'Artigiani / Esterni' : 'Operativi Interni'} colSpan={totalCols}/>
-                : null
-              return <React.Fragment key={`${op.tipo}_${op.id}`}>{header}<RigaOp op={op} zebra={i%2!==0}/></React.Fragment>
-            })}
-          </tbody>
-        </table>
-      </div>
+    <div className="flex flex-wrap gap-1.5 px-1">
+      {voci.map(v => (
+        <span key={v.label + v.sigla} className="inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg bg-white border border-gray-100 shadow-sm text-xs text-gray-700">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+            style={{ background: v.colore, color: testoScuro(v.colore) ? '#1B1B24' : '#fff' }}>{v.sigla}</span>
+          {v.label}
+          <span className="text-gray-400">{String(v.n / 2).replace('.', ',')} gg</span>
+        </span>
+      ))}
     </div>
   )
 }
@@ -516,90 +373,240 @@ export default function GanttOperatoriPage() {
 
   const oggi = dayjs()
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const touch = useMemo(isTouch, [])
   const [vista, setVista] = useState(isMobile ? 'settimana' : 'mese')
   const [modalitaAssegna, setModalitaAssegna] = useState(false)
   const [filtroCategoria, setFiltroCategoria] = useState(null) // null = tutti
+  const [menuPdf, setMenuPdf] = useState(false)
+  const [esportando, setEsportando] = useState(false)
 
   const [anno, setAnno] = useState(oggi.year())
   const [mese, setMese] = useState(oggi.month() + 1)
   const [settAnno, setSettAnno] = useState(oggi.year())
   const [sett, setSett] = useState(oggi.isoWeek())
 
-  const prevMese = () => { const d = dayjs(`${anno}-${mese}-01`).subtract(1,'month'); setAnno(d.year()); setMese(d.month()+1) }
-  const nextMese = () => { const d = dayjs(`${anno}-${mese}-01`).add(1,'month'); setAnno(d.year()); setMese(d.month()+1) }
-  const prevSett = () => { const d = dayjs().year(settAnno).isoWeek(sett).subtract(1,'week'); setSettAnno(d.year()); setSett(d.isoWeek()) }
-  const nextSett = () => { const d = dayjs().year(settAnno).isoWeek(sett).add(1,'week'); setSettAnno(d.year()); setSett(d.isoWeek()) }
+  const prevMese = () => { const d = dayjs(`${anno}-${mese}-01`).subtract(1, 'month'); setAnno(d.year()); setMese(d.month() + 1) }
+  const nextMese = () => { const d = dayjs(`${anno}-${mese}-01`).add(1, 'month'); setAnno(d.year()); setMese(d.month() + 1) }
+  const prevSett = () => { const d = dayjs().year(settAnno).isoWeek(sett).subtract(1, 'week'); setSettAnno(d.year()); setSett(d.isoWeek()) }
+  const nextSett = () => { const d = dayjs().year(settAnno).isoWeek(sett).add(1, 'week'); setSettAnno(d.year()); setSett(d.isoWeek()) }
+  const vaiOggi = () => { setAnno(oggi.year()); setMese(oggi.month() + 1); setSettAnno(oggi.isoWeekYear?.() ?? oggi.year()); setSett(oggi.isoWeek()) }
 
   const giorni = useMemo(() => {
     if (vista === 'mese') {
-      const primo = dayjs(`${anno}-${String(mese).padStart(2,'0')}-01`)
+      const primo = dayjs(`${anno}-${String(mese).padStart(2, '0')}-01`)
       return Array.from({ length: primo.daysInMonth() }, (_, i) => primo.add(i, 'day'))
     }
     const lun = dayjs().year(settAnno).isoWeek(sett).isoWeekday(1)
     return Array.from({ length: 6 }, (_, i) => lun.add(i, 'day'))
   }, [vista, anno, mese, settAnno, sett])
 
-  const queryKey = useMemo(() =>
-    vista === 'mese'
-      ? ['assegnazioni', anno, mese]
-      : ['assegnazioni', giorni[0]?.format('YYYY-MM-DD'), giorni[giorni.length-1]?.format('YYYY-MM-DD')]
-  , [vista, anno, mese, giorni])
+  const slots = useMemo(() => giorni.flatMap(d => ['M', 'P'].map(turno => ({
+    d, turno, data: d.format('YYYY-MM-DD'),
+    weekend: d.day() === 0 || d.day() === 6, lunedi: d.day() === 1, oggi: d.isSame(oggi, 'day'),
+  }))), [giorni]) // eslint-disable-line
 
-  const queryParams = useMemo(() =>
-    vista === 'mese'
-      ? { anno, mese }
-      : { data_inizio: giorni[0]?.format('YYYY-MM-DD'), data_fine: giorni[giorni.length-1]?.format('YYYY-MM-DD') }
-  , [vista, anno, mese, giorni])
+  const periodo = useMemo(() => ({
+    data_inizio: giorni[0]?.format('YYYY-MM-DD'),
+    data_fine: giorni[giorni.length - 1]?.format('YYYY-MM-DD'),
+  }), [giorni])
+  const queryKey = useMemo(() => ['assegnazioni', periodo.data_inizio, periodo.data_fine], [periodo])
 
   const { data: operatori = [], isLoading } = useQuery('operatori-gantt', () => api.get('/assegnazioni/operatori').then(r => r.data), { staleTime: 60000 })
-  const { data: cantieri = [] } = useQuery('cantieri-attivi-gantt', () => api.get('/cantieri').then(r => r.data.filter(c => ['attivo','in_corso','preventivo'].includes(c.stato))), { staleTime: 60000 })
-  const { data: assegnazioni = [] } = useQuery(queryKey, () => api.get('/assegnazioni', { params: queryParams }).then(r => r.data), { staleTime: 0, enabled: giorni.length > 0 })
+  const { data: cantieri = [] } = useQuery('cantieri-attivi-gantt', () => api.get('/cantieri').then(r => r.data.filter(c => ['attivo', 'in_corso', 'preventivo'].includes(c.stato))), { staleTime: 60000 })
+  const assQuery = useQuery(queryKey, () => api.get('/assegnazioni', { params: periodo }).then(r => r.data), { staleTime: 0, enabled: giorni.length > 0 })
+  const assegnazioni = assQuery.data || []
 
   const assMap = useMemo(() => {
     const map = {}
     assegnazioni.forEach(a => {
       if (a.artigiano_id) map[ck('artigiano', a.artigiano_id, a.data, a.turno)] = a
-      if (a.utente_id)    map[ck('utente', a.utente_id, a.data, a.turno)] = a
+      if (a.utente_id) map[ck('utente', a.utente_id, a.data, a.turno)] = a
     })
     return map
   }, [assegnazioni])
 
-  const usatiIds = useMemo(() => new Set(assegnazioni.map(a => a.cantiere_id).filter(Boolean)), [assegnazioni])
-  const tipiUsati = useMemo(() => new Set(assegnazioni.filter(a => a.tipo && a.tipo !== 'cantiere').map(a => a.tipo)), [assegnazioni])
+  // Sigle calcolate su tutti i cantieri visti (attivi + quelli presenti nel periodo)
+  const sigle = useMemo(() => {
+    const m = new Map(cantieri.map(c => [c.id, c]))
+    assegnazioni.forEach(a => { if (a.cantiere_id && !m.has(a.cantiere_id)) m.set(a.cantiere_id, { id: a.cantiere_id, nome: a.cantiere_nome }) })
+    return siglePerCantieri([...m.values()])
+  }, [cantieri, assegnazioni])
 
-  // Categorie disponibili (da artigiani)
-  const categorie = useMemo(() => {
-    const cats = new Set(operatori.filter(o => o.categoria).map(o => o.categoria))
-    return [...cats].sort()
-  }, [operatori])
+  const categorie = useMemo(() => [...new Set(operatori.filter(o => o.categoria).map(o => o.categoria))].sort(), [operatori])
 
-  // Chi ha almeno un'assegnazione nel periodo → in cima
-  const opImpegnati = useMemo(() => {
-    const keys = new Set(assegnazioni.map(a =>
-      a.artigiano_id ? `artigiano_${a.artigiano_id}` : `utente_${a.utente_id}`
-    ))
-    return keys
-  }, [assegnazioni])
+  const opImpegnati = useMemo(() => new Set(assegnazioni.map(a =>
+    a.artigiano_id ? `artigiano_${a.artigiano_id}` : `utente_${a.utente_id}`)), [assegnazioni])
 
-  // Filtra per categoria poi ordina: impegnati in cima
+  // Ordine righe: chi è impegnato nel periodo va in cima, ma l'ordine si fissa al
+  // caricamento del periodo — assegnando una cella la riga NON salta più in alto
+  const chiaveOrdine = `${periodo.data_inizio}|${filtroCategoria}`
+  const [ordine, setOrdine] = useState({ chiave: null, pos: {} })
+  useEffect(() => {
+    if (ordine.chiave === chiaveOrdine || !operatori.length || !assQuery.isSuccess || assQuery.isFetching) return
+    const pos = {}
+    operatori.forEach((o, i) => { pos[opKey(o)] = (opImpegnati.has(opKey(o)) ? 0 : 100000) + i })
+    setOrdine({ chiave: chiaveOrdine, pos })
+  }, [chiaveOrdine, assQuery.isSuccess, assQuery.isFetching, operatori, opImpegnati, ordine.chiave])
+
   const operatoriFiltrati = useMemo(() => {
-    let lista = filtroCategoria
+    const lista = filtroCategoria
       ? operatori.filter(o => o.categoria === filtroCategoria || (o.tipo === 'utente' && filtroCategoria === '__interni__'))
       : operatori
-    return [...lista].sort((a, b) => {
-      const aImp = opImpegnati.has(`${a.tipo}_${a.id}`)
-      const bImp = opImpegnati.has(`${b.tipo}_${b.id}`)
-      if (aImp && !bImp) return -1
-      if (!aImp && bImp) return 1
-      return 0
-    })
-  }, [operatori, filtroCategoria, opImpegnati])
+    const p = o => ordine.pos[opKey(o)] ?? 200000
+    return [...lista].sort((a, b) => p(a) - p(b))
+  }, [operatori, filtroCategoria, ordine])
 
-  const upsertMutation = useMutation(
-    body => api.put('/assegnazioni', body),
-    { onSuccess: () => qc.invalidateQueries(queryKey), onError: e => toast.error(e.response?.data?.detail || 'Errore') }
+  // Celle per riga (array stabili: le righe memo non si ridisegnano senza motivo)
+  const celleRighe = useMemo(() => operatoriFiltrati.map(op =>
+    slots.map(sl => assMap[ck(op.tipo, op.id, sl.data, sl.turno)] || null)), [operatoriFiltrati, slots, assMap])
+
+  // ── Salvataggio in blocco con aggiornamento immediato della griglia ──
+  const salvaMutation = useMutation(
+    celle => api.put('/assegnazioni/bulk', { celle }),
+    {
+      onMutate: async celle => {
+        await qc.cancelQueries(queryKey)
+        const prima = qc.getQueryData(queryKey)
+        const nomi = Object.fromEntries(cantieri.map(c => [c.id, c.nome]))
+        qc.setQueryData(queryKey, (old = []) => {
+          const chiave = a => `${a.artigiano_id || ''}_${a.utente_id || ''}_${a.data}_${a.turno}`
+          const toccate = new Set(celle.map(chiave))
+          const resto = old.filter(a => !toccate.has(chiave(a)))
+          const nuove = celle
+            .filter(c => !(c.tipo === 'cantiere' && !c.cantiere_id && !c.lavorazione))
+            .map(c => ({ ...c, id: `tmp_${chiave(c)}`, cantiere_nome: nomi[c.cantiere_id] || old.find(a => a.cantiere_id === c.cantiere_id)?.cantiere_nome || null }))
+          return [...resto, ...nuove]
+        })
+        return { prima }
+      },
+      onError: (e, _v, ctx) => {
+        if (ctx?.prima) qc.setQueryData(queryKey, ctx.prima)
+        toast.error(e.response?.data?.detail || 'Errore nel salvataggio: nessuna modifica applicata')
+      },
+      onSettled: () => qc.invalidateQueries('assegnazioni'),
+    }
   )
-  const salva = body => upsertMutation.mutate(body)
+
+  // ── Selezione a rettangolo ──
+  const [sel, setSel] = useState(null)          // { ar, as, cr, cs } ancora + punto corrente
+  const [pannello, setPannello] = useState(null) // { id, celle, iniziale, anchor }
+  const dragRef = useRef(null)
+  const selRef = useRef(null)
+  const ultimoPointer = useRef('mouse')
+  const datiRef = useRef({})
+  datiRef.current = { operatoriFiltrati, slots, celleRighe }
+
+  const chiudiPannello = useCallback(() => { setPannello(null); setSel(null); selRef.current = null }, [])
+
+  const apriPannello = useCallback((s) => {
+    const { operatoriFiltrati: ops, slots: sls, celleRighe: righe } = datiRef.current
+    const n = normSel(s)
+    const celle = []
+    for (let r = n.r0; r <= n.r1; r++) {
+      for (let c = n.s0; c <= n.s1; c++) {
+        if (!ops[r] || !sls[c]) continue
+        celle.push({ op: ops[r], data: sls[c].data, turno: sls[c].turno, ass: righe[r][c] })
+      }
+    }
+    if (!celle.length) { chiudiPannello(); return }
+    if (celle.length > 2000) { toast.error('Selezione troppo grande'); chiudiPannello(); return }
+    // Valori proposti: quelli della cella da cui è partita la selezione (trascinando da una cella colorata la si replica)
+    const iniziale = righe[s.ar]?.[s.as] || null
+    setPannello({ id: Date.now(), celle, iniziale, anchor: { r: s.cr, s: s.cs } })
+  }, [chiudiPannello])
+
+  const aggiornaSel = s => { selRef.current = s; setSel(s) }
+
+  const iniziaDrag = useCallback((r, s) => {
+    dragRef.current = true
+    setPannello(null)
+    aggiornaSel({ ar: r, as: s, cr: r, cs: s })
+  }, [])
+
+  const fineDrag = useCallback(() => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    if (selRef.current) apriPannello(selRef.current)
+  }, [apriPannello])
+
+  useEffect(() => {
+    if (!canWrite) return
+    const onMove = e => {
+      if (!dragRef.current) return
+      if (e.pointerType === 'mouse' && e.buttons === 0) { fineDrag(); return }  // rilasciato fuori finestra
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-s]')
+      if (!el) return
+      const r = +el.dataset.r, s = +el.dataset.s
+      const cur = selRef.current
+      if (cur && (cur.cr !== r || cur.cs !== s)) aggiornaSel({ ...cur, cr: r, cs: s })
+    }
+    const onCancel = () => { if (dragRef.current) { dragRef.current = null; chiudiPannello() } }
+    const onKey = e => { if (e.key === 'Escape' && dragRef.current) onCancel() }
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', fineDrag)
+    document.addEventListener('pointercancel', onCancel)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', fineDrag)
+      document.removeEventListener('pointercancel', onCancel)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [canWrite, fineDrag, chiudiPannello])
+
+  // Mouse: premi e trascina. Touch: tap = una cella, trascina solo in "Modalità assegna"
+  const interazione = useMemo(() => ({
+    touchAction: modalitaAssegna ? 'none' : 'auto',
+    onPointerDown: (e, r, s) => {
+      ultimoPointer.current = e.pointerType
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      if (e.pointerType !== 'mouse' && !modalitaAssegna) return
+      e.preventDefault()
+      e.target.releasePointerCapture?.(e.pointerId)   // il dito deve poter "passare" sulle altre celle
+      iniziaDrag(r, s)
+    },
+    onClick: (e, r, s) => {
+      if (ultimoPointer.current === 'mouse' || modalitaAssegna) return
+      const s1 = { ar: r, as: s, cr: r, cs: s }
+      aggiornaSel(s1)
+      apriPannello(s1)
+    },
+  }), [modalitaAssegna, iniziaDrag, apriPannello])
+
+  const salvaPannello = valori => {
+    if (!pannello) return
+    const celle = pannello.celle.map(c => ({
+      ...(c.op.tipo === 'artigiano' ? { artigiano_id: c.op.id } : { utente_id: c.op.id }),
+      data: c.data, turno: c.turno, ...valori,
+    }))
+    salvaMutation.mutate(celle, {
+      onSuccess: r => {
+        const { salvate = 0, rimosse = 0 } = r.data || {}
+        if (celle.length > 1) toast.success(rimosse && !salvate ? `${rimosse} turni svuotati` : `${salvate} turni assegnati`)
+      },
+    })
+    chiudiPannello()
+  }
+
+  // ── Layout: larghezza slot adattata allo spazio disponibile ──
+  const boxRef = useRef(null)
+  const [boxW, setBoxW] = useState(0)
+  useLayoutEffect(() => {
+    if (!boxRef.current) return
+    const ro = new ResizeObserver(([e]) => setBoxW(e.contentRect.width))
+    ro.observe(boxRef.current)
+    return () => ro.disconnect()
+  }, [isLoading])
+  const nameW = isMobile ? 96 : 168
+  const minSlot = vista === 'mese' ? (isMobile ? 16 : 20) : (isMobile ? 20 : 40)
+  const slotW = Math.max(minSlot, Math.floor(((boxW || 1000) - nameW - 2) / Math.max(1, slots.length)))
+  const rowH = isMobile ? 40 : 36
+
+  const giorniPianificati = useMemo(() => {
+    const m = {}
+    assegnazioni.forEach(a => { const k = a.artigiano_id ? `artigiano_${a.artigiano_id}` : `utente_${a.utente_id}`; m[k] = (m[k] || 0) + 0.5 })
+    return m
+  }, [assegnazioni])
 
   // Notifica push del programma settimanale a tutti gli operatori (dal Gantt)
   const pubblicaMutation = useMutation(
@@ -614,22 +621,37 @@ export default function GanttOperatoriPage() {
     }
   )
   const pubblicaSettimana = () => {
-    if (window.confirm(`Inviare il programma della settimana ${sett} a tutti gli operatori con account?`)) {
-      pubblicaMutation.mutate()
-    }
+    if (window.confirm(`Inviare il programma della settimana ${sett} a tutti gli operatori con account?`)) pubblicaMutation.mutate()
+  }
+
+  const esportaPdf = async soloImpegnati => {
+    setMenuPdf(false)
+    setEsportando(true)
+    try {
+      const resp = await api.get('/assegnazioni/pdf', {
+        params: { ...periodo, solo_impegnati: soloImpegnati, ...(filtroCategoria ? { categoria: filtroCategoria } : {}) },
+        responseType: 'blob', timeout: 90000,
+      })
+      const url = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = resp.headers['content-disposition']?.match(/filename="(.+)"/)?.[1] || 'gantt_operatori.pdf'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch { toast.error('Errore nella generazione del PDF') }
+    finally { setEsportando(false) }
   }
 
   const navLabel = vista === 'mese'
-    ? dayjs(`${anno}-${String(mese).padStart(2,'0')}-01`).format('MMMM YYYY')
-    : (() => { const l = dayjs().year(settAnno).isoWeek(sett).isoWeekday(1); return `${l.format('D MMM')} – ${l.add(5,'day').format('D MMM YYYY')}` })()
-
-  const isOggi = vista === 'mese'
-    ? (anno === oggi.year() && mese === oggi.month()+1)
-    : (settAnno === oggi.year() && sett === oggi.isoWeek())
+    ? dayjs(`${anno}-${String(mese).padStart(2, '0')}-01`).format('MMMM YYYY')
+    : `Settimana ${sett} · ${giorni[0].format('D MMM')} – ${giorni[giorni.length - 1].format('D MMM YYYY')}`
+  const periodoCorrente = giorni.some(d => d.isSame(oggi, 'day'))
 
   if (isLoading) return <div className="text-center py-12 text-gray-400">Caricamento...</div>
 
-  const usaMobile = isMobile
+  const selN = normSel(sel)
+  const nSel = selN ? (selN.r1 - selN.r0 + 1) * (selN.s1 - selN.s0 + 1) : 0
+  const mostraFab = canWrite && touch
 
   return (
     <div className="space-y-3 pb-20">
@@ -640,43 +662,62 @@ export default function GanttOperatoriPage() {
           <div>
             <h1 className="text-lg font-bold text-gray-900">Gantt Operatori</h1>
             <p className="text-xs text-gray-400">
-              {operatoriFiltrati.filter(o=>o.tipo==='artigiano').length} artigiani ·{' '}
-              {operatoriFiltrati.filter(o=>o.tipo==='utente').length} interni ·{' '}
+              {operatoriFiltrati.filter(o => o.tipo === 'artigiano').length} artigiani ·{' '}
+              {operatoriFiltrati.filter(o => o.tipo === 'utente').length} interni ·{' '}
               <span className="text-steelex-orange font-semibold">{opImpegnati.size} impegnati</span>
             </p>
           </div>
         </div>
-        {!usaMobile && (
+        <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            <button onClick={() => setVista('settimana')}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='settimana'?'bg-white shadow text-steelex-orange':'text-gray-500'}`}>
-              <Calendar size={13}/> Settimana
-            </button>
-            <button onClick={() => setVista('mese')}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista==='mese'?'bg-white shadow text-steelex-orange':'text-gray-500'}`}>
-              <CalendarDays size={13}/> Mese
-            </button>
+            {[['settimana', 'Settimana', Calendar], ['mese', 'Mese', CalendarDays]].map(([k, l, Icon]) => (
+              <button key={k} onClick={() => { setVista(k); chiudiPannello() }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista === k ? 'bg-white shadow text-steelex-orange' : 'text-gray-500'}`}>
+                <Icon size={13}/> {l}
+              </button>
+            ))}
           </div>
-        )}
+          <div className="relative">
+            <button onClick={() => setMenuPdf(v => !v)} disabled={esportando}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-700 hover:border-steelex-orange hover:text-steelex-orange disabled:opacity-50 transition-colors">
+              {esportando ? <Loader2 size={14} className="animate-spin"/> : <FileDown size={14}/>} PDF
+            </button>
+            {menuPdf && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setMenuPdf(false)}/>
+                <div className="absolute right-0 top-full mt-1 z-40 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-1">
+                  <button onClick={() => esportaPdf(true)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50">
+                    <p className="text-xs font-semibold text-gray-800">Solo operatori impegnati</p>
+                    <p className="text-[11px] text-gray-400">Chi ha almeno un turno nel periodo</p>
+                  </button>
+                  <button onClick={() => esportaPdf(false)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50">
+                    <p className="text-xs font-semibold text-gray-800">Tutti gli operatori</p>
+                    <p className="text-[11px] text-gray-400">Anche le righe vuote</p>
+                  </button>
+                  <p className="px-3 pt-1 pb-1.5 text-[10px] text-gray-400 border-t border-gray-100 mt-1">
+                    Periodo e filtro categoria come a video
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Filtri categoria */}
       {categorie.length > 0 && (
         <div className="flex gap-1.5 flex-wrap items-center">
-          <button
-            onClick={() => setFiltroCategoria(null)}
+          <button onClick={() => setFiltroCategoria(null)}
             className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${!filtroCategoria ? 'bg-steelex-orange text-white border-steelex-orange' : 'bg-white text-gray-500 border-gray-200 hover:border-steelex-orange hover:text-steelex-orange'}`}>
             Tutti
           </button>
           {categorie.map(cat => (
-            <button key={cat}
-              onClick={() => setFiltroCategoria(f => f === cat ? null : cat)}
+            <button key={cat} onClick={() => setFiltroCategoria(f => f === cat ? null : cat)}
               className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors capitalize ${filtroCategoria === cat ? 'bg-steelex-orange text-white border-steelex-orange' : 'bg-white text-gray-500 border-gray-200 hover:border-steelex-orange hover:text-steelex-orange'}`}>
               {cat}
             </button>
           ))}
-          <button
-            onClick={() => setFiltroCategoria('__interni__')}
+          <button onClick={() => setFiltroCategoria(f => f === '__interni__' ? null : '__interni__')}
             className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${filtroCategoria === '__interni__' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-gray-500 border-gray-200 hover:border-slate-500 hover:text-slate-600'}`}>
             Solo interni
           </button>
@@ -684,13 +725,15 @@ export default function GanttOperatoriPage() {
       )}
 
       {/* Navigazione */}
-      <div className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm p-2.5">
-        <button onClick={vista==='mese' ? prevMese : prevSett} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"><ChevronLeft size={18}/></button>
+      <div className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm p-2">
+        <button onClick={() => { vista === 'mese' ? prevMese() : prevSett(); chiudiPannello() }} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label="Precedente"><ChevronLeft size={18}/></button>
         <div className="flex-1 text-center">
           <p className="font-semibold text-gray-900 text-sm capitalize">{navLabel}</p>
-          {isOggi && <span className="text-xs text-steelex-orange font-semibold">{vista==='mese'?'Mese corrente':'Settimana corrente'}</span>}
+          {periodoCorrente
+            ? <span className="text-xs text-steelex-orange font-semibold">{vista === 'mese' ? 'Mese corrente' : 'Settimana corrente'}</span>
+            : <button onClick={() => { vaiOggi(); chiudiPannello() }} className="text-xs text-gray-400 hover:text-steelex-orange font-semibold">Torna a oggi</button>}
         </div>
-        <button onClick={vista==='mese' ? nextMese : nextSett} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"><ChevronRight size={18}/></button>
+        <button onClick={() => { vista === 'mese' ? nextMese() : nextSett(); chiudiPannello() }} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label="Successivo"><ChevronRight size={18}/></button>
       </div>
 
       {/* Invia programma settimana — notifica push agli operatori con account */}
@@ -702,10 +745,23 @@ export default function GanttOperatoriPage() {
         </button>
       )}
 
-      {!usaMobile && canWrite && (
-        <p className="text-xs text-gray-400 px-1">
-          💡 <strong>Click</strong> per assegnare · <strong>Trascina</strong> per selezionare un range (anche celle già occupate) · da cella colorata <strong>replica</strong> il cantiere
-        </p>
+      {/* Barra stato selezione / suggerimento (altezza fissa: niente salti) */}
+      {canWrite && (
+        <div className="h-5 px-1 text-xs flex items-center gap-2">
+          {nSel > 1 ? (
+            <span className="font-semibold" style={{ color: SCURO }}>
+              {nSel} turni selezionati · {selN.r1 - selN.r0 + 1} operator{selN.r1 === selN.r0 ? 'e' : 'i'}
+              <span className="text-gray-400 font-normal"> · Esc per annullare</span>
+            </span>
+          ) : (
+            <span className="text-gray-400 truncate">
+              {touch && !modalitaAssegna
+                ? 'Tocca un turno per assegnarlo · attiva "Modalità assegna" per selezionarne tanti trascinando'
+                : 'Click su un turno per assegnarlo · trascina per selezionare un blocco (anche su più operatori e su celle già piene)'}
+            </span>
+          )}
+          {salvaMutation.isLoading && <Loader2 size={12} className="animate-spin text-gray-400 ml-auto"/>}
+        </div>
       )}
 
       {operatoriFiltrati.length === 0 ? (
@@ -715,27 +771,90 @@ export default function GanttOperatoriPage() {
         </div>
       ) : (
         <>
-          {usaMobile
-            ? <GrigliaMobile operatori={operatoriFiltrati} giorni={giorni} assMap={assMap} cantieri={cantieri}
-                onSalva={salva} canWrite={canWrite} oggi={oggi} modalitaAssegna={modalitaAssegna}
-                opImpegnati={opImpegnati}/>
-            : <GrigliaDesktop operatori={operatoriFiltrati} giorni={giorni} assMap={assMap} cantieri={cantieri}
-                onSalva={salva} canWrite={canWrite} oggi={oggi} opImpegnati={opImpegnati}/>
-          }
-          <Legenda cantieri={cantieri} usatiIds={usatiIds} tipiUsati={tipiUsati}/>
+          <div ref={boxRef} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden" style={{ userSelect: 'none' }}>
+            <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 230px)', WebkitOverflowScrolling: 'touch' }}>
+              <table style={{ borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed', width: nameW + slots.length * slotW }}>
+                <thead>
+                  <tr>
+                    <th rowSpan={2} className="sticky left-0 top-0 z-40 px-2 text-left border-r border-white/10"
+                      style={{ background: SCURO, width: nameW, minWidth: nameW }}>
+                      <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Operatore</span>
+                    </th>
+                    {giorni.map(d => {
+                      const isOggi = d.isSame(oggi, 'day')
+                      const weekend = d.day() === 0 || d.day() === 6
+                      return (
+                        <th key={d.format('YYYY-MM-DD')} colSpan={2} className="sticky top-0 z-30 p-0"
+                          style={{ background: SCURO, height: 34, borderLeft: d.day() === 1 ? '1.5px solid rgba(255,255,255,0.25)' : '1px solid rgba(255,255,255,0.08)' }}>
+                          <div className={`flex ${slotW * 2 >= 70 ? 'flex-row gap-1 justify-center' : 'flex-col'} items-center leading-none`}
+                            style={{ opacity: weekend && !isOggi ? 0.45 : 1 }}>
+                            <span className="uppercase text-gray-400" style={{ fontSize: 9 }}>{d.format('dd')}</span>
+                            <span className="text-xs font-bold mt-0.5 px-1 rounded"
+                              style={isOggi ? { background: ACCENTO, color: '#fff' } : { color: '#fff' }}>{d.format('D')}</span>
+                          </div>
+                        </th>
+                      )
+                    })}
+                  </tr>
+                  <tr>
+                    {slots.map((sl, s) => (
+                      <th key={s} className="sticky z-30 p-0 text-center"
+                        style={{
+                          top: 34, height: 15, fontSize: 9, fontWeight: 600, color: '#9ca3af',
+                          background: sl.oggi ? '#fff1e6' : sl.weekend ? '#f1f1ef' : '#f8f8f6',
+                          borderLeft: sl.turno === 'M' ? (sl.lunedi ? '1.5px solid #d4d4d8' : '1px solid #e5e7eb') : 'none',
+                          borderBottom: '1px solid #e5e7eb',
+                        }}>
+                        {slotW >= 14 ? sl.turno : ''}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {operatoriFiltrati.map((op, r) => {
+                    const prevTipo = r > 0 ? operatoriFiltrati[r - 1].tipo : null
+                    const inSel = selN && r >= selN.r0 && r <= selN.r1
+                    return (
+                      <React.Fragment key={opKey(op)}>
+                        {op.tipo !== prevTipo && (
+                          <tr>
+                            <td colSpan={1 + slots.length} className="p-0" style={{ background: '#f8f8f6', borderBottom: '1px solid #eceef1' }}>
+                              <div className="sticky left-0 inline-block px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-400">
+                                {op.tipo === 'artigiano' ? 'Artigiani / Esterni' : 'Operativi interni'}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        <RigaOperatore op={op} r={r} celle={celleRighe[r]} slots={slots}
+                          slotW={slotW} nameW={nameW} rowH={rowH}
+                          selRow={inSel ? selN : null} selCols={inSel ? [selN.s0, selN.s1] : null}
+                          sigle={sigle} impegnato={opImpegnati.has(opKey(op))}
+                          giorniPianificati={giorniPianificati[opKey(op)] || 0}
+                          zebra={r % 2 !== 0} canWrite={canWrite} interazione={interazione}/>
+                      </React.Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <Legenda assegnazioni={assegnazioni} sigle={sigle}/>
         </>
       )}
 
-      {/* FAB modalità assegna — solo mobile + canWrite */}
-      {usaMobile && canWrite && (
-        <button
-          onClick={() => setModalitaAssegna(v => !v)}
+      {pannello && (
+        <PannelloAssegna key={pannello.id} celle={pannello.celle} iniziale={pannello.iniziale} anchor={pannello.anchor}
+          cantieri={cantieri} sigle={sigle} salvando={salvaMutation.isLoading} mobile={isMobile}
+          onSalva={salvaPannello} onChiudi={chiudiPannello}/>
+      )}
+
+      {/* FAB modalità assegna — dispositivi touch */}
+      {mostraFab && (
+        <button onClick={() => { setModalitaAssegna(v => !v); chiudiPannello() }}
           className={`fixed bottom-6 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg font-semibold text-sm transition-all
-            ${modalitaAssegna
-              ? 'bg-steelex-orange text-white shadow-orange-200'
-              : 'bg-white text-gray-700 border border-gray-200 shadow-gray-100'}`}>
+            ${modalitaAssegna ? 'bg-steelex-orange text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>
           <PenLine size={16}/>
-          {modalitaAssegna ? 'Assegna attivo — tocca/trascina' : 'Modalità assegna'}
+          {modalitaAssegna ? 'Assegna attivo — trascina' : 'Modalità assegna'}
         </button>
       )}
     </div>
