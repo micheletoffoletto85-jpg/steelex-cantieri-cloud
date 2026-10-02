@@ -16,74 +16,20 @@
 import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, PenLine, Send, FileDown, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Users, CalendarDays, Calendar, CalendarRange, PenLine, Send, FileDown, Loader2 } from 'lucide-react'
+import GanttCalendario from './GanttCalendario'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
+import {
+  ACCENTO, SCURO, ACCENTO_TENUE, OGGI_SLOT, OGGI_PILL, SEL_VUOTA, HOVER_RIGA, PALETTE, getColore, TIPI_LIBERI, isLibera, coloreAss, labelAss, siglaAss, stessoBlocco, testoScuro, siglePerCantieri, ck, opKey,
+} from '../lib/ganttOperatori'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import 'dayjs/locale/it'
 dayjs.extend(isoWeek)
 dayjs.locale('it')
 
-// ── Brand (unica parte che cambia tra STEELEX e FR) ───────────────────────────
-const ACCENTO = '#FF6B00'
-const SCURO = '#1A1A2E'
-const ACCENTO_TENUE = 'rgba(255,107,0,0.07)'      // colonna "oggi"
-const OGGI_SLOT = '#fff1e6'                        // intestazione M/P di oggi
-const OGGI_PILL = { background: ACCENTO, color: '#fff' }
-const SEL_VUOTA = 'repeating-linear-gradient(135deg, rgba(255,107,0,0.35) 0 3px, rgba(255,107,0,0.12) 3px 7px)'
-const HOVER_RIGA = 'group-hover:bg-orange-50'
-
-// Stessa palette del PDF (backend/app/routers/assegnazioni.py → PALETTE_CANTIERI)
-const PALETTE = [
-  ACCENTO,'#3b82f6','#22c55e','#a855f7','#f59e0b',
-  '#06b6d4','#ec4899','#64748b','#84cc16','#f97316',
-  '#6366f1','#14b8a6','#e11d48','#0ea5e9','#8b5cf6',
-]
-const getColore = id => id ? PALETTE[(id - 1) % PALETTE.length] : '#94a3b8'
-
-// Programmazione libera: attività fuori cantiere con colori fissi
-const TIPI_LIBERI = {
-  ferie:    { label: 'Ferie',    sigla: 'FER', colore: '#eab308' },
-  corso:    { label: 'Corso',    sigla: 'COR', colore: '#7c3aed' },
-  permesso: { label: 'Permesso', sigla: 'PRM', colore: '#db2777' },
-  altro:    { label: 'Altro',    sigla: 'ALT', colore: '#475569' },
-}
-const isLibera = ass => ass?.tipo && ass.tipo !== 'cantiere'
-const coloreAss = ass => !ass ? null : (isLibera(ass) ? (TIPI_LIBERI[ass.tipo]?.colore || '#475569') : getColore(ass.cantiere_id))
-const labelAss = ass => !ass ? '' : isLibera(ass) ? (TIPI_LIBERI[ass.tipo]?.label || 'Altro') : (ass.cantiere_nome || 'Senza cantiere')
-const siglaAss = (ass, sigle) => !ass ? '' : isLibera(ass)
-  ? (TIPI_LIBERI[ass.tipo]?.sigla || 'ALT')
-  : (ass.cantiere_id ? (sigle[ass.cantiere_id] || '?') : '—')
-// Due turni fanno parte della stessa barra se l'attività è identica
-const stessoBlocco = (a, b) => !!a && !!b && (a.tipo || 'cantiere') === (b.tipo || 'cantiere')
-  && (a.cantiere_id || null) === (b.cantiere_id || null) && (a.lavorazione || '') === (b.lavorazione || '')
-
-// Testo scuro su colori chiari (giallo, lime...) — stessa soglia del PDF
-function testoScuro(hex) {
-  const h = (hex || '#000000').replace('#', '')
-  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16)
-  return 0.299 * r + 0.587 * g + 0.114 * b > 165
-}
-
-// Sigle univoche per cantiere: prime 3 lettere, doppioni risolti come nel PDF
-function siglePerCantieri(lista) {
-  const out = {}, usate = new Set()
-  ;[...lista].sort((a, b) => a.id - b.id).forEach(c => {
-    const parole = (c.nome || '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).filter(Boolean)
-    const base = (parole[0]?.slice(0, 3) || 'CAN').toUpperCase()
-    let sigla = base
-    if (usate.has(sigla) && parole.length > 1) sigla = (parole[0].slice(0, 2) + parole[1].slice(0, 1)).toUpperCase()
-    let n = 2
-    while (usate.has(sigla)) { sigla = `${base.slice(0, 2)}${n}`; n++ }
-    usate.add(sigla); out[c.id] = sigla
-  })
-  return out
-}
-
-function ck(tipo, id, data, turno) { return `${tipo}__${id}__${data}__${turno}` }
-const opKey = op => `${op.tipo}_${op.id}`
 const normSel = s => s && ({ r0: Math.min(s.ar, s.cr), r1: Math.max(s.ar, s.cr), s0: Math.min(s.as, s.cs), s1: Math.max(s.as, s.cs) })
 
 const isTouch = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
@@ -378,7 +324,13 @@ export default function GanttOperatoriPage() {
   const oggi = dayjs()
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const touch = useMemo(isTouch, [])
-  const [vista, setVista] = useState(isMobile ? 'settimana' : 'mese')
+  // Vista: settimana / mese (righe per operatore) / calendario (per cantiere). L'ultima scelta resta memorizzata
+  const [vista, setVistaState] = useState(() => {
+    try { const v = localStorage.getItem('gantt_operatori_vista'); if (['settimana', 'mese', 'calendario'].includes(v)) return v } catch { /* storage non disponibile */ }
+    return isMobile ? 'settimana' : 'mese'
+  })
+  const setVista = v => { setVistaState(v); try { localStorage.setItem('gantt_operatori_vista', v) } catch { /* ignora */ } }
+  const perMese = vista !== 'settimana'
   const [modalitaAssegna, setModalitaAssegna] = useState(false)
   const [filtroCategoria, setFiltroCategoria] = useState(null) // null = tutti
   const [menuPdf, setMenuPdf] = useState(false)
@@ -396,9 +348,12 @@ export default function GanttOperatoriPage() {
   const vaiOggi = () => { setAnno(oggi.year()); setMese(oggi.month() + 1); setSettAnno(oggi.isoWeekYear?.() ?? oggi.year()); setSett(oggi.isoWeek()) }
 
   const giorni = useMemo(() => {
-    if (vista === 'mese') {
-      const primo = dayjs(`${anno}-${String(mese).padStart(2, '0')}-01`)
-      return Array.from({ length: primo.daysInMonth() }, (_, i) => primo.add(i, 'day'))
+    const primo = dayjs(`${anno}-${String(mese).padStart(2, '0')}-01`)
+    if (vista === 'mese') return Array.from({ length: primo.daysInMonth() }, (_, i) => primo.add(i, 'day'))
+    if (vista === 'calendario') {
+      // settimane intere (lun → dom) che coprono il mese
+      const da = primo.isoWeekday(1), a = primo.endOf('month').isoWeekday(7)
+      return Array.from({ length: a.diff(da, 'day') + 1 }, (_, i) => da.add(i, 'day'))
     }
     const lun = dayjs().year(settAnno).isoWeek(sett).isoWeekday(1)
     return Array.from({ length: 6 }, (_, i) => lun.add(i, 'day'))
@@ -414,6 +369,12 @@ export default function GanttOperatoriPage() {
     data_fine: giorni[giorni.length - 1]?.format('YYYY-MM-DD'),
   }), [giorni])
   const queryKey = useMemo(() => ['assegnazioni', periodo.data_inizio, periodo.data_fine], [periodo])
+  // Il PDF del calendario è il mese (non le settimane intere attorno)
+  const periodoPdf = useMemo(() => {
+    if (vista !== 'calendario') return periodo
+    const primo = dayjs(`${anno}-${String(mese).padStart(2, '0')}-01`)
+    return { data_inizio: primo.format('YYYY-MM-DD'), data_fine: primo.endOf('month').format('YYYY-MM-DD') }
+  }, [vista, periodo, anno, mese])
 
   const { data: operatori = [], isLoading } = useQuery('operatori-gantt', () => api.get('/assegnazioni/operatori').then(r => r.data), { staleTime: 60000 })
   const { data: cantieri = [] } = useQuery('cantieri-attivi-gantt', () => api.get('/cantieri').then(r => r.data.filter(c => ['attivo', 'in_corso', 'preventivo'].includes(c.stato))), { staleTime: 60000 })
@@ -434,6 +395,13 @@ export default function GanttOperatoriPage() {
     const m = new Map(cantieri.map(c => [c.id, c]))
     assegnazioni.forEach(a => { if (a.cantiere_id && !m.has(a.cantiere_id)) m.set(a.cantiere_id, { id: a.cantiere_id, nome: a.cantiere_nome }) })
     return siglePerCantieri([...m.values()])
+  }, [cantieri, assegnazioni])
+
+  // Cantieri selezionabili: gli attivi + quelli già presenti nel periodo (es. appena chiusi)
+  const cantieriOpzioni = useMemo(() => {
+    const lista = [...cantieri]
+    assegnazioni.forEach(a => { if (a.cantiere_id && !lista.some(c => c.id === a.cantiere_id)) lista.push({ id: a.cantiere_id, nome: a.cantiere_nome || `Cantiere ${a.cantiere_id}` }) })
+    return lista
   }, [cantieri, assegnazioni])
 
   const categorie = useMemo(() => [...new Set(operatori.filter(o => o.categoria).map(o => o.categoria))].sort(), [operatori])
@@ -633,7 +601,7 @@ export default function GanttOperatoriPage() {
     setEsportando(true)
     try {
       const resp = await api.get('/assegnazioni/pdf', {
-        params: { ...periodo, solo_impegnati: soloImpegnati, ...(filtroCategoria ? { categoria: filtroCategoria } : {}) },
+        params: { ...periodoPdf, solo_impegnati: soloImpegnati, ...(filtroCategoria ? { categoria: filtroCategoria } : {}) },
         responseType: 'blob', timeout: 90000,
       })
       const url = URL.createObjectURL(resp.data)
@@ -646,10 +614,10 @@ export default function GanttOperatoriPage() {
     finally { setEsportando(false) }
   }
 
-  const navLabel = vista === 'mese'
+  const navLabel = perMese
     ? dayjs(`${anno}-${String(mese).padStart(2, '0')}-01`).format('MMMM YYYY')
     : `Settimana ${sett} · ${giorni[0].format('D MMM')} – ${giorni[giorni.length - 1].format('D MMM YYYY')}`
-  const periodoCorrente = giorni.some(d => d.isSame(oggi, 'day'))
+  const periodoCorrente = perMese ? (anno === oggi.year() && mese === oggi.month() + 1) : giorni.some(d => d.isSame(oggi, 'day'))
 
   if (isLoading) return <div className="text-center py-12 text-gray-400">Caricamento...</div>
 
@@ -674,10 +642,10 @@ export default function GanttOperatoriPage() {
         </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {[['settimana', 'Settimana', Calendar], ['mese', 'Mese', CalendarDays]].map(([k, l, Icon]) => (
+            {[['settimana', 'Settimana', Calendar], ['mese', 'Mese', CalendarDays], ['calendario', 'Calendario', CalendarRange]].map(([k, l, Icon]) => (
               <button key={k} onClick={() => { setVista(k); chiudiPannello() }}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${vista === k ? 'bg-white shadow text-steelex-orange' : 'text-gray-500'}`}>
-                <Icon size={13}/> {l}
+                <Icon size={13}/> <span className={isMobile ? 'hidden' : ''}>{l}</span>
               </button>
             ))}
           </div>
@@ -730,14 +698,14 @@ export default function GanttOperatoriPage() {
 
       {/* Navigazione */}
       <div className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm p-2">
-        <button onClick={() => { vista === 'mese' ? prevMese() : prevSett(); chiudiPannello() }} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label="Precedente"><ChevronLeft size={18}/></button>
+        <button onClick={() => { perMese ? prevMese() : prevSett(); chiudiPannello() }} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label="Precedente"><ChevronLeft size={18}/></button>
         <div className="flex-1 text-center">
           <p className="font-semibold text-gray-900 text-sm capitalize">{navLabel}</p>
           {periodoCorrente
-            ? <span className="text-xs text-steelex-orange font-semibold">{vista === 'mese' ? 'Mese corrente' : 'Settimana corrente'}</span>
+            ? <span className="text-xs text-steelex-orange font-semibold">{perMese ? 'Mese corrente' : 'Settimana corrente'}</span>
             : <button onClick={() => { vaiOggi(); chiudiPannello() }} className="text-xs text-gray-400 hover:text-steelex-orange font-semibold">Torna a oggi</button>}
         </div>
-        <button onClick={() => { vista === 'mese' ? nextMese() : nextSett(); chiudiPannello() }} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label="Successivo"><ChevronRight size={18}/></button>
+        <button onClick={() => { perMese ? nextMese() : nextSett(); chiudiPannello() }} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label="Successivo"><ChevronRight size={18}/></button>
       </div>
 
       {/* Invia programma settimana — notifica push agli operatori con account */}
@@ -750,7 +718,7 @@ export default function GanttOperatoriPage() {
       )}
 
       {/* Barra stato selezione / suggerimento (altezza fissa: niente salti) */}
-      {canWrite && (
+      {canWrite && vista !== 'calendario' && (
         <div className="h-5 px-1 text-xs flex items-center gap-2">
           {nSel > 1 ? (
             <span className="font-semibold" style={{ color: SCURO }}>
@@ -768,7 +736,11 @@ export default function GanttOperatoriPage() {
         </div>
       )}
 
-      {operatoriFiltrati.length === 0 ? (
+      {vista === 'calendario' ? (
+        <GanttCalendario giorni={giorni} mese={mese - 1} assegnazioni={assegnazioni} assMap={assMap}
+          operatori={operatoriFiltrati} tuttiOperatori={operatori} cantieri={cantieriOpzioni} sigle={sigle}
+          canWrite={canWrite} onSalva={celle => salvaMutation.mutateAsync(celle)} mobile={isMobile} oggi={oggi}/>
+      ) : operatoriFiltrati.length === 0 ? (
         <div className="card text-center py-12 text-gray-400">
           <Users size={36} className="mx-auto mb-2 opacity-30"/>
           <p className="font-medium">Nessun operatore trovato</p>
@@ -853,7 +825,7 @@ export default function GanttOperatoriPage() {
       )}
 
       {/* FAB modalità assegna — dispositivi touch */}
-      {mostraFab && (
+      {mostraFab && vista !== 'calendario' && (
         <button onClick={() => { setModalitaAssegna(v => !v); chiudiPannello() }}
           className={`fixed bottom-6 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg font-semibold text-sm transition-all
             ${modalitaAssegna ? 'bg-steelex-orange text-white' : 'bg-white text-gray-700 border border-gray-200'}`}>
