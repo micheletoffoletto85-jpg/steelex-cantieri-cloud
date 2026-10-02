@@ -313,7 +313,9 @@ def export_pdf(
     oggi = date.today()
     if data_inizio <= oggi <= data_fine:
         c0 = 1 + (oggi - data_inizio).days * 2
-        style.append(("BACKGROUND", (c0, 0), (c0 + 1, 0), primario))
+        # se il brand ha accento = scuro (FR) l'evidenza di oggi va in grigio, sennò sparisce
+        evid = primario if T.BRAND["colore_primario"] != T.BRAND["colore_scuro"] else colors.HexColor("#6E6E6C")
+        style.append(("BACKGROUND", (c0, 0), (c0 + 1, 0), evid))
 
     legenda = {}   # (tipo, cantiere_id) -> [colore, sigla, nome, mezze giornate]
     for ri, op in enumerate(operatori):

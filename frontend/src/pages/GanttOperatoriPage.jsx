@@ -29,7 +29,11 @@ dayjs.locale('it')
 // ── Brand (unica parte che cambia tra STEELEX e FR) ───────────────────────────
 const ACCENTO = '#FF6B00'
 const SCURO = '#1A1A2E'
-const ACCENTO_TENUE = 'rgba(255,107,0,0.07)'
+const ACCENTO_TENUE = 'rgba(255,107,0,0.07)'      // colonna "oggi"
+const OGGI_SLOT = '#fff1e6'                        // intestazione M/P di oggi
+const OGGI_PILL = { background: ACCENTO, color: '#fff' }
+const SEL_VUOTA = 'repeating-linear-gradient(135deg, rgba(255,107,0,0.35) 0 3px, rgba(255,107,0,0.12) 3px 7px)'
+const HOVER_RIGA = 'group-hover:bg-orange-50'
 
 // Stessa palette del PDF (backend/app/routers/assegnazioni.py → PALETTE_CANTIERI)
 const PALETTE = [
@@ -257,7 +261,7 @@ const RigaOperatore = memo(function RigaOperatore({ op, r, celle, slots, slotW, 
 
   return (
     <tr className="group">
-      <td className={`sticky left-0 z-20 px-2 border-r border-gray-200 ${zebra ? 'bg-gray-50' : 'bg-white'} group-hover:bg-orange-50`}
+      <td className={`sticky left-0 z-20 px-2 border-r border-gray-200 ${zebra ? 'bg-gray-50' : 'bg-white'} ${HOVER_RIGA}`}
         style={{ width: nameW, minWidth: nameW, maxWidth: nameW, height: rowH, borderBottom: '1px solid #f1f2f4' }}>
         <div className="flex items-center gap-1.5 min-w-0">
           {impegnato && <span className="w-1.5 h-1.5 rounded-full bg-steelex-orange flex-shrink-0"/>}
@@ -323,7 +327,7 @@ const RigaOperatore = memo(function RigaOperatore({ op, r, celle, slots, slotW, 
                   zIndex: 3,
                   background: ass
                     ? 'repeating-linear-gradient(135deg, rgba(255,255,255,0.65) 0 3px, rgba(255,255,255,0) 3px 7px)'
-                    : 'repeating-linear-gradient(135deg, rgba(255,107,0,0.35) 0 3px, rgba(255,107,0,0.12) 3px 7px)',
+                    : SEL_VUOTA,
                   boxShadow: [
                     r === selRow.r0 && `inset 0 2px 0 ${SCURO}`,
                     r === selRow.r1 && `inset 0 -2px 0 ${SCURO}`,
@@ -790,7 +794,7 @@ export default function GanttOperatoriPage() {
                             style={{ opacity: weekend && !isOggi ? 0.45 : 1 }}>
                             <span className="uppercase text-gray-400" style={{ fontSize: 9 }}>{d.format('dd')}</span>
                             <span className="text-xs font-bold mt-0.5 px-1 rounded"
-                              style={isOggi ? { background: ACCENTO, color: '#fff' } : { color: '#fff' }}>{d.format('D')}</span>
+                              style={isOggi ? OGGI_PILL : { color: '#fff' }}>{d.format('D')}</span>
                           </div>
                         </th>
                       )
@@ -801,7 +805,7 @@ export default function GanttOperatoriPage() {
                       <th key={s} className="sticky z-30 p-0 text-center"
                         style={{
                           top: 34, height: 15, fontSize: 9, fontWeight: 600, color: '#9ca3af',
-                          background: sl.oggi ? '#fff1e6' : sl.weekend ? '#f1f1ef' : '#f8f8f6',
+                          background: sl.oggi ? OGGI_SLOT : sl.weekend ? '#f1f1ef' : '#f8f8f6',
                           borderLeft: sl.turno === 'M' ? (sl.lunedi ? '1.5px solid #d4d4d8' : '1px solid #e5e7eb') : 'none',
                           borderBottom: '1px solid #e5e7eb',
                         }}>
