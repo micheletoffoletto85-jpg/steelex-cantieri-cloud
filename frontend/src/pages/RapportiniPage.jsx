@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -21,16 +21,66 @@ function Chips({ r }) {
   if (r.materiali?.length) chips.push({ label: `${r.materiali.length} mat.`, color: 'bg-green-100 text-green-700' })
   if (r.materiale_extra) chips.push({ label: 'Mat. extra', color: 'bg-teal-100 text-teal-700' })
   if (r.colleghi_ore?.length) chips.push({ label: `+${r.colleghi_ore.length} collega${r.colleghi_ore.length > 1 ? 'i' : ''}`, color: 'bg-purple-100 text-purple-700' })
-  if (r.extra_preventivo) chips.push({ icon: AlertTriangle, label: 'Extra preventivo', color: 'bg-orange-100 text-orange-700' })
-  if (r.criticita)    chips.push({ icon: AlertTriangle, label: 'Criticità/NC', color: 'bg-red-100 text-red-700' })
+  if (r.extra_preventivo) chips.push({ icon: AlertTriangle, label: 'Extra preventivo', color: 'bg-orange-100 text-orange-700',
+    dettaglio: r.extra_preventivo_nota, titolo: 'Extra preventivo' })
+  if (r.criticita)    chips.push({ icon: AlertTriangle, label: 'Criticità/NC', color: 'bg-red-100 text-red-700',
+    dettaglio: r.criticita, titolo: 'Criticità / Non conformità' })
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
-      {chips.map(({ icon: Icon, label, color }, i) => (
-        <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${color}`}>
-          {Icon && <Icon size={10} />}{label}
-        </span>
-      ))}
+      {chips.map(({ icon: Icon, label, color, dettaglio, titolo }, i) => dettaglio
+        ? <ChipDettaglio key={i} Icon={Icon} label={label} color={color} dettaglio={dettaglio} titolo={titolo} />
+        : (
+          <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${color}`}>
+            {Icon && <Icon size={10} />}{label}
+          </span>
+        ))}
     </div>
+  )
+}
+
+// Chip con popup di dettaglio: si apre passando col mouse (desktop) o toccando (mobile)
+function ChipDettaglio({ Icon, label, color, dettaglio, titolo }) {
+  const [aperto, setApertoState] = useState(false)
+  const [pos, setPos] = useState(null)
+  const ref = useRef(null)
+  // Popup in position:fixed — la card ha overflow-hidden e lo taglierebbe
+  const setAperto = (v) => setApertoState(prev => {
+    const next = typeof v === 'function' ? v(prev) : v
+    if (next && ref.current) {
+      const b = ref.current.getBoundingClientRect()
+      const larg = Math.min(256, window.innerWidth - 16)
+      setPos({ top: b.bottom + 4, left: Math.max(8, Math.min(b.left, window.innerWidth - larg - 8)), width: larg })
+    }
+    return next
+  })
+  useEffect(() => {
+    if (!aperto) return
+    const chiudi = (e) => { if (ref.current && !ref.current.contains(e.target)) setApertoState(false) }
+    const chiudiScroll = () => setApertoState(false)
+    document.addEventListener('pointerdown', chiudi)
+    window.addEventListener('scroll', chiudiScroll, true)
+    return () => {
+      document.removeEventListener('pointerdown', chiudi)
+      window.removeEventListener('scroll', chiudiScroll, true)
+    }
+  }, [aperto])
+  return (
+    <span ref={ref} className="relative inline-flex"
+      onPointerEnter={e => { if (e.pointerType === 'mouse') setAperto(true) }}
+      onPointerLeave={e => { if (e.pointerType === 'mouse') setAperto(false) }}>
+      <button type="button" aria-expanded={aperto}
+        onClick={e => setAperto(v => e.nativeEvent.pointerType === 'mouse' ? true : !v)}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold cursor-pointer underline decoration-dotted underline-offset-2 ${color}`}>
+        {Icon && <Icon size={10} />}{label}
+      </button>
+      {aperto && pos && (
+        <span role="tooltip" style={{ top: pos.top, left: pos.left, width: pos.width }}
+          className="fixed z-50 bg-white border border-gray-200 shadow-lg rounded-lg p-2.5 text-xs text-gray-700 leading-relaxed whitespace-normal text-left font-normal">
+          <span className="block font-semibold text-gray-900 mb-0.5">{titolo}</span>
+          {dettaglio}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -192,19 +242,11 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
       <div className="p-4">
+        {/* Riga 1: operatore + stato/azioni. Il titolo va SOTTO a tutta larghezza: affiancato
+            ai badge, su smartphone restava compresso in una colonna stretta e illeggibile */}
         <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            {isAdmin && <p className="text-xs text-gray-500 mb-0.5">{r.operativo_nome}</p>}
-            <p className="font-semibold text-gray-900 text-sm leading-snug">
-              {r.riassunto || r.descrizione_lavori?.slice(0, 100) || '—'}
-            </p>
-            {r.cantiere_nome
-              ? <p className="text-xs text-steelex-orange font-medium mt-0.5">{r.cantiere_nome}</p>
-              : r.cantiere_rilevato
-              ? <p className="text-xs text-gray-400 mt-0.5">"{r.cantiere_rilevato}" — non abbinato</p>
-              : null}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <p className="text-xs text-gray-500 min-w-0 truncate pt-0.5">{isAdmin ? r.operativo_nome : ''}</p>
+          <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
             {r.multi_cantiere && r.stato !== 'diviso' && (
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 flex items-center gap-1">
                 <GitBranch size={10} /> multi-cantiere
@@ -240,6 +282,14 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
             )}
           </div>
         </div>
+        <p className="font-semibold text-gray-900 text-sm leading-snug mt-1 break-words">
+          {r.riassunto || r.descrizione_lavori?.slice(0, 100) || '—'}
+        </p>
+        {r.cantiere_nome
+          ? <p className="text-xs text-steelex-orange font-medium mt-0.5">{r.cantiere_nome}</p>
+          : r.cantiere_rilevato
+          ? <p className="text-xs text-gray-400 mt-0.5">"{r.cantiere_rilevato}" — non abbinato</p>
+          : null}
 
         <Chips r={r} />
         <FotoPreview urls={r.foto_avanzamento_urls} />
