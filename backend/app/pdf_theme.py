@@ -222,7 +222,7 @@ def _page_decoration(brand: dict):
 
     def on_page(canvas, doc):
         canvas.saveState()
-        w, h = A4
+        w, h = doc.pagesize
         y = 12 * mm
         canvas.setStrokeColor(BORDER)
         canvas.setLineWidth(0.5)
@@ -237,12 +237,14 @@ def _page_decoration(brand: dict):
 
 
 def build(buf, story, *, title: str, brand: dict | None = None,
-          margins_mm: tuple[float, float, float, float] = (16, 16, 15, 20)):
-    """SimpleDocTemplate con margini coerenti e footer su ogni pagina."""
+          margins_mm: tuple[float, float, float, float] = (16, 16, 15, 20),
+          pagesize=A4):
+    """SimpleDocTemplate con margini coerenti e footer su ogni pagina.
+    `pagesize` permette documenti orizzontali (es. landscape(A4) per il Gantt)."""
     register_fonts()
     b = brand or BRAND
     lm, rm, tm, bm = margins_mm
-    doc = SimpleDocTemplate(buf, pagesize=A4, title=title,
+    doc = SimpleDocTemplate(buf, pagesize=pagesize, title=title,
                             leftMargin=lm * mm, rightMargin=rm * mm,
                             topMargin=tm * mm, bottomMargin=bm * mm)
     deco = _page_decoration(b)
