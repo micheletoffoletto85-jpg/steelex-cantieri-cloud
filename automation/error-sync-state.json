@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 170,
+  "since_id_fr": 173,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -16,6 +16,39 @@
         "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
         "url_pagina": "/",
         "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
+      },
+      {
+        "id": 171,
+        "creato_il": "2026-10-02T15:37:06.804236+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/21",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/cantieri/21",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      },
+      {
+        "id": 172,
+        "creato_il": "2026-10-02T15:37:30.182784+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/25",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/cantieri",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      },
+      {
+        "id": 173,
+        "creato_il": "2026-10-02T16:08:52.564014+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/20/preventivi/import-computo",
+        "metodo": "POST",
+        "status_code": 400,
+        "messaggio": "Formato non supportato. Carica un file .xlsx, .xls, .csv o .pdf",
+        "url_pagina": "/cantieri/20",
+        "dettagli": "{\"detail\":\"Formato non supportato. Carica un file .xlsx, .xls, .csv o .pdf\"}"
       }
     ]
   }
