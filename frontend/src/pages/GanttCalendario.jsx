@@ -13,7 +13,7 @@ import { X, Search, Loader2, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import dayjs from 'dayjs'
 import {
-  ACCENTO, SCURO, ACCENTO_TENUE, OGGI_PILL, TIPI_LIBERI,
+  ACCENTO, SCURO, ACCENTO_TENUE, TIPI_LIBERI,
   isLibera, coloreAss, labelAss, siglaAss, testoScuro, ck, opKey,
 } from '../lib/ganttOperatori'
 
@@ -428,7 +428,7 @@ export default function GanttCalendario({ giorni, mese, assegnazioni, assMap, op
                   }}>
                   <div className="flex items-center justify-between px-1.5 pt-1">
                     <span className="text-xs font-bold px-1.5 py-0.5 rounded-md leading-none"
-                      style={isOggi ? OGGI_PILL : { color: weekend ? '#9ca3af' : '#374151' }}>
+                      style={isOggi ? { background: ACCENTO, color: '#fff' } : { color: weekend ? '#9ca3af' : '#374151' }}>
                       {d.date() === 1 && !mobile ? d.format('D MMM') : d.format('D')}
                     </span>
                     {persone > 0 && !mobile && (
