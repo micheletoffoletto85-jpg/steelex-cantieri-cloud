@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 173,
+  "since_id_fr": 174,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -49,6 +49,17 @@
         "messaggio": "Formato non supportato. Carica un file .xlsx, .xls, .csv o .pdf",
         "url_pagina": "/cantieri/20",
         "dettagli": "{\"detail\":\"Formato non supportato. Carica un file .xlsx, .xls, .csv o .pdf\"}"
+      },
+      {
+        "id": 174,
+        "creato_il": "2026-10-03T09:21:32.979726+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
+        "url_pagina": "/",
+        "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
       }
     ]
   }
