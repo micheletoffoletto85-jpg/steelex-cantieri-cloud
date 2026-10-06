@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 175,
+  "since_id_fr": 178,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -71,6 +71,39 @@
         "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
         "url_pagina": "/",
         "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
+      },
+      {
+        "id": 176,
+        "creato_il": "2026-10-06T09:47:16.441611+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/189/rianalizza",
+        "metodo": "PUT",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      },
+      {
+        "id": 177,
+        "creato_il": "2026-10-06T09:47:46.233743+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/189/rianalizza",
+        "metodo": "PUT",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      },
+      {
+        "id": 178,
+        "creato_il": "2026-10-06T11:12:40.387664+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/189/audio",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 120000ms",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 120000ms exceeded\"}"
       }
     ]
   }
