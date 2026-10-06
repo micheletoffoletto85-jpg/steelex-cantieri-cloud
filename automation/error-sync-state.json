@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 178,
+  "since_id_fr": 179,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -104,6 +104,17 @@
         "messaggio": "Timeout client dopo 120000ms",
         "url_pagina": "/rapportini",
         "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 120000ms exceeded\"}"
+      },
+      {
+        "id": 179,
+        "creato_il": "2026-10-06T12:48:00.390810+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/3/ore-extra/141",
+        "metodo": "DELETE",
+        "status_code": 500,
+        "messaggio": "Request failed with status code 500",
+        "url_pagina": "/cantieri/3",
+        "dettagli": "\"Internal Server Error\""
       }
     ]
   }
