@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 179,
+  "since_id_fr": 180,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -115,6 +115,17 @@
         "messaggio": "Request failed with status code 500",
         "url_pagina": "/cantieri/3",
         "dettagli": "\"Internal Server Error\""
+      },
+      {
+        "id": 180,
+        "creato_il": "2026-10-07T20:44:57.325822+00:00",
+        "ruolo": "capo_cantiere",
+        "endpoint": "/rapportini/invia",
+        "metodo": "POST",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
       }
     ]
   }
