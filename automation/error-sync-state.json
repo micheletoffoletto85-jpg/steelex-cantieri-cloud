@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 182,
+  "since_id_fr": 184,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -148,6 +148,28 @@
         "messaggio": "Errore analisi PDF: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'messages.0.content.1.image.source.base64: image exceeds 10 MB maximum: 30266704 bytes > 10485760 bytes'}, 'request_id': 'req_011CfrqjXBnD6fJQMVw9QSc9'}",
         "url_pagina": "/cantieri/24",
         "dettagli": "{\"detail\":\"Errore analisi PDF: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'messages.0.content.1.image.source.base64: image exceeds 10 MB maximum: 30266704 bytes > 10485760 bytes'}, 'request_id': 'req_011CfrqjXBnD6fJQMVw9QSc9'}\"}"
+      },
+      {
+        "id": 183,
+        "creato_il": "2026-10-12T14:36:29.236362+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/8/stanze/7/rilievo-vocale",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Errore IA: 'ThinkingBlock' object has no attribute 'text'",
+        "url_pagina": "/commerciale/preventivi/8/rilievo",
+        "dettagli": "{\"detail\":\"Errore IA: 'ThinkingBlock' object has no attribute 'text'\"}"
+      },
+      {
+        "id": 184,
+        "creato_il": "2026-10-12T14:37:21.525753+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/8/superfici/7/rilievo-vocale",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Errore IA: 'ThinkingBlock' object has no attribute 'text'",
+        "url_pagina": "/commerciale/preventivi/8/rilievo",
+        "dettagli": "{\"detail\":\"Errore IA: 'ThinkingBlock' object has no attribute 'text'\"}"
       }
     ]
   }
