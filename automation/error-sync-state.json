@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 185,
+  "since_id_fr": 187,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -181,6 +181,28 @@
         "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
         "url_pagina": "/",
         "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
+      },
+      {
+        "id": 186,
+        "creato_il": "2026-10-15T13:48:39.705762+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/cantieri/18/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/18",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      },
+      {
+        "id": 187,
+        "creato_il": "2026-10-15T13:48:40.940853+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/cantieri/18/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/18",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
       }
     ]
   }
