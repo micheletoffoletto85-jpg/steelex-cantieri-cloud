@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 43,
-  "since_id_fr": 187,
+  "since_id_fr": 188,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -203,6 +203,17 @@
         "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
         "url_pagina": "/cantieri/18",
         "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      },
+      {
+        "id": 188,
+        "creato_il": "2026-10-16T06:54:51.042408+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/9/pianta/da-laser",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Lo schizzo non è una stanza chiusa: per la pianta servono tutte le pareti",
+        "url_pagina": "/commerciale/preventivi/9/rilievo",
+        "dettagli": "{\"detail\":\"Lo schizzo non è una stanza chiusa: per la pianta servono tutte le pareti\"}"
       }
     ]
   }
