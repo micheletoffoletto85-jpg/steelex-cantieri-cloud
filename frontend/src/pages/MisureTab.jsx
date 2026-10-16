@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { PencilRuler, Plus, Trash2, Pencil, FileText, Loader2, Camera, X, AlertTriangle, ChevronDown } from 'lucide-react'
+import { PencilRuler, Plus, Trash2, Pencil, FileText, Loader2, Camera, X, AlertTriangle, ChevronDown, Ruler } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import dayjs from 'dayjs'
@@ -18,6 +18,7 @@ const nf = (x) => (x === null || x === undefined || x === '' ? '—'
 const vuoto = () => ({
   voce_id: '', descrizione: '', parti: 1, lunghezza: '', larghezza: '', altezza: '',
   quantita: '', quantita_manuale: false, data_misura: dayjs().format('YYYY-MM-DD'), note: '',
+  foto_urls: [],
 })
 
 function calcAuto(f) {
@@ -43,6 +44,9 @@ export default function MisureTab({ cantiereId, utente }) {
   const [editId, setEditId] = useState(null)
   const [apri, setApri] = useState({})        // voce_id → dettaglio aperto
   const [scaricando, setScaricando] = useState(false)
+  const [pianta, setPianta] = useState(null)  // risultato lettura metro laser
+  const [leggendo, setLeggendo] = useState(false)
+  const laserRef = useRef()
 
   const voci = data?.voci || []
   const misure = data?.misure || []
@@ -105,7 +109,42 @@ export default function MisureTab({ cantiereId, utente }) {
       quantita_manuale: form.quantita_manuale,
       data_misura: form.data_misura || null,
       note: form.note.trim() || null,
+      ...(editId ? {} : { foto_urls: form.foto_urls || [] }),
     })
+  }
+
+  // ── Import dallo schizzo esportato dall'app del metro laser (HOTO) ──
+  const leggiPianta = async (file) => {
+    if (!file) return
+    setLeggendo(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await api.post(`/cantieri/${cantiereId}/misure/da-pianta`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000,
+      })
+      setPianta(r.data)
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Non sono riuscito a leggere la pianta')
+    } finally {
+      setLeggendo(false)
+    }
+  }
+
+  const usaPianta = (modo) => {
+    const p = pianta
+    const lati = p.lati.map(l => nf(l.lunghezza)).join(' · ')
+    const riass = [p.area != null && `area ${nf(p.area)} m²`, p.perimetro != null && `perimetro ${nf(p.perimetro)} m`]
+      .filter(Boolean).join(', ')
+    const base = {
+      ...vuoto(),
+      note: `Da metro laser — lati: ${lati}${riass ? ` (${riass})` : ''}`,
+      foto_urls: p.immagine_url ? [p.immagine_url] : [],
+    }
+    if (modo === 'area') Object.assign(base, { quantita: p.area, quantita_manuale: true })
+    if (modo === 'pareti') Object.assign(base, { lunghezza: p.perimetro })
+    if (modo === 'lunghezza') Object.assign(base, { lunghezza: p.perimetro ?? p.lunghezza_totale })
+    setPianta(null); setEditId(null); setForm(base)
   }
 
   const scaricaPdf = async () => {
@@ -228,9 +267,20 @@ export default function MisureTab({ cantiereId, utente }) {
         )}
       </div>
 
-      <button onClick={apriNuova} className="btn-primary w-full flex items-center justify-center gap-2 py-2.5">
-        <Plus size={16} /> Aggiungi misura
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={apriNuova} className="btn-primary flex items-center justify-center gap-2 py-2.5">
+          <Plus size={16} /> Aggiungi misura
+        </button>
+        <button onClick={() => laserRef.current?.click()} disabled={leggendo}
+          className="btn-secondary flex items-center justify-center gap-2 py-2.5 disabled:opacity-60">
+          {leggendo ? <Loader2 size={16} className="animate-spin" /> : <Ruler size={16} />}
+          {leggendo ? 'Leggo la pianta…' : 'Da metro laser'}
+        </button>
+        <input ref={laserRef} type="file" accept="image/*" className="hidden"
+          onChange={e => { leggiPianta(e.target.files?.[0]); e.target.value = '' }} />
+      </div>
+
+      {pianta && <PiantaLaser p={pianta} onClose={() => setPianta(null)} onUsa={usaPianta} />}
 
       {form && (
         <FormMisura
@@ -355,7 +405,14 @@ function FormMisura({ form, setForm, voci, editId, misuraEdit, onClose, onSubmit
         <div>
           <span className="text-xs text-gray-500">Foto di riscontro</span>
           {!editId ? (
-            <p className="text-[11px] text-gray-400 mt-1">Salva la misura, poi riaprila per allegare le foto.</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {(form.foto_urls || []).map(u => (
+                <img key={u} src={u} alt="" className="w-16 h-16 object-contain bg-black rounded-lg border border-steelex-border" />
+              ))}
+              <p className="text-[11px] text-gray-400 flex-1">
+                {(form.foto_urls || []).length ? 'La pianta del metro laser verrà allegata. ' : ''}Salva la misura, poi riaprila per allegare altre foto.
+              </p>
+            </div>
           ) : (
             <div className="mt-1 flex flex-wrap gap-2">
               {foto.map(u => (
@@ -383,6 +440,91 @@ function FormMisura({ form, setForm, voci, editId, misuraEdit, onClose, onSubmit
             {salvando ? 'Salvo…' : editId ? 'Salva modifiche' : 'Registra misura'}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** Anteprima della pianta letta dal metro laser + scelta di cosa registrare. */
+function PiantaLaser({ p, onClose, onUsa }) {
+  const pts = p.punti || []
+  const w = Math.max(...pts.map(q => q[0]), 0.1)
+  const h = Math.max(...pts.map(q => q[1]), 0.1)
+  const pad = Math.max(w, h) * 0.12
+  const fs = Math.max(w, h) * 0.045
+  const poly = pts.map(q => q.join(',')).join(' ')
+  const segmenti = p.lati.map((l, i) => {
+    const a = pts[i], b = pts[(i + 1) % pts.length]
+    return a && b ? { a, b, l } : null
+  }).filter(Boolean)
+  const lung = p.perimetro ?? p.lunghezza_totale
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-5 w-full sm:max-w-lg max-h-[92vh] overflow-y-auto space-y-3"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+            <Ruler size={16} className="text-steelex-orange" /> Pianta dal metro laser
+          </h4>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        <div className="bg-gray-50 rounded-xl border border-steelex-border p-2">
+          <svg viewBox={`${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}`} className="w-full max-h-72">
+            {p.chiusa
+              ? <polygon points={poly} fill="#FF6B0018" stroke="#FF6B00" strokeWidth={fs * 0.12} strokeLinejoin="round" />
+              : <polyline points={poly} fill="none" stroke="#FF6B00" strokeWidth={fs * 0.12} strokeLinejoin="round" />}
+            {segmenti.map(({ a, b, l }, i) => (
+              <text key={i} x={(a[0] + b[0]) / 2} y={(a[1] + b[1]) / 2} fontSize={fs}
+                textAnchor="middle" dominantBaseline="middle" fontWeight="600"
+                fill={l.quota_letta ? '#1A1A2E' : '#d97706'} stroke="#fff" strokeWidth={fs * 0.25} paintOrder="stroke">
+                {nf(l.lunghezza)}
+              </text>
+            ))}
+          </svg>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {p.area != null && (
+            <div className="rounded-xl bg-orange-50 p-3">
+              <p className="text-[11px] uppercase font-semibold text-gray-500">Area</p>
+              <p className="text-2xl font-bold text-gray-900 tabular-nums">{nf(p.area)} <span className="text-sm font-medium">m²</span></p>
+            </div>
+          )}
+          <div className="rounded-xl bg-gray-50 p-3">
+            <p className="text-[11px] uppercase font-semibold text-gray-500">{p.chiusa ? 'Perimetro' : 'Lunghezza'}</p>
+            <p className="text-2xl font-bold text-gray-900 tabular-nums">{nf(lung)} <span className="text-sm font-medium">m</span></p>
+          </div>
+        </div>
+
+        {(p.avvisi || []).length > 0 && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs p-2.5 space-y-1">
+            {p.avvisi.map((a, i) => (
+              <p key={i} className="flex gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-0.5" />{a}</p>
+            ))}
+          </div>
+        )}
+
+        <p className="text-xs text-gray-500">Cosa vuoi registrare nel libretto?</p>
+        <div className="space-y-2">
+          {p.area != null && (
+            <button onClick={() => onUsa('area')} className="btn-primary w-full py-3 text-left px-4">
+              Pavimento / soffitto — <b>{nf(p.area)} m²</b>
+            </button>
+          )}
+          {p.chiusa && (
+            <button onClick={() => onUsa('pareti')} className="btn-secondary w-full py-3 text-left px-4">
+              Pareti — perimetro {nf(p.perimetro)} m × altezza
+            </button>
+          )}
+          <button onClick={() => onUsa('lunghezza')} className="btn-secondary w-full py-3 text-left px-4">
+            Solo lunghezza — {nf(lung)} m
+          </button>
+        </div>
+        <p className="text-[11px] text-gray-400">
+          Le quote le legge l'IA dall'immagine: controllale. Al passo dopo scegli la voce di computo e puoi correggere tutto.
+        </p>
       </div>
     </div>
   )
