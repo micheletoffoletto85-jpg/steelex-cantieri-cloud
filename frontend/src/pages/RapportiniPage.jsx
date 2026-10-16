@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -21,16 +21,66 @@ function Chips({ r }) {
   if (r.materiali?.length) chips.push({ label: `${r.materiali.length} mat.`, color: 'bg-green-100 text-green-700' })
   if (r.materiale_extra) chips.push({ label: 'Mat. extra', color: 'bg-teal-100 text-teal-700' })
   if (r.colleghi_ore?.length) chips.push({ label: `+${r.colleghi_ore.length} collega${r.colleghi_ore.length > 1 ? 'i' : ''}`, color: 'bg-purple-100 text-purple-700' })
-  if (r.extra_preventivo) chips.push({ icon: AlertTriangle, label: 'Extra preventivo', color: 'bg-orange-100 text-orange-700' })
-  if (r.criticita)    chips.push({ icon: AlertTriangle, label: 'Criticità/NC', color: 'bg-red-100 text-red-700' })
+  if (r.extra_preventivo) chips.push({ icon: AlertTriangle, label: 'Extra preventivo', color: 'bg-orange-100 text-orange-700',
+    dettaglio: r.extra_preventivo_nota, titolo: 'Extra preventivo' })
+  if (r.criticita)    chips.push({ icon: AlertTriangle, label: 'Criticità/NC', color: 'bg-red-100 text-red-700',
+    dettaglio: r.criticita, titolo: 'Criticità / Non conformità' })
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
-      {chips.map(({ icon: Icon, label, color }, i) => (
-        <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${color}`}>
-          {Icon && <Icon size={10} />}{label}
-        </span>
-      ))}
+      {chips.map(({ icon: Icon, label, color, dettaglio, titolo }, i) => dettaglio
+        ? <ChipDettaglio key={i} Icon={Icon} label={label} color={color} dettaglio={dettaglio} titolo={titolo} />
+        : (
+          <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${color}`}>
+            {Icon && <Icon size={10} />}{label}
+          </span>
+        ))}
     </div>
+  )
+}
+
+// Chip con popup di dettaglio: si apre passando col mouse (desktop) o toccando (mobile)
+function ChipDettaglio({ Icon, label, color, dettaglio, titolo }) {
+  const [aperto, setApertoState] = useState(false)
+  const [pos, setPos] = useState(null)
+  const ref = useRef(null)
+  // Popup in position:fixed — la card ha overflow-hidden e lo taglierebbe
+  const setAperto = (v) => setApertoState(prev => {
+    const next = typeof v === 'function' ? v(prev) : v
+    if (next && ref.current) {
+      const b = ref.current.getBoundingClientRect()
+      const larg = Math.min(256, window.innerWidth - 16)
+      setPos({ top: b.bottom + 4, left: Math.max(8, Math.min(b.left, window.innerWidth - larg - 8)), width: larg })
+    }
+    return next
+  })
+  useEffect(() => {
+    if (!aperto) return
+    const chiudi = (e) => { if (ref.current && !ref.current.contains(e.target)) setApertoState(false) }
+    const chiudiScroll = () => setApertoState(false)
+    document.addEventListener('pointerdown', chiudi)
+    window.addEventListener('scroll', chiudiScroll, true)
+    return () => {
+      document.removeEventListener('pointerdown', chiudi)
+      window.removeEventListener('scroll', chiudiScroll, true)
+    }
+  }, [aperto])
+  return (
+    <span ref={ref} className="relative inline-flex"
+      onPointerEnter={e => { if (e.pointerType === 'mouse') setAperto(true) }}
+      onPointerLeave={e => { if (e.pointerType === 'mouse') setAperto(false) }}>
+      <button type="button" aria-expanded={aperto}
+        onClick={e => setAperto(v => e.nativeEvent.pointerType === 'mouse' ? true : !v)}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold cursor-pointer underline decoration-dotted underline-offset-2 ${color}`}>
+        {Icon && <Icon size={10} />}{label}
+      </button>
+      {aperto && pos && (
+        <span role="tooltip" style={{ top: pos.top, left: pos.left, width: pos.width }}
+          className="fixed z-50 bg-white border border-gray-200 shadow-lg rounded-lg p-2.5 text-xs text-gray-700 leading-relaxed whitespace-normal text-left font-normal">
+          <span className="block font-semibold text-gray-900 mb-0.5">{titolo}</span>
+          {dettaglio}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -96,6 +146,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const [modificaCantiere, setModificaCantiere] = useState(false)
   const [nuovoCantiere, setNuovoCantiere] = useState('')
   const [modificaTesto, setModificaTesto] = useState(false)
+  const [dataEdit, setDataEdit] = useState(r.data_lavoro || '')
   const [testoEdit, setTestoEdit] = useState(r.descrizione_lavori || r.testo_italiano || '')
   const [oreEdit, setOreEdit] = useState(r.ore_lavorate ?? '')
   const [colleghiEdit, setColleghiEdit] = useState(() => (r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '', utente_id: c.utente_id ?? '' })))
@@ -133,8 +184,25 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     inviato: 'Da validare', validato: 'Validato', rifiutato: 'Rifiutato', diviso: 'Diviso',
   }[r.stato] || r.stato
 
+  // Apre il pannello di modifica precompilato coi valori attuali del rapportino
+  const apriModifica = () => {
+    setTestoEdit(r.descrizione_lavori || r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? '')
+    setColleghiEdit((r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '', utente_id: c.utente_id ?? '' })))
+    setLavorazioniEdit(r.lavorazioni?.length ? r.lavorazioni : [''])
+    setMaterialiEdit(r.materiali?.length ? r.materiali : [''])
+    setCriticitaEdit(r.criticita || '')
+    setDescrizioneExtraEdit(r.descrizione_extra || '')
+    setMaterialeExtraEdit(r.materiale_extra || '')
+    setExtraPreventivoEdit(!!r.extra_preventivo)
+    setExtraPreventivoNotaEdit(r.extra_preventivo_nota || '')
+    setDataEdit(r.data_lavoro || '')
+    setModificaTesto(true)
+    setAperto(false)
+  }
+
   const salvaTesto = () => {
     onModifica(r.id, {
+      ...(dataEdit && dataEdit !== r.data_lavoro ? { data_lavoro: dataEdit } : {}),
       descrizione_lavori: testoEdit,
       ore_lavorate: oreEdit === '' ? null : parseFloat(oreEdit),
       colleghi_ore: colleghiEdit
@@ -180,10 +248,13 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
     setDividendo(true)
   }
 
+  // cantiere_id === 'fuori' = quella parte resta fuori cantiere (cliente senza cantiere aperto)
   const confermaDivisione = () => {
     if (segmenti.some(s => !s.cantiere_id)) return
     onDividi(r.id, segmenti.map(s => ({
-      cantiere_id: parseInt(s.cantiere_id), ore: s.ore ? parseFloat(s.ore) : null,
+      cantiere_id: s.cantiere_id === 'fuori' ? null : parseInt(s.cantiere_id),
+      cantiere: s.cantiere || null,
+      ore: s.ore ? parseFloat(s.ore) : null,
       lavorazioni: s.lavorazioni || [], riassunto: s.riassunto || null, testo: s.testo || null,
     })))
     setDividendo(false)
@@ -192,19 +263,11 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
       <div className="p-4">
+        {/* Riga 1: operatore + stato/azioni. Il titolo va SOTTO a tutta larghezza: affiancato
+            ai badge, su smartphone restava compresso in una colonna stretta e illeggibile */}
         <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            {isAdmin && <p className="text-xs text-gray-500 mb-0.5">{r.operativo_nome}</p>}
-            <p className="font-semibold text-gray-900 text-sm leading-snug">
-              {r.riassunto || r.descrizione_lavori?.slice(0, 100) || '—'}
-            </p>
-            {r.cantiere_nome
-              ? <p className="text-xs text-steelex-orange font-medium mt-0.5">{r.cantiere_nome}</p>
-              : r.cantiere_rilevato
-              ? <p className="text-xs text-gray-400 mt-0.5">"{r.cantiere_rilevato}" — non abbinato</p>
-              : null}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <p className="text-xs text-gray-500 min-w-0 truncate pt-0.5">{isAdmin ? r.operativo_nome : ''}</p>
+          <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
             {r.multi_cantiere && r.stato !== 'diviso' && (
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 flex items-center gap-1">
                 <GitBranch size={10} /> multi-cantiere
@@ -240,12 +303,20 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
             )}
           </div>
         </div>
+        <p className="font-semibold text-gray-900 text-sm leading-snug mt-1 break-words">
+          {r.riassunto || r.descrizione_lavori?.slice(0, 100) || '—'}
+        </p>
+        {r.cantiere_nome
+          ? <p className="text-xs text-steelex-orange font-medium mt-0.5">{r.cantiere_nome}</p>
+          : r.cantiere_rilevato
+          ? <p className="text-xs text-gray-400 mt-0.5">"{r.cantiere_rilevato}" — non abbinato</p>
+          : null}
 
         <Chips r={r} />
         <FotoPreview urls={r.foto_avanzamento_urls} />
 
         {/* Testo completo — sempre visibile in anteprima, non più nascosto in "dettagli" */}
-        {(r.descrizione_lavori || r.testo_italiano) && (
+        {(r.descrizione_lavori || r.testo_italiano || modificaTesto) && (
           <div className="mt-2.5">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-semibold text-gray-500">Lavori svolti</p>
@@ -256,18 +327,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                     title="Ri-analizza con IA (matching cantiere e rilevamento multi-cantiere aggiornati)">
                     <Sparkles size={13} className={rianalizzando ? 'animate-pulse' : ''} />
                   </button>
-                  <button onClick={() => {
-                    setTestoEdit(r.descrizione_lavori || r.testo_italiano || ''); setOreEdit(r.ore_lavorate ?? '')
-                    setColleghiEdit((r.colleghi_ore || []).map(c => ({ nome: c.nome || '', ore: c.ore ?? '' })))
-                    setLavorazioniEdit(r.lavorazioni?.length ? r.lavorazioni : [''])
-                    setMaterialiEdit(r.materiali?.length ? r.materiali : [''])
-                    setCriticitaEdit(r.criticita || '')
-                    setDescrizioneExtraEdit(r.descrizione_extra || '')
-                    setMaterialeExtraEdit(r.materiale_extra || '')
-                    setExtraPreventivoEdit(!!r.extra_preventivo)
-                    setExtraPreventivoNotaEdit(r.extra_preventivo_nota || '')
-                    setModificaTesto(true)
-                  }}
+                  <button onClick={apriModifica}
                     className="text-gray-400 hover:text-steelex-orange transition-colors" title="Modifica testo">
                     <Edit3 size={13} />
                   </button>
@@ -276,6 +336,14 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
             </div>
             {modificaTesto ? (
               <div className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500 shrink-0">Data lavoro</label>
+                  <input type="date" value={dataEdit} onChange={e => setDataEdit(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
+                  {dataEdit && dataEdit !== r.data_lavoro && (
+                    <span className="text-xs text-amber-600">diario e ore verranno spostati a questa data</span>
+                  )}
+                </div>
                 <textarea value={testoEdit} onChange={e => setTestoEdit(e.target.value)} rows={5}
                   className="w-full text-xs leading-relaxed border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-steelex-orange" />
                 <div className="flex items-center gap-2">
@@ -392,11 +460,25 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
               <span className="ml-2 text-gray-300">({r.lingua_originale.toUpperCase()})</span>
             )}
           </span>
-          <button onClick={() => setAperto(v => !v)}
-            className="text-xs text-gray-500 flex items-center gap-1 hover:text-gray-700">
-            {aperto ? <><ChevronUp size={12}/> meno</> : <><ChevronDown size={12}/> altri dettagli</>}
-          </button>
+          <div className="flex items-center gap-3">
+            {isAdmin && r.stato !== 'diviso' && !modificaTesto && (
+              <button onClick={apriModifica}
+                className="text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg px-2.5 py-1 flex items-center gap-1 hover:text-steelex-orange hover:border-gray-300">
+                <Edit3 size={12} /> Modifica
+              </button>
+            )}
+            <button onClick={() => setAperto(v => !v)}
+              className="text-xs text-gray-500 flex items-center gap-1 hover:text-gray-700">
+              {aperto ? <><ChevronUp size={12}/> meno</> : <><ChevronDown size={12}/> altri dettagli</>}
+            </button>
+          </div>
         </div>
+        {isAdmin && r.stato === 'diviso' && (
+          <p className="mt-2 text-xs text-purple-700 bg-purple-50 rounded-lg px-2 py-1.5">
+            Questo è l'originale già diviso e non si modifica più: modifica i rapportini creati dalla divisione
+            {r.note_admin?.includes('#') ? <> ({r.note_admin.replace(/^.*?:\s*/, '')})</> : null}.
+          </p>
+        )}
 
         {aperto && (
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-3 text-sm text-gray-700">
@@ -518,17 +600,21 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                       )}
                     </div>
                     {!s.cantiere_id && s.cantiere && (
-                      <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — seleziona a mano</p>
+                      <p className="text-xs text-red-500">⚠️ nome non riconosciuto tra i cantieri attivi — scegli un cantiere oppure "fuori cantiere"</p>
                     )}
                     <select
                       value={s.cantiere_id}
                       onChange={e => aggiornaSegmento(i, 'cantiere_id', e.target.value)}
                       className="w-full border border-purple-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
                       <option value="">— scegli cantiere —</option>
+                      <option value="fuori">🚫 Lascia fuori cantiere</option>
                       {cantieri.map(c => (
                         <option key={c.id} value={c.id}>{c.nome}</option>
                       ))}
                     </select>
+                    {s.cantiere_id === 'fuori' && (
+                      <p className="text-xs text-gray-500">Questa parte diventa un rapportino senza cantiere: le ore vanno solo nel registro personale, nessun costo su cantieri.</p>
+                    )}
                     <div>
                       <label className="text-xs text-gray-500 block mb-1">Testo per questo cantiere</label>
                       <textarea value={s.testo ?? ''} rows={4}
@@ -947,10 +1033,12 @@ function VistaAdmin() {
     ({ id, ...dati }) => api.put(`/rapportini/${id}`, dati),
     {
       onSuccess: () => {
+        toast.success('Rapportino aggiornato')
         qc.invalidateQueries('rapp-da-validare')
         qc.invalidateQueries('rapp-tutti')
         qc.invalidateQueries('rapp-fuori')
-      }
+      },
+      onError: (err) => toast.error(err.response?.data?.detail || 'Errore nel salvataggio del rapportino'),
     }
   )
 
