@@ -385,7 +385,11 @@ function ArtigianoDashboard({ utente, cantieri }) {
         // isTypeSupported, quindi è l'unico formato che sappiamo per certo
         // essere sbagliato — mp4/aac è il default nativo più diffuso su mobile.
         const tipoReale = mr.mimeType || mimeType || 'audio/mp4'
-        const ext = tipoReale.includes('mp4') ? 'mp4' : tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('webm') ? 'webm' : 'm4a'
+        // Estensione dal sottotipo MIME reale, non da un default fisso: un mimeType non
+        // riconosciuto (es. audio/wav su alcuni Android) veniva sempre taggato .m4a pur
+        // non essendolo, e Whisper rispondeva 422 "formato non supportato".
+        const ext = { mp4: 'mp4', ogg: 'ogg', webm: 'webm', wav: 'wav', 'x-wav': 'wav',
+          mpeg: 'mp3', 'x-m4a': 'm4a', m4a: 'm4a', aac: 'aac' }[tipoReale.split(';')[0].split('/')[1]] || 'm4a'
         const blob = new Blob(chunksRef.current, { type: tipoReale })
         // Blob vuoto/minuscolo = registrazione corrotta o troppo breve: inutile inviarla
         if (blob.size < 2048) {

@@ -1465,7 +1465,12 @@ function getSupportedMimeType() {
 // che in realtà non lo è, causando 422 "Formato audio non supportato" da Whisper.
 function _extAudioReale(recorder, mimeTypeStimato) {
   const tipoReale = recorder?.mimeType || mimeTypeStimato || 'audio/webm'
-  return tipoReale.includes('ogg') ? 'ogg' : tipoReale.includes('mp4') ? 'mp4' : 'webm'
+  // Mappa dal sottotipo MIME reale, non solo ogg/mp4: un codec non elencato qui
+  // (es. audio/wav su alcuni Android) finiva comunque taggato .webm pur non
+  // essendolo, causando lo stesso 422 "formato non supportato" che il commento
+  // sopra descrive.
+  return { mp4: 'mp4', ogg: 'ogg', webm: 'webm', wav: 'wav', 'x-wav': 'wav',
+    mpeg: 'mp3', 'x-m4a': 'm4a', m4a: 'm4a', aac: 'aac' }[tipoReale.split(';')[0].split('/')[1]] || 'webm'
 }
 
 /* ─── Riga ore extra editabile (dentro "Voci da contabilizzare" del diario) ─── */
