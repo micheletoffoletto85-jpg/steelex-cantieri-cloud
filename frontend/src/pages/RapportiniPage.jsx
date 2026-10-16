@@ -966,7 +966,10 @@ function VistaAdmin() {
   )
 
   const rianalizzaMutation = useMutation(
-    (id) => api.put(`/rapportini/${id}/rianalizza`),
+    // La ri-analisi richiama l'IA (segmentazione + estrazione campi per ogni blocco di
+    // testo) e può superare il timeout di default del client: stesso valore già usato
+    // per la versione "rianalizza tutti" qui sotto.
+    (id) => api.put(`/rapportini/${id}/rianalizza`, null, { timeout: 30000 }),
     {
       onSuccess: () => {
         qc.invalidateQueries('rapp-da-validare')
