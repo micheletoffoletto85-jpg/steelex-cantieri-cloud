@@ -12,8 +12,12 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
-  // Upload file (foto, PDF, DXF): sulla rete di cantiere 12s spesso non bastano
-  if (config.headers['Content-Type'] === 'multipart/form-data') config.timeout = 60000
+  // Upload file (foto, PDF, DXF): sulla rete di cantiere 12s spesso non bastano.
+  // Math.max preserva un timeout esplicito più alto passato dal chiamante (es. 180000
+  // per /rapportini/invia e /trascrivi, che passano da Whisper+Claude) — prima questa
+  // riga lo sovrascriveva sempre a 60000, facendo scadere la richiesta lato client
+  // molto prima che il server finisse l'elaborazione IA.
+  if (config.headers['Content-Type'] === 'multipart/form-data') config.timeout = Math.max(config.timeout || 0, 60000)
   return config
 })
 
