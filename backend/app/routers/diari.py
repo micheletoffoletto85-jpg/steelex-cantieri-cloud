@@ -876,6 +876,11 @@ def aggiorna_ore(cantiere_id: int, ore_id: int, body: OreExtraUpdate, db: Sessio
 def elimina_ore(cantiere_id: int, ore_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
     ore = db.query(OreExtra).filter(OreExtra.id == ore_id, OreExtra.cantiere_id == cantiere_id).first()
     if not ore: raise HTTPException(404, "Non trovato")
+    # Una riga citata come riga principale di un rapportino operativo (rapportini_operativi.ore_extra_id)
+    # non si può cancellare direttamente: violerebbe la FK e darebbe 500. Va gestita dal rapportino stesso.
+    from app.models.rapportino import RapportinoOperativo
+    if db.query(RapportinoOperativo.id).filter(RapportinoOperativo.ore_extra_id == ore.id).first():
+        raise HTTPException(409, "Riga collegata a un rapportino: modifica o elimina il rapportino per rimuoverla")
     if ore.voce_extra_id:
         ore.extra_preventivo = False
         db.flush()
