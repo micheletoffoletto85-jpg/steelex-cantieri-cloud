@@ -185,6 +185,7 @@ class MisuraIn(BaseModel):
     quantita_manuale: bool = False
     data_misura: Optional[date] = None
     note: Optional[str] = None
+    foto_urls: Optional[List[str]] = None     # solo in creazione (es. pianta del metro laser)
 
 
 def _applica(m, body: MisuraIn, db: Session, cantiere_id: int):
@@ -223,7 +224,7 @@ def crea_misura(cantiere_id: int, body: MisuraIn,
         cantiere_id=cantiere_id,
         misurato_da=user.id,
         misurato_da_nome=f"{user.nome} {user.cognome}".strip(),
-        foto_urls=[],
+        foto_urls=[u for u in (body.foto_urls or []) if isinstance(u, str) and f"misure/{cantiere_id}/" in u][:10],
     )
     _applica(m, body, db, cantiere_id)
     db.add(m)
@@ -282,6 +283,35 @@ async def carica_foto_misura(cantiere_id: int, misura_id: int, file: UploadFile 
     db.commit()
     db.refresh(m)
     return _misura_out(m)
+
+
+@router.post("/da-pianta")
+async def leggi_pianta_laser(cantiere_id: int, file: UploadFile = File(...),
+                             db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Legge lo schizzo esportato dall'app del metro laser (HOTO) e restituisce
+    lati, perimetro e area. Non salva la misura: la conferma l'utente dal form."""
+    from app.config import settings
+    from app.pianta_laser import leggi_pianta
+    _accesso(cantiere_id, db, user)
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(503, "Lettura IA non configurata (manca ANTHROPIC_API_KEY)")
+    dati = await file.read()
+    if not dati:
+        raise HTTPException(422, "File vuoto")
+    if len(dati) > 20 * 1024 * 1024:
+        raise HTTPException(413, "Immagine troppo grande (max 20 MB)")
+    try:
+        risultato = await run_in_threadpool(leggi_pianta, dati, settings.ANTHROPIC_API_KEY)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except Exception:
+        raise HTTPException(502, "Non sono riuscito a leggere l'immagine, riprova")
+    # la pianta resta allegata come foto di riscontro della misura
+    _ct = {"image/png": ".png", "image/webp": ".webp"}
+    ext = _ct.get((file.content_type or "").split(";")[0].strip(), ".jpg")
+    url, _ = await run_in_threadpool(salva_file, dati, f"misure/{cantiere_id}", ext)
+    risultato["immagine_url"] = url
+    return risultato
 
 
 class FotoRimuoviBody(BaseModel):
