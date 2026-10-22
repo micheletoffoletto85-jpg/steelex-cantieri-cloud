@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 44,
-  "since_id_fr": 190,
+  "since_id_fr": 194,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -248,6 +248,50 @@
         "messaggio": "Formato audio non supportato — riprova registrando di nuovo",
         "url_pagina": "/",
         "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo\"}"
+      },
+      {
+        "id": 191,
+        "creato_il": "2026-10-22T14:44:48.290150+00:00",
+        "ruolo": "direzione_lavori",
+        "endpoint": "/cantieri/22/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/22",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      },
+      {
+        "id": 192,
+        "creato_il": "2026-10-22T14:44:49.575962+00:00",
+        "ruolo": "direzione_lavori",
+        "endpoint": "/cantieri/22/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/22",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      },
+      {
+        "id": 193,
+        "creato_il": "2026-10-22T14:44:54.518738+00:00",
+        "ruolo": "direzione_lavori",
+        "endpoint": "/cantieri/22/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/22",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      },
+      {
+        "id": 194,
+        "creato_il": "2026-10-22T14:44:55.765786+00:00",
+        "ruolo": "direzione_lavori",
+        "endpoint": "/cantieri/22/sal",
+        "metodo": "GET",
+        "status_code": 403,
+        "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
+        "url_pagina": "/cantieri/22",
+        "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
       }
     ]
   }
