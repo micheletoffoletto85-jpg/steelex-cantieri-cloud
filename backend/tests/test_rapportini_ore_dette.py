@@ -17,6 +17,11 @@ from app.routers.rapportini import _durata_ore_detta  # noqa: E402
     ("Cantiere uffici, finitura con tinteggiatura. Totale ore quattro.", 4),
     ("Stuccatura e pulizia. Totale ore 8. Carico scarico furgoni in magazzino un'ora.", 8),
     ("Otto ore trenta di protezione superfici. Pulizia del cantiere.", 8.5),
+    ("Oggi ufficio due ore, impostazioni controsoffitto, magazzino sei ore, divisione materiali.", 8),
+    ("Mattina 4 ore al cantiere Rossi, pomeriggio 3 ore in magazzino.", 7),
+    ("Tinteggiatura prima mano. Totale 7 ore. Ho fatto una riunione di un'ora con Michele. Totale 8 ore.", 8),
+    ("Cantiere Alex Pigato. Ho lavorato sette ore con l'aiuto di Enrico che ha fatto cinque ore.", 7),
+    ("Cantiere Alex Pigato. 9 ore. Stuccatura. Un'ora con Fabio di lato: apertura fori.", 9),
     ("**Ore lavorate:** 8 ore e 30\n**Tempo viaggio:** 1 ora e 30 (andata e ritorno)", 8.5),
 ])
 def test_durata_riconosciuta(testo, ore):
@@ -29,7 +34,6 @@ def test_durata_riconosciuta(testo, ore):
     "**Tempo impiegato:**\n- Viaggio andata e ritorno: 1 ora",
     "Andata e ritorno (1 ora e 45 minuti).",
     "Arrivato alle 8 ore circa, montaggio pareti.",
-    "Mattina 4 ore al cantiere Rossi, pomeriggio 3 ore in magazzino.",   # ambiguo: decide l'admin
 ])
 def test_nessuna_durata_di_lavoro(testo):
     assert _durata_ore_detta(testo) is None

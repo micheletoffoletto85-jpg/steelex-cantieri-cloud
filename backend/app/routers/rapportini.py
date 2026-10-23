@@ -384,8 +384,8 @@ def _valore_durata(num, fraz, minuti) -> Optional[float]:
 # ── Durata detta senza la parola "totale" ────────────────────────────────────
 # "9 ore tinteggiatura", "Oggi nove ore Brendola", "nove ore di lavoro +30 minuti
 # ritorno": l'IA a volte non le riportava e il rapportino arrivava in validazione
-# senza ore. Si usa SOLO se nel testo c'è UNA sola durata di lavoro (escluse quelle di
-# viaggio/pausa e gli orari "alle 9"): con durate diverse la scelta resta all'IA/admin.
+# senza ore. Escluse le durate di viaggio/pausa e gli orari "alle 9"; più durate diverse
+# ("ufficio due ore, magazzino sei ore") sono pezzi della giornata e si sommano.
 _DURATA_ORE = re.compile(
     r"(?<![\w:.,'’])" + _NUM + r"\s*(?:ore|ora|h)\b" + _FRAZIONE
     + r"|\bun['’]\s*ora\b" + _FRAZIONE,
@@ -403,16 +403,20 @@ _DOPO_NON_LAVORO = re.compile(
     re.IGNORECASE,
 )
 
+# Ore di un'ALTRA persona: "Enrico che ha fatto cinque ore", "un'ora con Fabio"
+_PRIMA_ALTRA_PERSONA = re.compile(r"\b(?:che\s+ha|ha\s+fatto|hanno)\b[^.;\n]{0,15}$", re.IGNORECASE)
+_DOPO_ALTRA_PERSONA = re.compile(r"^\s*(?:con|insieme\s+a)\s+[A-Z]")
+
 
 def _durata_ore_detta(testo: str) -> Optional[float]:
-    """Ore di lavoro della giornata: prima il totale esplicito, altrimenti l'unica durata
-    "N ore" detta nel racconto. None se non c'è o se è ambigua."""
+    """Ore di lavoro della giornata: prima il totale esplicito, altrimenti la somma delle
+    durate "N ore" dette nel racconto. None se non ce ne sono."""
     if not testo:
         return None
     scritto = _totale_ore_scritto(testo)
     if scritto is not None:
         return scritto
-    valori = set()
+    valori, ultimo_totale = [], False
     for m in _DURATA_ORE.finditer(testo):
         if _PRIMA_ORARIO.search(testo[max(0, m.start() - 14):m.start()]):
             continue
@@ -420,11 +424,25 @@ def _durata_ore_detta(testo: str) -> Optional[float]:
             continue
         if _DOPO_NON_LAVORO.search(testo[m.end():m.end() + 40]):
             continue
+        if (_PRIMA_ALTRA_PERSONA.search(testo[max(0, m.start() - 30):m.start()])
+                or _DOPO_ALTRA_PERSONA.search(testo[m.end():m.end() + 30])):
+            continue
         num, fraz, minuti, fraz1, minuti1 = m.groups()
         v = _valore_durata(num, fraz, minuti) if num else _valore_durata("1", fraz1, minuti1)
         if v is not None:
-            valori.add(v)
-    return valori.pop() if len(valori) == 1 else None
+            valori.append(v)
+            ultimo_totale = bool(re.search(r"\btotal\w*\W*$", testo[max(0, m.start() - 15):m.start()], re.IGNORECASE))
+    if not valori:
+        return None
+    # Stessa durata ripetuta ("8 ore ... in tutto 8 ore") = quella
+    if len(set(valori)) == 1:
+        return valori[0]
+    # Totale finale che le comprende: "Totale 7 ore ... riunione ... Totale 8 ore"
+    if ultimo_totale and valori[-1] == max(valori):
+        return valori[-1]
+    # Durate diverse sono pezzi della giornata ("ufficio due ore, magazzino sei ore"): si sommano
+    somma = sum(valori)
+    return somma if somma <= 16 else None
 
 
 def _ha_ore(dati: dict) -> bool:
@@ -1137,7 +1155,7 @@ def _recupera_ore_dette(db: Session, rs: list) -> None:
     mano. Solo regex, nessuna chiamata IA; tocca solo gli "inviato"."""
     cambiati = 0
     for r in rs:
-        if r.stato != "inviato" or r.ore_lavorate:
+        if r.stato != "inviato" or r.ore_lavorate or r.multi_cantiere:
             continue
         for t in (r.testo_italiano, r.descrizione_lavori, r.testo_originale):
             v = _durata_ore_detta(t or "")
