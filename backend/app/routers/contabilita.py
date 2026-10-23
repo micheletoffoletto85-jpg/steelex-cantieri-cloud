@@ -305,6 +305,8 @@ async def leggi_pianta_laser(cantiere_id: int, file: UploadFile = File(...),
     except ValueError as e:
         raise HTTPException(422, str(e))
     except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Lettura immagine metro laser fallita")
         raise HTTPException(502, "Non sono riuscito a leggere l'immagine, riprova")
     # la pianta resta allegata come foto di riscontro della misura
     _ct = {"image/png": ".png", "image/webp": ".webp"}
