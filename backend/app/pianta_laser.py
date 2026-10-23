@@ -13,8 +13,11 @@ lunghezza di ogni lato scritta sopra. Qui:
 import base64
 import io
 import json
+import logging
 import math
 from typing import List, Optional
+
+log = logging.getLogger(__name__)
 
 TOLL_ORTO_GRADI = 6.0      # entro questa tolleranza un lato è considerato a 90°
 SCARTO_AVVISO_PCT = 5.0    # oltre questo scarto (area misure vs area disegno) avvisiamo
@@ -234,43 +237,85 @@ def _estrai_json(testo: str) -> dict:
     return json.loads(testo[testo.find("{"): testo.rfind("}") + 1])
 
 
-def leggi_pianta(dati: bytes, api_key: str) -> dict:
-    """Legge l'immagine con Claude e restituisce la figura ricostruita."""
+# Modelli in ordine di preferenza: tutti con output strutturato; l'ultimo senza
+# schema come rete di sicurezza. Se un modello è sovraccarico o risponde in un
+# formato inatteso si passa al successivo invece di fallire.
+_MODELLI = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-4-6")
+
+
+def _num(x) -> Optional[float]:
+    """Numero da risposta IA: accetta 1.5, "1,536", "2.220 m"; None se assente/0."""
+    if isinstance(x, bool) or x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return float(x) if x > 0 else None
+    try:
+        v = float(str(x).replace(",", ".").replace("m", "").strip())
+        return v if v > 0 else None
+    except ValueError:
+        return None
+
+
+def _punto(p) -> List[float]:
+    """Vertice da risposta IA: {"x":..,"y":..} oppure [x, y]."""
+    if isinstance(p, dict):
+        return [float(p["x"]), float(p["y"])]
+    return [float(p[0]), float(p[1])]
+
+
+def _immagine_valida(dati: bytes):
+    try:
+        return _prepara_immagine(dati)
+    except Exception as e:  # noqa: BLE001 — HEIC, file corrotto, non immagine
+        raise ValueError("Formato immagine non leggibile: usa uno screenshot o una foto JPG/PNG") from e
+
+
+def _chiedi_ia(api_key: str, b64: str, prompt: str, schema: dict, max_tokens: int, componi):
+    """Chiede la lettura ai modelli in ordine; `componi` trasforma il JSON letto nel
+    risultato e, se il formato non torna, fa passare al modello successivo.
+    Un ValueError di `componi` (immagine senza misure) è una risposta valida."""
     import anthropic
-    b64, w, h = _prepara_immagine(dati)
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=120)
     contenuto = [
         {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-        {"type": "text", "text": _prompt(w, h)},
+        {"type": "text", "text": prompt},
     ]
-
-    letto = None
     ultimo_errore = None
-    # Prima il modello migliore con output strutturato, poi un fallback più semplice
-    tentativi = [
-        dict(model="claude-opus-5-5", max_tokens=4000,
-             output_config={"format": {"type": "json_schema", "schema": _SCHEMA}}),
-        dict(model="claude-sonnet-4-6", max_tokens=4000),
-    ]
-    for opz in tentativi:
+    for i, modello in enumerate(_MODELLI):
+        opz = dict(model=modello, max_tokens=max_tokens)
+        if i < len(_MODELLI) - 1:
+            opz["output_config"] = {"format": {"type": "json_schema", "schema": schema}}
         try:
             msg = client.messages.create(messages=[{"role": "user", "content": contenuto}], **opz)
             if getattr(msg, "stop_reason", None) == "refusal":
+                ultimo_errore = f"{modello}: rifiuto"
                 continue
-            testo = next(b.text for b in msg.content if b.type == "text")
-            letto = _estrai_json(testo)
-            break
+            letto = _estrai_json(next(b.text for b in msg.content if b.type == "text"))
+            return componi(letto)
+        except ValueError as e:
+            if isinstance(e, json.JSONDecodeError):
+                ultimo_errore = e
+                log.warning("Lettura laser %s: JSON non valido (%s)", modello, e)
+                continue
+            raise
         except Exception as e:  # noqa: BLE001 — proviamo il modello successivo
             ultimo_errore = e
-            continue
-    if letto is None:
-        raise RuntimeError(f"Lettura IA non riuscita: {ultimo_errore}")
+            log.warning("Lettura laser %s fallita: %r", modello, e)
+    raise RuntimeError(f"Lettura IA non riuscita: {ultimo_errore}")
+
+
+def leggi_pianta(dati: bytes, api_key: str) -> dict:
+    """Legge l'immagine con Claude e restituisce la figura ricostruita."""
+    b64, w, h = _immagine_valida(dati)
+    return _chiedi_ia(api_key, b64, _prompt(w, h), _SCHEMA, 4000, _componi_pianta)
+
+
+def _componi_pianta(letto: dict) -> dict:
     if not letto.get("trovata") or len(letto.get("vertici") or []) < 2:
         raise ValueError("Nell'immagine non ho trovato uno schizzo di misure leggibile")
-
-    vertici = [[float(v["x"]), float(v["y"])] for v in letto["vertici"]]
+    vertici = [_punto(v) for v in letto["vertici"]]
     chiusa = bool(letto.get("chiusa")) and len(vertici) >= 3
-    lunghezze = [float(x) if x not in (None, 0) else None for x in (letto.get("lunghezze") or [])]
+    lunghezze = [_num(x) for x in (letto.get("lunghezze") or [])]
     n_l = len(vertici) if chiusa else len(vertici) - 1
     lunghezze = (lunghezze + [None] * n_l)[:n_l]
 
