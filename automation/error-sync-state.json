@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 44,
-  "since_id_fr": 198,
+  "since_id_fr": 199,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -336,6 +336,17 @@
         "messaggio": "Non ho capito su quali parti lavorare. Ho sentito: \"Tu tirai fuori dai stili...\" — riprova citando le lettere dei lati o i numeri dei pezzi (es. \"parete A e C cartongesso, alta 2,70\").",
         "url_pagina": "/commerciale/preventivi/11/rilievo",
         "dettagli": "{\"detail\":\"Non ho capito su quali parti lavorare. Ho sentito: \\\"Tu tirai fuori dai stili...\\\" — riprova citando le lettere dei lati o i numeri dei pezzi (es. \\\"parete A e C cartongesso, alta 2,70\\\").\"}"
+      },
+      {
+        "id": 199,
+        "creato_il": "2026-10-23T12:46:23.287859+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/11/stanze/11/mappa/lavorazioni-vocali",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Non ho capito su quali parti lavorare. Ho sentito: \"Sottotitoli creati dalla comunità Amara.org\" — riprova citando le lettere dei lati o i numeri dei pezzi (es. \"parete A e C cartongesso, alta 2,70\").",
+        "url_pagina": "/commerciale/preventivi/11/rilievo",
+        "dettagli": "{\"detail\":\"Non ho capito su quali parti lavorare. Ho sentito: \\\"Sottotitoli creati dalla comunità Amara.org\\\" — riprova citando le lettere dei lati o i numeri dei pezzi (es. \\\"parete A e C cartongesso, alta 2,70\\\").\"}"
       }
     ]
   }
