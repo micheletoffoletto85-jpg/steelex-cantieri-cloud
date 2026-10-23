@@ -222,6 +222,9 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
         # fa fede quando la fase 2 non la trova nel testo riscritto — NON va ri-verificata.
         if campi.get("ore") is None and s.get("ore") is not None:
             campi["ore"] = s["ore"]
+        # Ultima rete: durata detta nel blocco ("Totale: 5 ore", "nove ore") letta dal codice
+        if campi.get("ore") is None:
+            campi["ore"] = _durata_ore_detta(s_testo)
         elaborati.append((s, campi))
 
     s0, campi0 = elaborati[0]
@@ -235,7 +238,123 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
                  "riassunto": c.get("riassunto")}
                 for s, c in elaborati[1:]
             ]}
+    # Giornata su un solo blocco senza ore ma il racconto dice "9 ore ..." una volta sola
+    if not dati["altri_cantieri"] and dati.get("ore") is None:
+        detta = _durata_ore_detta(testo)
+        if detta is not None:
+            logger.info("[ore_dette] ore None→%s", detta)
+            dati["ore"] = detta
     return dati
+
+
+# ── Totale di giornata scritto esplicitamente, letto in Python ───────────────
+# "Totale ore 8", "totale: 8 ore e mezza", "ore totali 8", "in totale otto ore": l'IA a
+# volte lo perdeva (soprattutto nella forma "Totale ore 8", numero DOPO la parola "ore")
+# e il rapportino restava senza ore anche se l'operaio le aveva dette chiaramente.
+_NUMERI_PAROLE = {"un": 1, "una": 1, "uno": 1, "due": 2, "tre": 3, "quattro": 4, "cinque": 5,
+                  "sei": 6, "sette": 7, "otto": 8, "nove": 9, "dieci": 10, "undici": 11,
+                  "dodici": 12, "tredici": 13, "quattordici": 14}
+_NUM = r"(\d{1,2}(?:[.,]\d{1,2})?|" + "|".join(sorted(_NUMERI_PAROLE, key=len, reverse=True)) + r")"
+_FRAZIONE = (r"(?:\s*(?:e\s+)?(mezz[ao]|un\s+quarto|tre\s+quarti|(15|30|45|\d{1,2}(?=\s*minuti))(?:\s*minuti)?\b"
+             r"|(?:trenta|quindici|quarantacinque)(?:\s+minuti)?))?")
+_TOTALE_ORE = [re.compile(r, re.IGNORECASE) for r in (
+    # "totale ore 8", "totale ore lavorate: 8 e mezza", "ore totali 8"
+    r"\b(?:(?:in\s+)?totale\s*(?:di\s+)?ore(?:\s+lavorate)?|ore\s+(?:totali|complessive|in\s+totale))\s*[:=]?\s*"
+    + _NUM + r"\b(?:\s*(?:ore|h)\b)?" + _FRAZIONE,
+    # "totale: 8 ore e mezza", "in totale otto ore", "8 ore totali"
+    r"\b(?:in\s+)?totale\s*(?:di\s+)?[:=]?\s*" + _NUM + r"\s*(?:ore|h)\b" + _FRAZIONE,
+    r"\b" + _NUM + r"\s*(?:ore|h)\s+(?:totali|complessive|in\s+totale)\b" + _FRAZIONE,
+    # frase che comincia con "Ore 8." / "Ore lavorate: 8" (riepilogo dettato a parte)
+    r"(?:^|[.;\n]\s*)ore(?:\s+(?:lavorate|di\s+lavoro))?\s*[:=]?\s*" + _NUM + r"\b(?:\s*(?:ore|h)\b)?" + _FRAZIONE + r"\s*(?=[.;,\n]|$)",
+)]
+
+
+def _num_da_parola(t: str) -> Optional[float]:
+    t = (t or "").strip().lower()
+    if t in _NUMERI_PAROLE:
+        return float(_NUMERI_PAROLE[t])
+    try:
+        return float(t.replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _totale_ore_scritto(testo: str) -> Optional[float]:
+    """Totale ore di giornata dichiarato in modo esplicito ("Totale ore 8"), o None.
+    Se il testo ha più totali diversi non decide (ritorna None)."""
+    if not testo:
+        return None
+    valori = set()
+    for m in (m for rx in _TOTALE_ORE for m in rx.finditer(testo)):
+        v = _valore_durata(*m.groups())
+        if v is not None:
+            valori.add(v)
+    return valori.pop() if len(valori) == 1 else None
+
+
+def _valore_durata(num, fraz, minuti) -> Optional[float]:
+    """Numero + eventuale frazione ("e mezza", "e 30 minuti") → ore al quarto d'ora."""
+    v = _num_da_parola(num)
+    if v is None:
+        return None
+    f = (fraz or "").lower()
+    if minuti:
+        v += int(minuti) / 60
+    elif f.startswith("mezz") or f.startswith("trenta"):
+        v += 0.5
+    elif f.startswith("quindici"):
+        v += 0.25
+    elif "tre quarti" in f or f.startswith("quarantacinque"):
+        v += 0.75
+    elif "quarto" in f:
+        v += 0.25
+    return round(v * 4) / 4 if 0 < v <= 16 else None
+
+
+# ── Durata detta senza la parola "totale" ────────────────────────────────────
+# "9 ore tinteggiatura", "Oggi nove ore Brendola", "nove ore di lavoro +30 minuti
+# ritorno": l'IA a volte non le riportava e il rapportino arrivava in validazione
+# senza ore. Si usa SOLO se nel testo c'è UNA sola durata di lavoro (escluse quelle di
+# viaggio/pausa e gli orari "alle 9"): con durate diverse la scelta resta all'IA/admin.
+_DURATA_ORE = re.compile(
+    r"(?<![\w:.,'’])" + _NUM + r"\s*(?:ore|ora|h)\b" + _FRAZIONE
+    + r"|\bun['’]\s*ora\b" + _FRAZIONE,
+    re.IGNORECASE,
+)
+_PRIMA_ORARIO = re.compile(r"\b(?:dal+e|al+e|verso\s+le|entro\s+le|fino\s+al+e)\s*$", re.IGNORECASE)
+# "Viaggio andata e ritorno: 1 ora", "Rientro: 2 ore" — durata di viaggio, non di lavoro
+_PRIMA_NON_LAVORO = re.compile(
+    r"\b(viaggi\w*|ritorn\w*|andat\w*|rientr\w*|trasfert\w*|trasferiment\w*|tragitto|pausa|pranzo)\b[^.;\n]*$",
+    re.IGNORECASE,
+)
+_DOPO_NON_LAVORO = re.compile(
+    r"^\s*(?:di\s+|in\s+|per\s+(?:il\s+|la\s+)?)?(viaggi\w*|ritorn\w*|andat\w*|trasfert\w*|strada|tragitto|spostament\w*|"
+    r"pausa|pranzo|extra|straordinari\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def _durata_ore_detta(testo: str) -> Optional[float]:
+    """Ore di lavoro della giornata: prima il totale esplicito, altrimenti l'unica durata
+    "N ore" detta nel racconto. None se non c'è o se è ambigua."""
+    if not testo:
+        return None
+    scritto = _totale_ore_scritto(testo)
+    if scritto is not None:
+        return scritto
+    valori = set()
+    for m in _DURATA_ORE.finditer(testo):
+        if _PRIMA_ORARIO.search(testo[max(0, m.start() - 14):m.start()]):
+            continue
+        if _PRIMA_NON_LAVORO.search(testo[max(0, m.start() - 40):m.start()]):
+            continue
+        if _DOPO_NON_LAVORO.search(testo[m.end():m.end() + 40]):
+            continue
+        num, fraz, minuti, fraz1, minuti1 = m.groups()
+        v = _valore_durata(num, fraz, minuti) if num else _valore_durata("1", fraz1, minuti1)
+        if v is not None:
+            valori.add(v)
+    return valori.pop() if len(valori) == 1 else None
 
 
 def _ha_ore(dati: dict) -> bool:
@@ -913,7 +1032,27 @@ def da_validare(db: Session = Depends(get_db), user: Utente = Depends(get_curren
     rs = db.query(RapportinoOperativo).filter(
         RapportinoOperativo.stato == "inviato"
     ).order_by(RapportinoOperativo.creato_il.desc()).all()
+    _recupera_ore_dette(db, rs)
     return [_rap_dict(r, db) for r in rs]
+
+
+def _recupera_ore_dette(db: Session, rs: list) -> None:
+    """Rapportini da validare rimasti senza ore anche se il testo dice "Totale ore 8" o
+    "9 ore": le ore si recuperano da sole quando si apre la lista, senza ri-analisi a
+    mano. Solo regex, nessuna chiamata IA; tocca solo gli "inviato"."""
+    cambiati = 0
+    for r in rs:
+        if r.stato != "inviato" or r.ore_lavorate:
+            continue
+        for t in (r.testo_italiano, r.descrizione_lavori, r.testo_originale):
+            v = _durata_ore_detta(t or "")
+            if v:
+                r.ore_lavorate = v
+                cambiati += 1
+                break
+    if cambiati:
+        db.commit()
+        logger.info("[ore_dette] ore recuperate su %d rapportini da validare", cambiati)
 
 
 @router.get("/operatori")
