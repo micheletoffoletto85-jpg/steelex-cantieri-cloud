@@ -91,6 +91,7 @@ Come leggere "ore" di un blocco — la durata è quasi sempre scritta lì:
 - INTERVALLO inizio–fine (calcola fine meno inizio, togli le pause dette):
   "7:00 - 8:00" = 1 · "8:00 - 17:30" = 9.5 · "dalle 7 alle 17 con un'ora di pausa" = 9.
 - solo un orario singolo senza fine ("arrivato alle 8:30", "alle 17 ho staccato") → null.
+- "nove ore" / "dalle nove ore" (numero seguito dalla parola "ore", senza orario di fine) = 9.
 - niente → null.
 Non inventare un luogo o una durata che non ci sono.
 
@@ -111,7 +112,7 @@ Rispondi SOLO con il JSON. Non tralasciare nessun lavoro descritto nel testo.
   "descrizione_extra": "lavori extra o situazioni particolari, null se nessuna",
   "ore_extra": numero_ore_extra_o_null,
   "materiale_extra": "materiale extra non previsto, null se nessuno",
-  "criticita": "problema o non conformità in una frase, null se nessuno",
+  "criticita": "problema REALE in cantiere o non conformità (danno, difetto, ritardo, materiale mancante, sicurezza) in una frase, null se nessuno",
   "spese_extra": [{{"descrizione": "cosa", "importo": numero_o_null}}],
   "colleghi": [{{"nome": "collega presente/al lavoro insieme", "ore": numero_o_null}}],
   "extra_preventivo": true_o_false,
@@ -128,6 +129,10 @@ Regole:
   solo un orario singolo → null; niente → null. Stessa regola per le ore dei colleghi.
 - Collega = persona al lavoro insieme ("io e Mesedin", "eravamo in due"). Non gli operai citati genericamente.
 - extra_preventivo = true SOLO se l'operaio dice che è extra / fuori preventivo / da fatturare a parte.
+- "criticita" è SOLO un problema che l'operaio racconta in cantiere. MAI note sul rapportino
+  stesso: cantiere non in elenco, ore non dette, dati mancanti -> criticita = null.
+- "nove ore" / "lavoro nove ore" / "dalle nove ore" (il numero seguito dalla parola "ore",
+  senza un orario di fine) è una DURATA = 9, non un orario di inizio.
 
 {hint}Blocco:
 {testo}
@@ -155,7 +160,7 @@ def _segmenta_giornata(testo: str, cantieri_nomi: list) -> dict:
     unico = {"data_lavoro": None, "segmenti": [{"cantiere": None, "testo": testo, "ore": None}]}
     if not settings.ANTHROPIC_API_KEY:
         return unico
-    hint = f"Cantieri attivi: {', '.join(cantieri_nomi[:20])}\n" if cantieri_nomi else ""
+    hint = _hint_cantieri(cantieri_nomi)
     try:
         msg = _claude().messages.create(
             model="claude-haiku-4-5-20251001", max_tokens=2048,
@@ -185,7 +190,7 @@ def _estrai_campi(testo: str, cantieri_nomi: list) -> dict:
     """Fase 2: dettagli di UN blocco di lavoro. Fail-open a campi vuoti."""
     if not settings.ANTHROPIC_API_KEY:
         return _campi_vuoti(testo)
-    hint = f"Cantieri attivi: {', '.join(cantieri_nomi[:20])}\n" if cantieri_nomi else ""
+    hint = _hint_cantieri(cantieri_nomi)
     try:
         msg = _claude().messages.create(
             model="claude-haiku-4-5-20251001", max_tokens=3072,
@@ -235,7 +240,73 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
                  "riassunto": c.get("riassunto")}
                 for s, c in elaborati[1:]
             ]}
+
+    # Rete di sicurezza: se l'IA non ha riconosciuto il luogo ma il racconto nomina un
+    # cantiere in anagrafica, usa quello.
+    if not dati["altri_cantieri"]:
+        nomi_norm = [_normalizza_nome(n) for n in cantieri_nomi if n]
+        luogo = _normalizza_nome(dati.get("cantiere"))
+        if not (luogo and any(nc and (luogo in nc or nc in luogo) for nc in nomi_norm)):
+            nel_testo = _cantiere_nel_testo(testo, cantieri_nomi)
+            if nel_testo:
+                dati["cantiere"] = nel_testo
+
+    dati["criticita"] = _criticita_valida(dati.get("criticita"))
     return dati
+
+
+def _hint_cantieri(cantieri_nomi: list) -> str:
+    """Elenco COMPLETO dei cantieri in anagrafica per i prompt. Prima era troncato ai
+    primi 20: un cantiere oltre il 20° (es. 'Alex Pigato') non veniva mai riconosciuto,
+    l'IA lasciava il luogo a null e in più lo segnalava come criticità/NC."""
+    if not cantieri_nomi:
+        return ""
+    return ("Cantieri in anagrafica: " + ", ".join(cantieri_nomi) + "\n"
+            "(Se il cantiere detto non è in questo elenco scrivilo comunque come detto: "
+            "NON è un problema da segnalare.)\n")
+
+
+# Criticità "meta" generate dall'IA sul rapportino stesso (non problemi reali di
+# cantiere): non devono diventare una NC.
+_CRITICITA_META = re.compile(
+    r"(non (è |e' |risulta |presente |compare |trovat)|assente).{0,40}(elenco|lista|anagrafica|cantieri attivi)"
+    r"|(ore|orario|durata|dati?|informazioni?) .{0,25}(non (specificat|indicat|dichiarat|fornit)|mancant)"
+    r"|nessun dato orario",
+    re.IGNORECASE,
+)
+
+
+def _criticita_valida(c) -> Optional[str]:
+    """Scarta le 'criticità' che parlano del rapportino (cantiere non in elenco, ore non
+    dichiarate...) invece che di un problema reale in cantiere."""
+    if not c or not str(c).strip():
+        return None
+    c = str(c).strip()
+    if c.lower() in ("null", "none", "nessuna", "nessuno"):
+        return None
+    return None if _CRITICITA_META.search(c) else c
+
+
+# Intestazioni che l'IA a volte premette al testo riscritto ("# Testo riordinato:")
+_INTESTAZIONE_RIORDINO = re.compile(
+    r"^\s*(#+\s*)?\**\s*(testo\s+(riordinato|ordinato|riscritto)|traduzione(\s+in\s+italiano)?)\s*:?\s*\**\s*\n+",
+    re.IGNORECASE,
+)
+
+
+def _pulisci_riordino(t: str) -> str:
+    return _INTESTAZIONE_RIORDINO.sub("", (t or "").strip(), count=1).strip()
+
+
+# Regole comuni ai prompt che riscrivono/traducono la dettatura: il passaggio di
+# "pulizia" trasformava "nove ore" (durata) in "Lavoro dalle nove ore" -> le ore
+# sparivano e il riassunto diceva "Inizio lavori alle 9:00".
+REGOLE_RIORDINO = (
+    "- Numeri, ore, durate e orari ESATTAMENTE come detti: \"nove ore\" resta \"nove ore\" "
+    "(è una DURATA); non trasformarla mai in un orario (\"dalle nove\", \"alle 9:00\") né viceversa\n"
+    "- Nomi di cantieri, clienti e persone esattamente come detti\n"
+    "- Rispondi SOLO con il testo, senza titoli né intestazioni (niente \"Testo riordinato:\")\n"
+)
 
 
 def _ha_ore(dati: dict) -> bool:
@@ -372,7 +443,40 @@ def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[in
         for c in cantieri:
             if parole_rilevate & set(_normalizza_nome(c.nome).split()):
                 return c.id
+        # Ultimo giro: parola quasi uguale (doppie/lettere sbagliate dalla trascrizione:
+        # "Pigatto" <-> "Pigato", "Fanerai" <-> "Panerai")
+        for c in cantieri:
+            for pc in _normalizza_nome(c.nome).split():
+                if len(pc) >= 5 and any(_simili(pc, pr) for pr in parole_rilevate):
+                    return c.id
     return None
+
+
+def _simili(a: str, b: str) -> bool:
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, a, b).ratio() >= 0.83
+
+
+def _cantiere_nel_testo(testo: str, cantieri_nomi: list) -> Optional[str]:
+    """Cerca nel racconto il nome di un cantiere in anagrafica (normalizzato, tollerante ai
+    refusi di trascrizione). Restituisce il nome se ne trova UNO solo, altrimenti None:
+    se il racconto nomina più cantieri la scelta resta all'IA/all'admin."""
+    parole = _normalizza_nome(testo).split()
+    if not parole:
+        return None
+    trovati = []
+    for nome in cantieri_nomi:
+        toks = _normalizza_nome(nome).split()
+        if not toks or (len(toks) == 1 and len(toks[0]) < 5):
+            continue   # nomi troppo corti/generici ("mta") darebbero falsi positivi
+        n = len(toks)
+        for i in range(len(parole) - n + 1):
+            fin = parole[i:i + n]
+            if all(f == t or (len(t) >= 5 and _simili(f, t)) for f, t in zip(fin, toks)):
+                trovati.append(nome)
+                break
+    trovati = list(dict.fromkeys(trovati))
+    return trovati[0] if len(trovati) == 1 else None
 
 
 _RUOLI_OPERATIVI_MATCH = ("operativo", "artigiano", "capo_cantiere", "capo_cantiere_sub")
@@ -555,7 +659,7 @@ def _whisper_prompt(db: Session) -> str:
     nomi = [c.nome for c in cantieri_attivi if c.nome]
     if not nomi:
         return WHISPER_PROMPT
-    return WHISPER_PROMPT + f" Cantieri attivi: {', '.join(nomi[:15])}."
+    return WHISPER_PROMPT + f" Cantieri attivi: {', '.join(nomi[:40])}."
 
 
 def _trascrivi_con_fallback(client, tmp_path: str, whisper_kwargs: dict):
@@ -648,13 +752,14 @@ async def trascrivi_audio(
             "- Elimina ripetizioni, esitazioni (uhm, cioè, quindi...) e ridondanze\n"
             "- Mantieni TUTTE le informazioni sul lavoro: cantiere, attività svolte, materiali, problemi\n"
             "- Parole semplici — niente tecnicismi inutili\n"
+            + REGOLE_RIORDINO +
             "- NON tradurre, rimani in {lingua}\n\n"
             "Trascrizione grezza:\n{txt}\n\nTesto riordinato:"
         )
         msg_a = claude.messages.create(
             model="claude-haiku-4-5-20251001", max_tokens=4096,
             messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale, lingua=lingua_nome)}])
-        testo_riordinato = msg_a.content[0].text.strip()
+        testo_riordinato = _pulisci_riordino(msg_a.content[0].text)
 
         if lingua != "it":
             TRADUCI = (
@@ -663,13 +768,14 @@ async def trascrivi_audio(
                 "- Italiano diretto e semplice, come parlerebbe un operaio italiano\n"
                 "- Conserva tutti i dettagli: cantiere, attività, materiali, eventuali problemi\n"
                 "- Frasi brevi, niente tecnicismi inutili\n"
-                "- NON aggiungere informazioni che non ci sono nel testo originale\n\n"
+                "- NON aggiungere informazioni che non ci sono nel testo originale\n"
+                + REGOLE_RIORDINO + "\n"
                 f"Testo in {lingua_nome}:\n{{txt}}\n\nTraduzione in italiano:"
             )
             msg_b = claude.messages.create(
                 model="claude-haiku-4-5-20251001", max_tokens=4096,
                 messages=[{"role":"user","content":TRADUCI.format(txt=testo_riordinato)}])
-            testo_finale = msg_b.content[0].text.strip()
+            testo_finale = _pulisci_riordino(msg_b.content[0].text)
         else:
             testo_finale = testo_riordinato
       except Exception as e:
@@ -773,12 +879,13 @@ async def invia_rapportino(
             RIORDINA = (
                 f"Ricevi la trascrizione grezza in {lingua_nome} di un operaio di cantiere.\n"
                 "Riscrivi nella stessa lingua, in modo chiaro, eliminando ripetizioni.\n"
+                + REGOLE_RIORDINO +
                 "NON tradurre. Solo testo scorrevole.\n\nTrascrizione:\n{txt}\n\nTesto ordinato:"
             )
             msg_a = claude.messages.create(
                 model="claude-haiku-4-5-20251001", max_tokens=4096,
                 messages=[{"role":"user","content":RIORDINA.format(txt=testo_originale)}])
-            testo_elaborato = msg_a.content[0].text.strip()
+            testo_elaborato = _pulisci_riordino(msg_a.content[0].text)
 
             if lingua != "it":
                 TRADUCI = (
@@ -789,14 +896,14 @@ async def invia_rapportino(
                 msg_b = claude.messages.create(
                     model="claude-sonnet-4-6", max_tokens=4096,
                     messages=[{"role":"user","content":TRADUCI}])
-                testo_ita = msg_b.content[0].text.strip()
+                testo_ita = _pulisci_riordino(msg_b.content[0].text)
             else:
                 testo_ita = testo_elaborato
         else:
             testo_ita = testo_originale
 
     elif testo:
-        testo_originale = testo.strip()
+        testo_originale = _pulisci_riordino(testo)
         testo_ita = testo_originale
 
     # Estrai dati strutturati dal testo — sia che venga da audio che da testo diretto.
@@ -1279,6 +1386,32 @@ class ModificaBody(BaseModel):
     colleghi_ore: Optional[List[CollegaOre]] = None
     extra_preventivo: Optional[bool] = None
     extra_preventivo_nota: Optional[str] = None
+    data_lavoro: Optional[str] = None   # YYYY-MM-DD — giorno a cui si riferisce il rapportino
+
+
+def _sposta_data_rapportino(db: Session, r: RapportinoOperativo, nuova_data: str) -> None:
+    """Correzione manuale della data del rapportino (registrato sul giorno sbagliato): se
+    è già validato sposta anche tutto ciò che ne è nato — nota diario (una per
+    rapportino), righe ore nei costi cantiere (operativo, colleghi, viaggio) e registro
+    ore personale — così niente resta agganciato al giorno vecchio."""
+    data_obj = date_today.fromisoformat(nuova_data)
+    r.data_lavoro = nuova_data
+    if r.diario_id:
+        diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == r.diario_id).first()
+        if diario:
+            diario.data = data_obj
+        for oe in db.query(OreExtra).filter(OreExtra.diario_id == r.diario_id).all():
+            oe.data = data_obj
+    if r.ore_extra_id:
+        oe = db.query(OreExtra).filter(OreExtra.id == r.ore_extra_id).first()
+        if oe:
+            oe.data = data_obj
+    for ol in db.query(OreLavorate).filter(OreLavorate.rapportino_id == r.id).all():
+        ol.data = data_obj
+    if r.ore_lavorate_id:
+        ol = db.query(OreLavorate).filter(OreLavorate.id == r.ore_lavorate_id).first()
+        if ol:
+            ol.data = data_obj
 
 
 @router.put("/{rapportino_id}")
@@ -1294,8 +1427,16 @@ def modifica_rapportino(
         raise HTTPException(403)
     r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
     if not r: raise HTTPException(404)
+    if r.stato == "diviso":
+        raise HTTPException(400, "Rapportino già diviso: modifica i rapportini creati dalla divisione")
 
     dati = body.model_dump(exclude_unset=True)
+    if dati.get("data_lavoro") and dati["data_lavoro"] != r.data_lavoro:
+        try:
+            date_today.fromisoformat(dati["data_lavoro"])
+        except ValueError:
+            raise HTTPException(400, "Data non valida")
+        _sposta_data_rapportino(db, r, dati["data_lavoro"])
     for campo in ("testo_italiano", "descrizione_lavori", "descrizione_extra", "riassunto",
                   "ore_lavorate", "ore_extra", "materiale_extra", "lavorazioni", "materiali", "criticita",
                   "colleghi_ore", "extra_preventivo", "extra_preventivo_nota"):
@@ -1571,7 +1712,10 @@ def rianalizza_rapportino(
 
 
 class SegmentoDividi(BaseModel):
-    cantiere_id: int
+    # None = questa parte resta FUORI CANTIERE (es. lavoro presso un cliente che non è un
+    # cantiere aperto): diventa un rapportino senza cantiere, ore solo nel registro personale
+    cantiere_id: Optional[int] = None
+    cantiere: Optional[str] = None   # nome citato, conservato per le parti fuori cantiere
     testo: Optional[str] = None
     ore: Optional[float] = None
     lavorazioni: Optional[List[str]] = []
@@ -1624,9 +1768,11 @@ def dividi_rapportino(
 
     creati = []
     for i, seg in enumerate(segmenti):
-        cantiere = db.query(Cantiere).filter(Cantiere.id == seg.cantiere_id).first()
-        if not cantiere:
-            raise HTTPException(404, f"Cantiere non trovato (segmento {i + 1})")
+        cantiere = None
+        if seg.cantiere_id is not None:
+            cantiere = db.query(Cantiere).filter(Cantiere.id == seg.cantiere_id).first()
+            if not cantiere:
+                raise HTTPException(404, f"Cantiere non trovato (segmento {i + 1})")
 
         # Testo specifico per questo cantiere: se l'admin l'ha scritto/incollato nel pannello
         # di divisione si usa quello, altrimenti il testo completo va solo sul primo segmento
@@ -1638,13 +1784,14 @@ def dividi_rapportino(
 
         nuovo = RapportinoOperativo(
             operativo_id       = r.operativo_id,
-            cantiere_id        = cantiere.id,
+            operatore_nome     = r.operatore_nome,
+            cantiere_id        = cantiere.id if cantiere else None,
             data_lavoro        = r.data_lavoro,
             testo_originale    = r.testo_originale,
             testo_elaborato    = testo_seg,
             testo_italiano     = testo_seg,
             lingua_originale   = r.lingua_originale,
-            cantiere_rilevato  = cantiere.nome,
+            cantiere_rilevato  = (cantiere.nome if cantiere else ((seg.cantiere or "").strip()[:300] or None)),
             descrizione_lavori = testo_seg,
             foto_avanzamento_urls = r.foto_avanzamento_urls or [],
             descrizione_extra  = r.descrizione_extra if i == 0 else None,
@@ -1658,7 +1805,7 @@ def dividi_rapportino(
             spese_extra        = r.spese_extra if i == 0 else [],
             riassunto          = seg.riassunto or (testo_seg[:200] if testo_seg else r.riassunto),
             stato              = "inviato",
-            fuori_cantiere     = False,
+            fuori_cantiere     = cantiere is None,
         )
         db.add(nuovo)
         creati.append(nuovo)
