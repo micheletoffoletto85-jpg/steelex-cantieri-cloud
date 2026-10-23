@@ -44,7 +44,8 @@ RUOLI_ADMIN     = {RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amm
 #   tempo / gruppo di attività) e legge la DURATA di ogni blocco — la durata è quasi
 #   sempre scritta nel blocco stesso ("(8 ore e 30 minuti)", "8:00 - 17:30").
 # Fase 2 (_estrai_campi): per OGNI blocco, estrae i dettagli (lavorazioni, materiali,
-#   criticità, colleghi, extra, riassunto) — non tronca mai il contenuto.
+#   criticità, extra, riassunto) — non tronca mai il contenuto. I colleghi NON si
+#   estraggono più: ogni operatore fa il proprio rapportino (niente ore doppie).
 # Fase 3 (_verifica_ore): sanity check finale sulle ore di lavoro.
 # _estrai_dati orchestra le 3 fasi e ricompone la struttura legacy attesa dal resto
 # del codice (campi primari = 1° blocco, altri_cantieri = 2°…N°).
@@ -114,7 +115,6 @@ Rispondi SOLO con il JSON. Non tralasciare nessun lavoro descritto nel testo.
   "materiale_extra": "materiale extra non previsto, null se nessuno",
   "criticita": "problema REALE in cantiere o non conformità (danno, difetto, ritardo, materiale mancante, sicurezza) in una frase, null se nessuno",
   "spese_extra": [{{"descrizione": "cosa", "importo": numero_o_null}}],
-  "colleghi": [{{"nome": "collega presente/al lavoro insieme", "ore": numero_o_null}}],
   "extra_preventivo": true_o_false,
   "extra_preventivo_nota": "cosa è fuori preventivo, null se extra_preventivo è false",
   "riassunto": "1-2 righe che riassumono QUESTO blocco"
@@ -126,8 +126,7 @@ Regole:
 - "ore" = DURATA del lavoro (decimale): durata esplicita ("1 ora" = 1, "8 ore e 30 minuti" = 8.5,
   "9 e mezza" = 9.5, "8,45" = 8.75; "H,MM"/"H:MM" di durata sono ore:minuti, "9,30" = 9.5 non 9.3);
   INTERVALLO inizio–fine → calcola ("7:00 - 8:00" = 1, "8:00 - 17:30" = 9.5, "dalle 7 alle 17" = 10);
-  solo un orario singolo → null; niente → null. Stessa regola per le ore dei colleghi.
-- Collega = persona al lavoro insieme ("io e Mesedin", "eravamo in due"). Non gli operai citati genericamente.
+  solo un orario singolo → null; niente → null.
 - extra_preventivo = true SOLO se l'operaio dice che è extra / fuori preventivo / da fatturare a parte.
 - "criticita" è SOLO un problema che l'operaio racconta in cantiere. MAI note sul rapportino
   stesso: cantiere non in elenco, ore non dette, dati mancanti -> criticita = null.
@@ -143,7 +142,7 @@ JSON:"""
 def _campi_vuoti(testo: str) -> dict:
     return {"ore": None, "descrizione_lavori": testo[:300], "lavorazioni": [], "materiali": [],
             "descrizione_extra": None, "ore_extra": None, "materiale_extra": None, "criticita": None,
-            "spese_extra": [], "colleghi": [], "extra_preventivo": False,
+            "spese_extra": [], "extra_preventivo": False,
             "extra_preventivo_nota": None, "riassunto": testo[:200]}
 
 
@@ -210,7 +209,7 @@ def _estrai_dati(testo: str, cantieri_nomi: list) -> dict:
              "criticita": None, "spese_extra": [], "riassunto": testo[:200],
              "data_lavoro": None, "descrizione_lavori": testo[:300], "testo": testo,
              "descrizione_extra": None, "ore_extra": None, "materiale_extra": None,
-             "colleghi": [], "extra_preventivo": False, "extra_preventivo_nota": None, "altri_cantieri": []}
+             "extra_preventivo": False, "extra_preventivo_nota": None, "altri_cantieri": []}
     if not settings.ANTHROPIC_API_KEY:
         return vuoto
 
@@ -312,9 +311,6 @@ REGOLE_RIORDINO = (
 def _ha_ore(dati: dict) -> bool:
     if dati.get("ore") not in (None, 0):
         return True
-    for c in (dati.get("colleghi") or []):
-        if c.get("ore") not in (None, 0):
-            return True
     for a in (dati.get("altri_cantieri") or []):
         if a.get("ore") not in (None, 0):
             return True
@@ -346,7 +342,6 @@ Regole:
 Rispondi con questo JSON:
 {{
   "ore": numero_o_null,
-  "colleghi": [{{"nome": "come nell'elenco", "ore": numero_o_null}}],
   "altri_cantieri": [{{"cantiere": "come nell'elenco", "ore": numero_o_null}}]
 }}
 
@@ -363,7 +358,6 @@ def _verifica_ore(testo: str, dati: dict) -> dict:
     try:
         estratti = {
             "ore": dati.get("ore"),
-            "colleghi": [{"nome": c.get("nome"), "ore": c.get("ore")} for c in (dati.get("colleghi") or [])],
             "altri_cantieri": [{"cantiere": a.get("cantiere"), "ore": a.get("ore")} for a in (dati.get("altri_cantieri") or [])],
         }
         import anthropic
@@ -387,14 +381,6 @@ def _verifica_ore(testo: str, dati: dict) -> dict:
     if "ore" in v and v.get("ore") != dati.get("ore"):
         cambi.append(f"ore {dati.get('ore')}→{v.get('ore')}")
         dati["ore"] = v.get("ore")
-
-    ore_col = {(c.get("nome") or "").strip().lower(): c.get("ore")
-               for c in (v.get("colleghi") or []) if c.get("nome")}
-    for c in (dati.get("colleghi") or []):
-        k = (c.get("nome") or "").strip().lower()
-        if k in ore_col and ore_col[k] != c.get("ore"):
-            cambi.append(f"collega {c.get('nome')} {c.get('ore')}→{ore_col[k]}")
-            c["ore"] = ore_col[k]
 
     ore_alt = {(a.get("cantiere") or "").strip().lower(): a.get("ore")
                for a in (v.get("altri_cantieri") or []) if a.get("cantiere")}
@@ -969,7 +955,9 @@ async def invia_rapportino(
         ore_extra         = ore_extra or dati_ai.get("ore_extra"),
         materiale_extra   = materiale_extra or dati_ai.get("materiale_extra"),
         ore_lavorate      = dati_ai.get("ore"),
-        colleghi_ore      = dati_ai.get("colleghi") or [],
+        # Niente colleghi dall'IA: ognuno fa il proprio rapportino (gli esterni senza
+        # account con "Per conto di"). L'admin può ancora aggiungerli a mano.
+        colleghi_ore      = [],
         extra_preventivo  = dati_ai.get("extra_preventivo") or False,
         extra_preventivo_nota = dati_ai.get("extra_preventivo_nota"),
         lavorazioni       = dati_ai.get("lavorazioni") or [],
@@ -1611,16 +1599,16 @@ def rianalizza_rapportino(
     # ri-analizzando testo_italiano, il racconto più ricco) può superare il limite e far
     # fallire il commit con un errore DB non gestito
     r.cantiere_rilevato = (dati.get("cantiere") or "")[:300] or None
-    # Non-distruttivo: se la ri-analisi non trova ore o colleghi non cancellare quelli
-    # già registrati (spesso il testo ri-analizzato è un riassunto più povero dell'originale)
+    # Non-distruttivo: se la ri-analisi non trova ore non cancellare quelle
+    # già registrate (spesso il testo ri-analizzato è un riassunto più povero dell'originale)
     if dati.get("ore"):
         r.ore_lavorate = dati.get("ore")
     r.lavorazioni = dati.get("lavorazioni") or []
     r.materiali = dati.get("materiali") or []
     r.criticita = dati.get("criticita")
     r.spese_extra = dati.get("spese_extra") or []
-    if dati.get("colleghi"):
-        r.colleghi_ore = dati.get("colleghi")
+    # colleghi_ore NON viene toccato: l'IA non li estrae più, restano quelli storici
+    # o aggiunti a mano dall'admin
     r.extra_preventivo = dati.get("extra_preventivo") or False
     r.extra_preventivo_nota = dati.get("extra_preventivo_nota")
     r.riassunto = dati.get("riassunto") or r.riassunto
