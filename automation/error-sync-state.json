@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 44,
-  "since_id_fr": 194,
+  "since_id_fr": 198,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -292,6 +292,50 @@
         "messaggio": "Modulo economico riservato ad admin, capo cantiere e amministrazione",
         "url_pagina": "/cantieri/22",
         "dettagli": "{\"detail\":\"Modulo economico riservato ad admin, capo cantiere e amministrazione\"}"
+      },
+      {
+        "id": 195,
+        "creato_il": "2026-10-23T07:06:11.953708+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/11/mappa/leggi",
+        "metodo": "POST",
+        "status_code": 502,
+        "messaggio": "Non sono riuscito a leggere l'immagine, riprova",
+        "url_pagina": "/commerciale/preventivi/11/rilievo",
+        "dettagli": "{\"detail\":\"Non sono riuscito a leggere l'immagine, riprova\"}"
+      },
+      {
+        "id": 196,
+        "creato_il": "2026-10-23T07:29:15.507958+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/30/economia",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/cantieri/30",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      },
+      {
+        "id": 197,
+        "creato_il": "2026-10-23T07:29:16.659550+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/30/preventivi/import-computo",
+        "metodo": "POST",
+        "status_code": 400,
+        "messaggio": "Errore analisi PDF: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CgJmwKkAD74kyZtMkP9UW'}",
+        "url_pagina": "/cantieri/30",
+        "dettagli": "{\"detail\":\"Errore analisi PDF: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CgJmwKkAD74kyZtMkP9UW'}\"}"
+      },
+      {
+        "id": 198,
+        "creato_il": "2026-10-23T07:44:01.578529+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/11/stanze/11/mappa/lavorazioni-vocali",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Non ho capito su quali parti lavorare. Ho sentito: \"Tu tirai fuori dai stili...\" — riprova citando le lettere dei lati o i numeri dei pezzi (es. \"parete A e C cartongesso, alta 2,70\").",
+        "url_pagina": "/commerciale/preventivi/11/rilievo",
+        "dettagli": "{\"detail\":\"Non ho capito su quali parti lavorare. Ho sentito: \\\"Tu tirai fuori dai stili...\\\" — riprova citando le lettere dei lati o i numeri dei pezzi (es. \\\"parete A e C cartongesso, alta 2,70\\\").\"}"
       }
     ]
   }
