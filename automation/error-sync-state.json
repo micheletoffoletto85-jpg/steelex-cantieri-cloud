@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 44,
-  "since_id_fr": 202,
+  "since_id_fr": 204,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -380,6 +380,28 @@
         "messaggio": "Manca l'altezza per: Parete A, Parete B, Parete C, Parete D. Scrivi l'altezza pareti in alto nella mappa oppure dilla (es. \"alte 2,70\") e ridetta.",
         "url_pagina": "/commerciale/preventivi/12/rilievo",
         "dettagli": "{\"detail\":\"Manca l'altezza per: Parete A, Parete B, Parete C, Parete D. Scrivi l'altezza pareti in alto nella mappa oppure dilla (es. \\\"alte 2,70\\\") e ridetta.\"}"
+      },
+      {
+        "id": 203,
+        "creato_il": "2026-10-26T12:46:21.360782+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/11/disegni",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/commerciale/preventivi/11/rilievo",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
+      },
+      {
+        "id": 204,
+        "creato_il": "2026-10-26T12:46:21.978248+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/listino",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Timeout client dopo 12000ms",
+        "url_pagina": "/commerciale/preventivi/11/rilievo",
+        "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 12000ms exceeded\"}"
       }
     ]
   }
