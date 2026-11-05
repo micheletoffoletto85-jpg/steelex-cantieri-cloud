@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 44,
-  "since_id_fr": 209,
+  "since_id_fr": 219,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -457,6 +457,116 @@
         "messaggio": "Rapportino già diviso: modifica i rapportini creati dalla divisione",
         "url_pagina": "/rapportini",
         "dettagli": "{\"detail\":\"Rapportino già diviso: modifica i rapportini creati dalla divisione\"}"
+      },
+      {
+        "id": 210,
+        "creato_il": "2026-11-05T13:33:44.765324+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/261",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 211,
+        "creato_il": "2026-11-05T13:33:52.515544+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/261",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 212,
+        "creato_il": "2026-11-05T13:33:53.477655+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/261",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 213,
+        "creato_il": "2026-11-05T13:34:11.963126+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/262",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 214,
+        "creato_il": "2026-11-05T13:34:14.309662+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/262",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 215,
+        "creato_il": "2026-11-05T13:34:16.077686+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/261",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 216,
+        "creato_il": "2026-11-05T13:34:42.608000+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/253",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 217,
+        "creato_il": "2026-11-05T13:34:44.641005+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/253",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 218,
+        "creato_il": "2026-11-05T13:35:12.772814+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/261",
+        "metodo": "PUT",
+        "status_code": 404,
+        "messaggio": "Not Found",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "id": 219,
+        "creato_il": "2026-11-05T13:35:19.069311+00:00",
+        "ruolo": "admin",
+        "endpoint": "/rapportini/261",
+        "metodo": "DELETE",
+        "status_code": 404,
+        "messaggio": "Rapportino non trovato",
+        "url_pagina": "/rapportini",
+        "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
       }
     ]
   }
