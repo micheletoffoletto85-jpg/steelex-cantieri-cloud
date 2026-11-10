@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 44,
-  "since_id_fr": 219,
+  "since_id_fr": 220,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -567,6 +567,17 @@
         "messaggio": "Rapportino non trovato",
         "url_pagina": "/rapportini",
         "dettagli": "{\"detail\":\"Rapportino non trovato\"}"
+      },
+      {
+        "id": 220,
+        "creato_il": "2026-11-10T21:44:45.296865+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Formato audio non supportato — riprova registrando di nuovo (se succede ancora, registra messaggi più brevi)",
+        "url_pagina": "/",
+        "dettagli": "{\"detail\":\"Formato audio non supportato — riprova registrando di nuovo (se succede ancora, registra messaggi più brevi)\"}"
       }
     ]
   }
