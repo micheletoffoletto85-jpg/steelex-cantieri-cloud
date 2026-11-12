@@ -756,7 +756,11 @@ function RegistraRapportinoAdmin({ cantieri = [], onChiudi }) {
           setFase('idle')
         }
       }
-      mr.start(1000)
+      // Timeslice 1s (chunk progressivi) solo per webm/ogg: su iPhone (audio/mp4) i pezzi
+      // a tempo danno un MP4 frammentato che spesso OpenAI rifiuta ("Formato audio non
+      // supportato") — lì un solo blocco a fine registrazione
+      if ((mr.mimeType || mimeType || '').includes('mp4')) mr.start()
+      else mr.start(1000)
       mediaRef.current = mr
       setFase('recording')
     } catch {
@@ -1009,9 +1013,15 @@ function VistaAdmin() {
   const eliminaMutation = useMutation(
     (id) => api.delete(`/rapportini/${id}`),
     {
-      onSuccess: () => {
+      onSuccess: (_res, id) => {
+        // Toglie subito il rapportino da TUTTE le liste in cache: "Tutti" non si
+        // ricarica se non è il tab aperto, e durante una ricerca il rapportino
+        // eliminato restava visibile (→ altri click su Elimina → 404 ripetuti)
+        qc.setQueriesData('rapp-da-validare', old => Array.isArray(old) ? old.filter(r => r.id !== id) : old)
+        qc.setQueriesData('rapp-tutti', old => Array.isArray(old) ? old.filter(r => r.id !== id) : old)
+        qc.setQueriesData('rapp-fuori', old => Array.isArray(old) ? old.filter(r => r.id !== id) : old)
         qc.invalidateQueries('rapp-da-validare')
-        qc.invalidateQueries('rapp-tutti')
+        qc.invalidateQueries('rapp-tutti', { refetchInactive: true })
         qc.invalidateQueries('rapp-fuori')
       }
     }
