@@ -97,8 +97,39 @@ def elimina_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Uten
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
-    db.delete(cantiere)
+    elimina_cantiere_completo(db, cantiere_id)
     db.commit()
+
+
+# Tabelle collegate al cantiere SENZA "ON DELETE CASCADE" nel DB: vanno svuotate a
+# mano, altrimenti un cantiere con anche un solo rapportino o una foto non si
+# cancella (errore 500). Le altre (computi, SAL, spese, fasi…) cascano da sole.
+_TABELLE_SENZA_CASCADE = (
+    "rapportini_operativi", "ore_extra", "diari_giornalieri", "foto_cantiere",
+    "documenti", "archivio_docs", "checklist_items", "richieste_documenti",
+)
+
+
+def elimina_cantiere_completo(db: Session, cantiere_id: int):
+    """Cancella il cantiere e tutto quello che c'è dentro (per cantieri aperti per
+    errore o di prova)."""
+    from sqlalchemy import text
+    p = {"c": cantiere_id}
+    # riferimenti incrociati fra figli: prima si staccano, poi si cancella
+    for sql in (
+        "UPDATE rapportini_operativi SET diario_id = NULL WHERE diario_id IN (SELECT id FROM diari_giornalieri WHERE cantiere_id = :c)",
+        "UPDATE rapportini_operativi SET ore_extra_id = NULL WHERE ore_extra_id IN (SELECT id FROM ore_extra WHERE cantiere_id = :c)",
+        "UPDATE ore_extra SET diario_id = NULL WHERE diario_id IN (SELECT id FROM diari_giornalieri WHERE cantiere_id = :c)",
+        "UPDATE fasi_lavoro SET sal_id = NULL WHERE sal_id IN (SELECT id FROM sal WHERE cantiere_id = :c)",
+        "UPDATE note_campo SET spesa_id = NULL WHERE spesa_id IN (SELECT id FROM spese WHERE cantiere_id = :c)",
+        "UPDATE bolle_consegna SET fattura_id = NULL WHERE fattura_id IN (SELECT id FROM fatture_fornitori WHERE cantiere_id = :c)",
+        "UPDATE fatture_fornitori SET ordine_id = NULL WHERE ordine_id IN (SELECT id FROM ordini_acquisto WHERE cantiere_id = :c)",
+    ):
+        db.execute(text(sql), p)
+    for tabella in _TABELLE_SENZA_CASCADE:
+        db.execute(text(f"DELETE FROM {tabella} WHERE cantiere_id = :c"), p)
+    db.execute(text("DELETE FROM cantieri WHERE id = :c"), p)
+    db.expire_all()
 
 # --- Gestione artigiani assegnati ---
 

@@ -31,6 +31,7 @@ export default function CantierePage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState(hash ? hash.slice(1) : 'info')
   const [editing, setEditing] = useState(false)
+  const [elimina, setElimina] = useState(false)
   const [form, setForm] = useState(null)
 
   // Segui l'hash anche a pagina già aperta (click su notifica → cambia tab)
@@ -96,6 +97,10 @@ export default function CantierePage() {
         </div>
         {editing ? (
           <div className="flex gap-2 flex-shrink-0">
+            {ruolo === 'admin' && (
+              <button onClick={() => setElimina(true)} aria-label="Elimina cantiere"
+                className="grid place-items-center h-11 w-11 rounded-lg text-red-500 hover:bg-red-50"><Trash2 size={20} /></button>
+            )}
             <button onClick={() => { setForm(cantiere); setEditing(false) }} aria-label="Annulla"
               className="grid place-items-center h-11 w-11 rounded-lg text-steelex-muted-fg hover:bg-steelex-muted"><X size={20} /></button>
             <button onClick={() => updateMutation.mutate(form)} className="btn-primary"><Save size={16} /> Salva</button>
@@ -105,6 +110,9 @@ export default function CantierePage() {
             className="grid place-items-center h-11 w-11 flex-shrink-0 rounded-lg text-steelex-muted-fg hover:bg-steelex-muted"><Edit2 size={20} /></button>
         )}
       </div>
+
+      {elimina && <EliminaCantiereDialog cantiere={cantiere} onClose={() => setElimina(false)}
+        onEliminato={() => { qc.invalidateQueries('cantieri'); navigate('/cantieri') }} />}
 
       {/* Tab bar — scroll orizzontale su mobile */}
       {(() => {
@@ -3156,4 +3164,40 @@ function LightboxNav({ urls, idx, onClose, onSetIdx, renderImg }) {
 function AuthImage({ url, className }) {
   const { src } = useAuthImage(url)
   return <img src={src} className={className} alt="" loading="lazy" />
+}
+
+// Elimina un cantiere aperto per errore o di prova: cancella tutto quello che
+// c'è dentro. Per sicurezza bisogna scrivere ELIMINA.
+function EliminaCantiereDialog({ cantiere, onClose, onEliminato }) {
+  const [testo, setTesto] = useState('')
+  const elimina = useMutation(() => api.delete(`/cantieri/${cantiere.id}`), {
+    onSuccess: () => { toast.success('Cantiere eliminato'); onEliminato() },
+    onError: e => toast.error(e.response?.data?.detail || 'Errore durante l\'eliminazione'),
+  })
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 text-red-600">
+          <AlertTriangle size={20} />
+          <h3 className="text-lg font-semibold">Eliminare il cantiere?</h3>
+        </div>
+        <p className="text-sm text-gray-700"><strong>{cantiere.nome}</strong></p>
+        <p className="text-sm text-gray-600">
+          Si cancellano anche diari, foto, rapportini, ore, documenti, computi, SAL e spese del cantiere.
+          <strong> Non si può annullare.</strong> Usalo per i cantieri aperti per errore o di prova.
+        </p>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-500">Scrivi ELIMINA per confermare</span>
+          <input className="input-field" value={testo} onChange={e => setTesto(e.target.value)} autoFocus />
+        </label>
+        <div className="flex gap-2">
+          <button className="btn-secondary flex-1" onClick={onClose}>Annulla</button>
+          <button className="flex-1 rounded-lg bg-red-600 text-white font-semibold py-2.5 disabled:opacity-40"
+            disabled={testo.trim().toUpperCase() !== 'ELIMINA' || elimina.isLoading} onClick={() => elimina.mutate()}>
+            {elimina.isLoading ? 'Elimino…' : 'Elimina'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
