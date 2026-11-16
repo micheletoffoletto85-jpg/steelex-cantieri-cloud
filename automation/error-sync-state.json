@@ -1,5 +1,5 @@
 {
-  "since_id_steelex": 44,
+  "since_id_steelex": 48,
   "since_id_fr": 223,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
@@ -15,6 +15,50 @@
         "messaggio": "Timeout client dopo 60000ms",
         "url_pagina": "/rapportini",
         "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 60000ms exceeded\"}"
+      },
+      {
+        "id": 45,
+        "creato_il": "2026-11-16T07:02:08.056501+00:00",
+        "ruolo": "cliente",
+        "endpoint": "/cantieri",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
+      },
+      {
+        "id": 46,
+        "creato_il": "2026-11-16T07:02:08.102437+00:00",
+        "ruolo": "cliente",
+        "endpoint": "/cantieri/3/foto",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
+      },
+      {
+        "id": 47,
+        "creato_il": "2026-11-16T07:02:08.676825+00:00",
+        "ruolo": "cliente",
+        "endpoint": "/cantieri",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
+      },
+      {
+        "id": 48,
+        "creato_il": "2026-11-16T07:02:08.779344+00:00",
+        "ruolo": "cliente",
+        "endpoint": "/cantieri/3/foto",
+        "metodo": "GET",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
       }
     ],
     "fr": [
