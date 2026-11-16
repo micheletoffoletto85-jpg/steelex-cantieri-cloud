@@ -11,6 +11,7 @@ import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
+import { inCoda } from '../lib/coda'
 import { useAuth } from '../lib/auth'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
@@ -922,17 +923,20 @@ function MappeTab({ cantiereId }) {
     const fileList = Array.from(files)
     if (fileList.length === 0) return
     setUploadingFotoCount(n => n + fileList.length)
-    // Upload in background — non blocca l'UI
-    Promise.all(fileList.map(async (file) => {
+    // Upload in background, 3 alla volta — non blocca l'UI
+    inCoda(fileList, async (file) => {
       try {
         const fd = new FormData(); fd.append('file', file)
         const r = await api.post(`/cantieri/${cantiereId}/documenti/${docSelezionato.id}/pin/${pinSelezionato.id}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
         setDocSelezionato(r.data)
-      } catch (e) { toast.error(e.response?.data?.detail || `Errore upload ${file.name}`) }
+        return true
+      } catch { return false }
       finally { setUploadingFotoCount(n => n - 1) }
-    })).then(() => {
+    }).then((esiti) => {
       qc.invalidateQueries(['documenti', cantiereId])
-      toast.success(fileList.length > 1 ? `${fileList.length} foto aggiunte` : 'Foto aggiunta')
+      const ko = esiti.filter(x => !x).length
+      if (ko < esiti.length) toast.success(esiti.length - ko > 1 ? `${esiti.length - ko} foto aggiunte` : 'Foto aggiunta')
+      if (ko) toast.error(`${ko} foto non caricate — riprova`)
     })
   }
 
@@ -1660,14 +1664,19 @@ function DiarioTab({ cantiereId, utente }) {
     if (!fileList.length) return
     setUploadingFor(diarioId)
     try {
-      await Promise.all(fileList.map(async (file) => {
-        const fd = new FormData(); fd.append('file', file)
-        await api.post(`/cantieri/${cantiereId}/diari/${diarioId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      }))
+      // 3 alla volta: tutte insieme vanno in timeout con molte foto
+      const esiti = await inCoda(fileList, async (file) => {
+        try {
+          const fd = new FormData(); fd.append('file', file)
+          await api.post(`/cantieri/${cantiereId}/diari/${diarioId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+          return true
+        } catch { return false }
+      })
       qc.invalidateQueries(['diari', cantiereId])
-      toast.success(fileList.length > 1 ? `${fileList.length} foto caricate!` : 'Foto caricata!')
-    } catch { toast.error('Errore upload foto') }
-    finally { setUploadingFor(null) }
+      const ko = esiti.filter(x => !x).length
+      if (ko < esiti.length) toast.success(esiti.length - ko > 1 ? `${esiti.length - ko} foto caricate!` : 'Foto caricata!')
+      if (ko) toast.error(`${ko} foto non caricate — riprova`)
+    } finally { setUploadingFor(null) }
   }
 
   const toggleSelRelazione = (id) => setSelRelazione(prev => {
@@ -2915,15 +2924,23 @@ function FotoTab({ cantiereId, utente }) {
     { staleTime: 0 }
   )
 
-  const uploadFoto = async (file) => {
-    setUploadingCount(n => n + 1)
-    try {
-      const compressa = await comprimiImmagine(file)
-      const fd = new FormData(); fd.append('file', compressa)
-      await api.post(`/cantieri/${cantiereId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      qc.invalidateQueries(['foto-cantiere', cantiereId])
-    } catch { toast.error('Errore upload foto') }
-    finally { setUploadingCount(n => n - 1) }
+  // Carica più foto 3 alla volta (tutte insieme andavano in timeout) e
+  // segnala alla fine quante sono riuscite e quante no
+  const caricaFoto = async (files) => {
+    setUploadingCount(n => n + files.length)
+    const esiti = await inCoda(files, async (file) => {
+      try {
+        const compressa = await comprimiImmagine(file)
+        const fd = new FormData(); fd.append('file', compressa)
+        await api.post(`/cantieri/${cantiereId}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        qc.invalidateQueries(['foto-cantiere', cantiereId])
+        return true
+      } catch { return false }
+      finally { setUploadingCount(n => n - 1) }
+    })
+    const ko = esiti.filter(x => !x).length
+    if (ko < esiti.length) toast.success(esiti.length - ko > 1 ? `${esiti.length - ko} foto caricate!` : 'Foto caricata!')
+    if (ko) toast.error(`${ko} foto non caricate — riprova`)
   }
 
   const eliminaFoto = async (id) => {
@@ -2985,9 +3002,7 @@ function FotoTab({ cantiereId, utente }) {
                 onChange={e => {
                   const files = Array.from(e.target.files)
                   if (!files.length) return
-                  Promise.all(files.map(f => uploadFoto(f))).then(() => {
-                    toast.success(files.length > 1 ? `${files.length} foto caricate!` : 'Foto caricata!')
-                  })
+                  caricaFoto(files)
                   e.target.value = ''
                 }} />
             </label>
