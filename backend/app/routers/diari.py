@@ -69,8 +69,10 @@ def _sync_foto_archivio(db: Session, cantiere_id: int, urls, autore_id=None, not
     urls = [u for u in (urls or []) if u]
     if not urls:
         return 0
-    from app.models.foto_cantiere import FotoCantiere
+    from app.models.foto_cantiere import FotoCantiere, FotoCantiereEliminata
     esistenti = {u for (u,) in db.query(FotoCantiere.url).filter(FotoCantiere.cantiere_id == cantiere_id).all()}
+    # Le foto eliminate a mano dal Tab Foto non vanno ricreate
+    esistenti |= {u for (u,) in db.query(FotoCantiereEliminata.url).filter(FotoCantiereEliminata.cantiere_id == cantiere_id).all()}
     ordine = db.query(func.max(FotoCantiere.ordine)).filter(FotoCantiere.cantiere_id == cantiere_id).scalar() or 0
     aggiunte = 0
     for u in urls:
@@ -737,6 +739,13 @@ def elimina_foto_cantiere(cantiere_id: int, foto_id: int, db: Session = Depends(
     foto = db.query(FotoCantiere).filter(FotoCantiere.id == foto_id, FotoCantiere.cantiere_id == cantiere_id).first()
     if not foto:
         raise HTTPException(404, "Foto non trovata")
+    # Traccia l'eliminazione: altrimenti il riallineamento dai diari (GET galleria)
+    # ricreerebbe la foto al primo ricaricamento
+    from app.models.foto_cantiere import FotoCantiereEliminata
+    gia = db.query(FotoCantiereEliminata).filter(FotoCantiereEliminata.cantiere_id == cantiere_id,
+                                                 FotoCantiereEliminata.url == foto.url).first()
+    if not gia:
+        db.add(FotoCantiereEliminata(cantiere_id=cantiere_id, url=foto.url))
     db.delete(foto)
     db.commit()
     return {"ok": True}
