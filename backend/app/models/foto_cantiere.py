@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -24,3 +24,16 @@ class FotoCantiere(Base):
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
 
     autore = relationship("Utente")
+
+
+class FotoCantiereEliminata(Base):
+    """Foto tolta dal Tab Foto: il riallineamento automatico dai diari la salta,
+    così non ricompare al ricaricamento (migrazione Alembic 0021).
+    Stesse regole d'import locale di FotoCantiere."""
+    __tablename__ = "foto_cantiere_eliminate"
+    __table_args__ = (UniqueConstraint("cantiere_id", "url", name="uq_foto_eliminate_cantiere_url"),)
+
+    id = Column(Integer, primary_key=True)
+    cantiere_id = Column(Integer, ForeignKey("cantieri.id", ondelete="CASCADE"), nullable=False, index=True)
+    url = Column(String, nullable=False)
+    eliminata_il = Column(DateTime(timezone=True), server_default=func.now())
