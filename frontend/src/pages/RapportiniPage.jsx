@@ -873,7 +873,7 @@ function RegistraRapportinoAdmin({ cantieri = [], onChiudi }) {
 
         {/* Foto */}
         <div>
-          <input ref={fotoInputRef} type="file" accept="image/*" multiple className="hidden"
+          <input ref={fotoInputRef} type="file" accept="image/*,.heic,.heif" multiple className="hidden"
             onChange={e => setFoto(prev => [...prev, ...Array.from(e.target.files).filter(f => f.type.startsWith('image/'))].slice(0, 5))} />
           <div className="flex gap-2 flex-wrap">
             {foto.map((f, i) => (

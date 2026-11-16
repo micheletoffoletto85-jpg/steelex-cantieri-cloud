@@ -1149,7 +1149,7 @@ function MappeTab({ cantiereId }) {
                       <label className="flex items-center gap-2 text-xs text-steelex-orange cursor-pointer hover:underline">
                         <Camera size={14} />
                         {uploadingFotoCount > 0 ? `⏳ ${uploadingFotoCount} in upload...` : 'Aggiungi foto'}
-                        <input type="file" accept="image/*" multiple className="hidden"
+                        <input type="file" accept="image/*,.heic,.heif" multiple className="hidden"
                           onChange={e => e.target.files.length && uploadFotoPin(e.target.files)} />
                       </label>
                     )}
@@ -1327,7 +1327,7 @@ function MappeTab({ cantiereId }) {
               <label className="flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline">
                 <Camera size={16} />
                 {fotePinModal.length > 0 ? `${fotePinModal.length} foto selezionat${fotePinModal.length===1?'a':'e'}` : 'Aggiungi foto'}
-                <input type="file" accept="image/*" multiple className="hidden"
+                <input type="file" accept="image/*,.heic,.heif" multiple className="hidden"
                   onChange={e => setFotePinModal(Array.from(e.target.files))} />
               </label>
               {fotePinModal.length > 0 && (
@@ -2167,7 +2167,7 @@ function DiarioTab({ cantiereId, utente }) {
           <label className={`flex items-center gap-2 text-sm text-steelex-orange cursor-pointer hover:underline ${uploadingFor===d.id?'opacity-50':''}`}>
               <Camera size={16} />
               {uploadingFor===d.id ? 'Caricamento...' : 'Aggiungi foto'}
-              <input type="file" accept="image/*" multiple className="hidden"
+              <input type="file" accept="image/*,.heic,.heif" multiple className="hidden"
                 onChange={e => e.target.files.length && uploadFoto(d.id, e.target.files)} disabled={uploadingFor===d.id} />
             </label>
           </div>
@@ -2981,7 +2981,7 @@ function FotoTab({ cantiereId, utente }) {
             <label className={`btn-primary flex items-center gap-2 cursor-pointer ${uploadingCount > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
               {uploadingCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
               {uploadingCount > 0 ? `⏳ ${uploadingCount} in caricamento...` : 'Aggiungi foto'}
-              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+              <input ref={fileRef} type="file" accept="image/*,.heic,.heif" multiple className="hidden"
                 onChange={e => {
                   const files = Array.from(e.target.files)
                   if (!files.length) return

@@ -276,7 +276,7 @@ export default function MisureTab({ cantiereId, utente }) {
           {leggendo ? <Loader2 size={16} className="animate-spin" /> : <Ruler size={16} />}
           {leggendo ? 'Leggo la pianta…' : 'Da metro laser'}
         </button>
-        <input ref={laserRef} type="file" accept="image/*" className="hidden"
+        <input ref={laserRef} type="file" accept="image/*,.heic,.heif" className="hidden"
           onChange={e => { leggiPianta(e.target.files?.[0]); e.target.value = '' }} />
       </div>
 
@@ -428,7 +428,7 @@ function FormMisura({ form, setForm, voci, editId, misuraEdit, onClose, onSubmit
                 className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 text-gray-400 flex items-center justify-center hover:border-steelex-orange hover:text-steelex-orange">
                 {caricando ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
               </button>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
+              <input ref={fileRef} type="file" accept="image/*,.heic,.heif" capture="environment" className="hidden"
                 onChange={e => { caricaFoto(e.target.files?.[0]); e.target.value = '' }} />
             </div>
           )}

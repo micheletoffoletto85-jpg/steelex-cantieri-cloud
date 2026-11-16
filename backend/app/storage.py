@@ -44,11 +44,35 @@ def configura_cors_r2():
         pass
 
 
+def heic_in_jpg(contenuto: bytes, estensione: str) -> tuple[bytes, str]:
+    """Le foto HEIC/HEIF (iPhone) caricate da PC non si vedono in nessun browser
+    tranne Safari: le convertiamo in JPG prima di salvarle. Se la conversione
+    fallisce si tiene l'originale (meglio un file non visibile che perso)."""
+    if (estensione or "").lower() not in (".heic", ".heif"):
+        return contenuto, estensione
+    try:
+        import io
+        from PIL import Image, ImageOps
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(contenuto)))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        out = io.BytesIO()
+        img.save(out, "JPEG", quality=88)
+        return out.getvalue(), ".jpg"
+    except Exception as e:
+        print(f"[storage] conversione HEIC fallita, salvo l'originale: {e}")
+        return contenuto, estensione
+
+
 def salva_file(contenuto: bytes, cartella: str, estensione: str) -> tuple[str, str]:
     """
     Salva il file e restituisce (url_pubblica, percorso_locale_o_chiave).
     url_pubblica: URL usata per visualizzare il file nel frontend.
+    Le HEIC vengono salvate come JPG (vedi heic_in_jpg).
     """
+    contenuto, estensione = heic_in_jpg(contenuto, estensione)
     nome_file = f"{uuid.uuid4()}{estensione}"
     chiave = f"{cartella}/{nome_file}"
 

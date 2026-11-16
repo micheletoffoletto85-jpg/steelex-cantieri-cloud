@@ -689,7 +689,7 @@ function ArtigianoDashboard({ utente, cantieri }) {
             <input
               ref={fotoInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               multiple
               className="hidden"
               onChange={e => aggiungiAnteprima(e.target.files)}

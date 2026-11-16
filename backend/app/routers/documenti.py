@@ -605,6 +605,9 @@ def preview_documento(
             contenuto, ct = leggi_file(chiave)
             # Forza content-type corretto (leggi_file potrebbe restituire octet-stream)
             ct = _MIME.get(tipo, ct)
+            # HEIC caricate dopo il 16/11 sono salvate già convertite in JPG
+            if tipo in ("heic", "heif") and (doc.url or "").lower().endswith(".jpg"):
+                ct = "image/jpeg"
             return Response(content=contenuto, media_type=ct)
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"Immagine non trovata: {e}")
