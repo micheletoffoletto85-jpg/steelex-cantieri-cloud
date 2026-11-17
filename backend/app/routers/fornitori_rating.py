@@ -100,6 +100,8 @@ def lista_rating_fornitore(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
+    from app.permessi import RUOLI_RUBRICA, solo_ruoli
+    solo_ruoli(user, RUOLI_RUBRICA, "Valutazioni riservate allo staff")
     ratings = db.query(FornitoreRating).filter(
         FornitoreRating.fornitore_id == fornitore_id
     ).order_by(FornitoreRating.creato_il.desc()).all()
