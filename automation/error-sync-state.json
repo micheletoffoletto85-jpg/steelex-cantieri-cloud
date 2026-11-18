@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 48,
-  "since_id_fr": 276,
+  "since_id_fr": 277,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -1238,6 +1238,17 @@
         "messaggio": "Request failed with status code 503",
         "url_pagina": "/",
         "dettagli": "\"upstream error\""
+      },
+      {
+        "id": 277,
+        "creato_il": "2026-11-18T17:48:29.780388+00:00",
+        "ruolo": "capo_cantiere",
+        "endpoint": "/rapportini/invia",
+        "metodo": "POST",
+        "status_code": null,
+        "messaggio": "Network Error",
+        "url_pagina": "/",
+        "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
       }
     ]
   }
