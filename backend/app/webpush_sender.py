@@ -84,7 +84,8 @@ def _vapid_jwt(private_key, endpoint: str, vapid_sub: str) -> tuple[str, str]:
     """Restituisce (jwt_token, public_key_b64url)."""
     from jose import jwt as jose_jwt
     aud = endpoint.split("/")[0] + "//" + endpoint.split("/")[2]
-    exp = int(time.time()) + 86400
+    # Apple accetta al massimo 24h: 12h per stare larghi anche con orologi sfasati
+    exp = int(time.time()) + 12 * 3600
     claims = {"sub": vapid_sub, "aud": aud, "exp": exp}
     # python-jose accetta oggetti cryptography direttamente per ES256
     token = jose_jwt.encode(claims, private_key, algorithm="ES256")
@@ -177,6 +178,7 @@ def send_push(
         "Content-Encoding": "aes128gcm",
         "Content-Type": "application/octet-stream",
         "TTL": str(ttl),
+        "Urgency": "high",
     }
 
     with httpx.Client(timeout=30) as client:

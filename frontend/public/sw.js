@@ -42,3 +42,16 @@ self.addEventListener('notificationclick', function(event) {
     })
   );
 });
+
+// Il browser ha rinnovato/invalidato la subscription: ne crea una nuova con la stessa
+// chiave; il backend la riceve alla prossima apertura dell'app (risincronizzaPush).
+self.addEventListener('pushsubscriptionchange', function(event) {
+  const opzioni = event.oldSubscription && event.oldSubscription.options;
+  if (!opzioni || !opzioni.applicationServerKey) return;
+  event.waitUntil(
+    self.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: opzioni.applicationServerKey,
+    }).catch(function() {})
+  );
+});

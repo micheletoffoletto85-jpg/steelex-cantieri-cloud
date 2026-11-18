@@ -15,6 +15,24 @@ from datetime import datetime
 router = APIRouter(prefix="/notifiche", tags=["Notifiche"])
 
 
+def _registra_errore_push(db: Session, user_id, status, endpoint: str, dettaglio: str, rimossa: bool = False):
+    """Scrive un invio push fallito nel log errori (righe '[server]'), cosi' si vede senza i log Railway."""
+    from sqlalchemy import text
+    try:
+        msg = f"[server] Push non consegnata (status={status})"
+        if rimossa:
+            msg += " — dispositivo scaduto, rimosso: riaprire l'app per ri-registrarlo"
+        db.execute(text("""
+            INSERT INTO error_log (utente_id, ruolo, endpoint, metodo, status_code, messaggio, url_pagina, dettagli)
+            VALUES (:uid, NULL, '/notifiche/push', 'POST', :sc, :msg, 'server', :det)
+        """), {"uid": user_id, "sc": status if isinstance(status, int) else None, "msg": msg,
+               "det": json.dumps({"endpoint": (endpoint or "")[:80], "dettaglio": (dettaglio or "")[:500]}, ensure_ascii=False)})
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("[PUSH] registrazione errore nel log non riuscita")
+
+
 class SubscribeRequest(BaseModel):
     endpoint: str
     p256dh: str
@@ -183,11 +201,15 @@ def test_push(
             risultati.append({"tipo": tipo, "ok": True, "status": sc, "endpoint": sub.endpoint[:50] + "..."})
         except WebPushError as e:
             risultati.append({"tipo": tipo, "ok": False, "status": e.status_code, "errore": str(e)[:200], "risposta": e.response_text, "endpoint": sub.endpoint[:50] + "..."})
-            if e.status_code in (404, 410):
+            rimossa = e.status_code in (404, 410)
+            ep = sub.endpoint
+            if rimossa:
                 try: db.delete(sub); db.commit()
-                except Exception: pass
+                except Exception: db.rollback()
+            _registra_errore_push(db, user.id, e.status_code, ep, e.response_text, rimossa)
         except Exception as e:
             risultati.append({"tipo": tipo, "ok": False, "errore": f"{type(e).__name__}: {e}"[:300], "endpoint": sub.endpoint[:50] + "..."})
+            _registra_errore_push(db, user.id, None, sub.endpoint, f"{type(e).__name__}: {e}")
 
     try:
         n = NotificaInApp(user_id=user.id, titolo="🔔 Test notifica", corpo="Test push inviato", url="/", tipo="info")
@@ -288,8 +310,12 @@ def invia_notifica(
             logger.info(f"[PUSH] ✅ status={sc} endpoint={sub.endpoint[:60]}")
         except WebPushError as e:
             logger.error(f"[PUSH] ❌ status={e.status_code} endpoint={sub.endpoint[:60]}: {e.response_text[:100]}")
-            if e.status_code in (404, 410):
+            rimossa = e.status_code in (404, 410)
+            uid, ep = sub.user_id, sub.endpoint
+            if rimossa:
                 try: db.delete(sub); db.commit()
-                except Exception: pass
+                except Exception: db.rollback()
+            _registra_errore_push(db, uid, e.status_code, ep, e.response_text, rimossa)
         except Exception as e:
             logger.error(f"[PUSH] ❌ {type(e).__name__}: {e}")
+            _registra_errore_push(db, sub.user_id, None, sub.endpoint, f"{type(e).__name__}: {e}")
