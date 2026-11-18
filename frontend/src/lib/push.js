@@ -37,6 +37,7 @@ export async function registraPushNotifications() {
     const existingSub = await registration.pushManager.getSubscription()
     if (existingSub) {
       await inviaSubscription(existingSub)
+      try { localStorage.removeItem('push_disattivate') } catch (e) {}
       return true
     }
 
@@ -54,6 +55,8 @@ export async function registraPushNotifications() {
     })
 
     await inviaSubscription(subscription)
+
+    try { localStorage.removeItem('push_disattivate') } catch (e) {}
     return true
   } catch (err) {
     console.error('Errore registrazione push:', err)
@@ -78,8 +81,40 @@ export async function disattivaPushNotifications() {
     await api.delete(`/notifiche/unsubscribe?endpoint=${encodeURIComponent(subscription.endpoint)}`)
     await subscription.unsubscribe()
   }
+  // ricordato: la ri-sincronizzazione all'apertura non deve riaccenderle
+  try { localStorage.setItem('push_disattivate', '1') } catch (e) {}
 }
 
 export function supportaNotifiche() {
   return 'serviceWorker' in navigator && 'PushManager' in window
+}
+
+/**
+ * All'apertura dell'app: se le notifiche sono permesse, ri-manda la subscription
+ * al backend (il server la cancella quando Apple/Google la danno per scaduta, e
+ * senza questo il telefono restava "attivo" ma non riceveva piu' nulla).
+ * Silenziosa: nessun alert. Ritorna true se il dispositivo e' registrato.
+ */
+export async function risincronizzaPush() {
+  if (!supportaNotifiche() || !('Notification' in window)) return false
+  if (Notification.permission !== 'granted') return false
+  try { if (localStorage.getItem('push_disattivate') === '1') return false } catch (e) {}
+  try {
+    const registration = await navigator.serviceWorker.register('/sw.js')
+    await navigator.serviceWorker.ready
+    let sub = await registration.pushManager.getSubscription()
+    if (!sub) {
+      const { data } = await api.get('/notifiche/vapid-public-key', { _skipLog: true })
+      if (!data?.public_key) return false
+      sub = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(data.public_key),
+      })
+    }
+    await inviaSubscription(sub)
+    return true
+  } catch (err) {
+    console.warn('[PUSH] ri-sincronizzazione non riuscita:', err)
+    return false
+  }
 }

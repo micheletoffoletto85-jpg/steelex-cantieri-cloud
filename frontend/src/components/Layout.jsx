@@ -3,7 +3,7 @@ import { useAuth } from '../lib/auth'
 import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser, ClipboardList, CalendarDays, AlertTriangle, StickyNote, LayoutGrid, Clock } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
-import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche } from '../lib/push'
+import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche, risincronizzaPush } from '../lib/push'
 import api from '../lib/api'
 
 // Ordine per flusso di lavoro: operatività quotidiana → anagrafiche → amministrazione
@@ -41,9 +41,8 @@ export default function Layout() {
   useEffect(() => {
     if (!supportaNotifiche()) return
     if (!['admin','capo_cantiere','capo_cantiere_sub','direzione_lavori','fornitore','cliente'].includes(utente?.ruolo)) return
-    navigator.serviceWorker.getRegistration('/sw.js').then(reg => {
-      if (reg) reg.pushManager.getSubscription().then(sub => setNotifiche(!!sub))
-    })
+    // Ri-registra il dispositivo sul server a ogni apertura (auto-riparazione)
+    risincronizzaPush().then(ok => setNotifiche(ok))
   }, [utente])
 
   const toggleNotifiche = async () => {
