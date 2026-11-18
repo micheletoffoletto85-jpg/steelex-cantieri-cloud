@@ -785,27 +785,126 @@ def _whisper_prompt(db: Session) -> str:
     return WHISPER_PROMPT + f" Cantieri attivi: {', '.join(nomi[:40])}."
 
 
+# Errori OpenAI recuperabili rifacendo l'audio (formato/codec non letto, file troppo
+# lungo o pesante): si ritenta con whisper-1 e poi con l'audio riconvertito in MP3.
+_ERR_AUDIO_RECUPERABILE = ("format", "codec", "invalid", "decode", "corrupt", "duration",
+                           "longer than", "too long", "too large", "maximum", "413")
+
+
+def _recuperabile(e: Exception) -> bool:
+    err = str(e).lower()
+    return any(k in err for k in _ERR_AUDIO_RECUPERABILE)
+
+
 def _trascrivi_con_fallback(client, tmp_path: str, whisper_kwargs: dict):
-    """gpt-4o-transcribe non supporta .ogg (a differenza di whisper-1) — i browser che
-    scelgono audio/ogg come formato di registrazione (es. Firefox quando webm/mp4 non
-    sono disponibili) causavano un 422 'formato non supportato' anche con un file valido.
-    Se il modello principale rifiuta il formato, ritenta una volta con whisper-1."""
-    with open(tmp_path, "rb") as af:
-        whisper_kwargs["file"] = af
+    """gpt-4o-transcribe sul file così com'è; se lo rifiuta (ogg, MP4 frammentato da
+    iPhone, registrazione troppo lunga) ritenta con whisper-1; se anche così non va,
+    riconverte con ffmpeg in MP3 mono a pezzi da 10 minuti e trascrive i pezzi."""
+    import io
+    from types import SimpleNamespace
+    try:
+        with open(tmp_path, "rb") as af:
+            return client.audio.transcriptions.create(**{**whisper_kwargs, "file": af})
+    except Exception as e:
+        if not _recuperabile(e):
+            raise
+        primo_errore = e
+    try:
+        with open(tmp_path, "rb") as af:
+            return client.audio.transcriptions.create(**{**whisper_kwargs, "model": "whisper-1", "file": af})
+    except Exception as e:
+        if not _recuperabile(e):
+            raise
+    pezzi = _audio_in_pezzi(tmp_path)
+    if not pezzi:
+        raise primo_errore
+    logger.info("[whisper] audio rifiutato (%s), riprovo dopo conversione in %d pezzi", str(primo_errore)[:160], len(pezzi))
+    testi, lingua = [], None
+    for i, dati in enumerate(pezzi):
         try:
-            return client.audio.transcriptions.create(**whisper_kwargs)
-        except Exception as e:
-            err_str = str(e).lower()
-            if whisper_kwargs["model"] == "gpt-4o-transcribe" and any(
-                s in err_str for s in ("format", "codec", "invalid")
-            ):
-                pass
-            else:
+            buf = io.BytesIO(dati); buf.name = f"audio{i}.mp3"
+            r = client.audio.transcriptions.create(**{**whisper_kwargs, "file": buf})
+        except Exception as e2:
+            if not _recuperabile(e2):
                 raise
-    kwargs_fallback = {**whisper_kwargs, "model": "whisper-1"}
-    with open(tmp_path, "rb") as af:
-        kwargs_fallback["file"] = af
-        return client.audio.transcriptions.create(**kwargs_fallback)
+            buf = io.BytesIO(dati); buf.name = f"audio{i}.mp3"
+            r = client.audio.transcriptions.create(**{**whisper_kwargs, "model": "whisper-1", "file": buf})
+        testi.append((getattr(r, "text", "") or "").strip())
+        lingua = lingua or getattr(r, "language", None)
+    return SimpleNamespace(text=" ".join(t for t in testi if t), language=lingua)
+
+
+def _audio_in_pezzi(path: str, secondi: int = 600) -> list:
+    """Registrazione → lista di MP3 mono 16 kHz da `secondi` l'uno. Legge anche i file
+    troncati (telefono bloccato). Lista vuota se ffmpeg non c'è o non legge l'audio."""
+    import shutil, subprocess, glob
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return []
+    cartella = tempfile.mkdtemp(prefix="audio_pezzi_")
+    try:
+        subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-fflags", "+genpts+discardcorrupt",
+                        "-err_detect", "ignore_err", "-i", path, "-vn",
+                        "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "48k",
+                        "-f", "segment", "-segment_time", str(secondi), "-reset_timestamps", "1",
+                        os.path.join(cartella, "p%03d.mp3")],
+                       check=True, timeout=300, capture_output=True)
+        pezzi = []
+        for f in sorted(glob.glob(os.path.join(cartella, "p*.mp3"))):
+            with open(f, "rb") as fh:
+                dati = fh.read()
+            if len(dati) > 1024:
+                pezzi.append(dati)
+        return pezzi
+    except Exception:
+        logger.exception("[audio] conversione in pezzi fallita")
+        return []
+    finally:
+        shutil.rmtree(cartella, ignore_errors=True)
+
+
+def _registra_audio_fallito(db: Session, user, path: str, upload, errore: Exception):
+    """Salva su storage la registrazione che OpenAI non ha trascritto e scrive nel log
+    errori i dettagli tecnici (formato, peso, errore OpenAI, cosa legge ffprobe)."""
+    from sqlalchemy import text
+    try:
+        with open(path, "rb") as f:
+            dati = f.read()
+        url = None
+        try:
+            url, _ = salva_file(dati, "rapportini/audio_falliti", os.path.splitext(path)[1] or ".webm")
+        except Exception:
+            logger.exception("[trascrivi] salvataggio audio fallito non riuscito")
+        dettagli = _json.dumps({
+            "errore_openai": str(errore)[:600],
+            "filename": upload.filename, "content_type": upload.content_type,
+            "byte": len(dati), "inizio_file_hex": dati[:16].hex(),
+            "ffprobe": _ffprobe_breve(path), "audio_url": url,
+        }, ensure_ascii=False)
+        db.execute(text("""
+            INSERT INTO error_log (utente_id, ruolo, endpoint, metodo, status_code, messaggio, url_pagina, dettagli)
+            VALUES (:uid, :ruolo, '/rapportini/trascrivi', 'POST', 422, :msg, 'server', :det)
+        """), {"uid": getattr(user, "id", None), "ruolo": getattr(user, "ruolo", None),
+               "msg": "[server] Trascrizione rifiutata da OpenAI — dettagli tecnici", "det": dettagli})
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("[trascrivi] registrazione audio fallito non riuscita")
+
+
+def _ffprobe_breve(path: str) -> Optional[str]:
+    """Formato/codec/durata letti da ffprobe (o il suo errore), per diagnosi."""
+    import shutil, subprocess
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        r = subprocess.run([ffprobe, "-v", "error", "-show_entries",
+                            "format=format_name,duration,bit_rate:stream=codec_name,sample_rate,channels",
+                            "-of", "compact", path], capture_output=True, text=True, timeout=30)
+        return ((r.stdout or "") + (r.stderr or "")).strip()[:500]
+    except Exception as e:
+        return f"ffprobe fallito: {e}"[:200]
 
 
 @router.post("/trascrivi")
@@ -849,8 +948,12 @@ async def trascrivi_audio(
         # "invalid_request_error", il type generico di OpenAI per QUALSIASI errore 400 — con
         # quel match tutti gli errori 400 (non solo quelli di formato) finivano mascherati
         # dietro lo stesso messaggio fisso, rendendo impossibile capire la vera causa.
+        # Audio conservato + errore tecnico vero nel log errori (prima l'operaio perdeva
+        # la registrazione e nel log restava solo "Formato audio non supportato")
+        _registra_audio_fallito(db, user, tmp_path, audio, e)
         if "file format" in err_str or "codec" in err_str or "support the format" in err_str or "unrecognized format" in err_str:
-            raise HTTPException(422, "Formato audio non supportato — riprova registrando di nuovo")
+            raise HTTPException(422, "Formato audio non supportato — la registrazione è stata salvata per "
+                                     "l'ufficio. Riprova, oppure scrivi il rapportino a mano")
         raise HTTPException(502, f"Errore trascrizione: {str(e)[:120]}")
     finally:
         try: os.unlink(tmp_path)
@@ -2031,7 +2134,8 @@ def elimina_rapportino(
         raise HTTPException(403, "Non autorizzato")
     r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
     if not r:
-        raise HTTPException(404, "Rapportino non trovato")
+        # Già eliminato (doppio click, lista non ancora aggiornata): l'obiettivo è raggiunto
+        return {"ok": True, "gia_eliminato": True}
     db.delete(r)
     db.commit()
     return {"ok": True}
