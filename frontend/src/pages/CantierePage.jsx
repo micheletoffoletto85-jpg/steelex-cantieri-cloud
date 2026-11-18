@@ -2116,7 +2116,7 @@ function DiarioTab({ cantiereId, utente }) {
 
             {/* Voci contabilizzabili: ore già registrate (dato live, editabile qui) +
                 eventuali materiali/spese ancora da approvare (snapshot voci_estratte) */}
-            {(d.ore_extra?.length > 0 || d.voci_estratte?.some(v => v.tipo !== 'ore_extra')) && (
+            {puoValidare && (d.ore_extra?.length > 0 || d.voci_estratte?.some(v => v.tipo !== 'ore_extra')) && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
                 <p className="text-xs font-semibold text-amber-700 flex items-center gap-1">
                   <Wrench size={12} /> Voci da contabilizzare

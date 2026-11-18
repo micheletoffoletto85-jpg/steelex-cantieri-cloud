@@ -14,16 +14,10 @@ from app.routers.notifiche import notifica_cantiere, invia_notifica
 router = APIRouter(prefix="/cantieri", tags=["Raccolta Documenti"])
 
 def _check(cantiere_id: int, db: Session, user: Utente):
-    c = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
-    if not c:
-        raise HTTPException(404, "Cantiere non trovato")
-    if user.ruolo == "admin":
-        return c
-    if user.ruolo in ("capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "artigiano", "fornitore"):
-        return c
-    if user.ruolo == "cliente" and c.cliente_email == user.email:
-        return c
-    raise HTTPException(403, "Non autorizzato")
+    # Stesse regole di tutto il cantiere (prima: errore 500 per i clienti, per un
+    # campo cliente_email che non esiste, e amministrazione esclusa)
+    from app.permessi import verifica_cantiere
+    return verifica_cantiere(db, cantiere_id, user)
 
 def _solo_staff(user: Utente):
     if user.ruolo not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori"):

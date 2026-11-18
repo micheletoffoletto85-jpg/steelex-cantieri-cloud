@@ -27,6 +27,8 @@ from app.routers import assegnazioni as assegnazioni_router
 from app.routers import ore_lavorate as ore_lavorate_router
 from app.routers import contabilita as contabilita_router
 from sqlalchemy import text
+from fastapi import Depends
+from app.permessi import accesso_cantiere_da_path
 
 # Crea tabelle al primo avvio
 Base.metadata.create_all(bind=engine)
@@ -367,19 +369,19 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(utenti.router, prefix="/api/v1")
-app.include_router(cantieri.router, prefix="/api/v1")
-app.include_router(diari.router, prefix="/api/v1")
-app.include_router(diari.ore_router, prefix="/api/v1")
-app.include_router(diari.foto_router, prefix="/api/v1")
-app.include_router(diari.chiusura_router, prefix="/api/v1")
+app.include_router(cantieri.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
+app.include_router(diari.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
+app.include_router(diari.ore_router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
+app.include_router(diari.foto_router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
+app.include_router(diari.chiusura_router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
 app.include_router(trascrizioni.router, prefix="/api/v1")
-app.include_router(documenti.router, prefix="/api/v1")
-app.include_router(economico_router.router, prefix="/api/v1")
+app.include_router(documenti.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
+app.include_router(economico_router.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
 app.include_router(notifiche.router, prefix="/api/v1")
-app.include_router(raccolta_docs_router.router, prefix="/api/v1")
-app.include_router(archivio_router.router, prefix="/api/v1")
+app.include_router(raccolta_docs_router.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
+app.include_router(archivio_router.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
 app.include_router(files_router.router)
-app.include_router(note_campo_router.router, prefix="/api/v1")
+app.include_router(note_campo_router.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
 app.include_router(fornitori_rating_router.router, prefix="/api/v1")
 app.include_router(artigiani_router.router, prefix="/api/v1")
 app.include_router(nc_router.router, prefix="/api/v1")
@@ -390,7 +392,7 @@ app.include_router(error_log_router.router, prefix="/api/v1")
 app.include_router(appunti_router.router, prefix="/api/v1")
 app.include_router(assegnazioni_router.router, prefix="/api/v1")
 app.include_router(ore_lavorate_router.router, prefix="/api/v1")
-app.include_router(contabilita_router.router, prefix="/api/v1")
+app.include_router(contabilita_router.router, prefix="/api/v1", dependencies=[Depends(accesso_cantiere_da_path)])
 
 @app.get("/")
 def root():

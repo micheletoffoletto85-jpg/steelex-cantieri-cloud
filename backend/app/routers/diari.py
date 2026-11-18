@@ -85,6 +85,8 @@ def _sync_foto_archivio(db: Session, cantiere_id: int, urls, autore_id=None, not
     return aggiunte
 
 
+from app.permessi import RUOLI_INTERNI  # noqa: E402
+
 _RUOLI_BOZZA = {"artigiano", "fornitore"}
 _RUOLI_VALIDA = {"admin", "capo_cantiere", "amministrazione"}
 
@@ -102,7 +104,15 @@ def lista_diari(cantiere_id: int, db: Session = Depends(get_db), user: Utente = 
             DiarioGiornaliero.stato_validazione == "pubblicata",
         ))
     diari = q.order_by(DiarioGiornaliero.data.desc(), DiarioGiornaliero.creato_il.desc()).all()
-    return [_diario_out(d) for d in diari]
+    out = [_diario_out(d) for d in diari]
+    if user.ruolo.value not in RUOLI_INTERNI:
+        # tariffe e importi restano allo staff interno
+        for d in out:
+            d["ore_extra"] = [{**o, "tariffa_oraria": 0, "totale": 0} for o in (d.get("ore_extra") or [])]
+            d["voci_estratte"] = [{k: v for k, v in (x or {}).items() if k not in ("totale", "tariffa_oraria", "prezzo_unitario")}
+                                  for x in (d.get("voci_estratte") or [])]
+            d["rapportino_materiali_spese"] = []
+    return out
 
 
 @router.post("", response_model=DiarioOut, status_code=201)
@@ -420,6 +430,9 @@ def aggiorna_diario(cantiere_id: int, diario_id: int, data: DiarioUpdate, db: Se
     diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id, DiarioGiornaliero.cantiere_id == cantiere_id).first()
     if not diario:
         raise HTTPException(status_code=404, detail="Diario non trovato")
+    if user.ruolo.value not in ("admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "amministrazione") \
+            and diario.autore_id != user.id:
+        raise HTTPException(status_code=403, detail="Puoi modificare solo le tue note")
     for k, v in data.model_dump(exclude_none=True).items():
         setattr(diario, k, v)
     db.commit()
@@ -456,7 +469,8 @@ def valida_diario(cantiere_id: int, diario_id: int, db: Session = Depends(get_db
 
 @router.post("/{diario_id}/foto", response_model=DiarioOut)
 async def upload_foto(cantiere_id: int, diario_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
-    diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id).first()
+    diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == diario_id,
+                                                DiarioGiornaliero.cantiere_id == cantiere_id).first()
     if not diario:
         raise HTTPException(status_code=404, detail="Diario non trovato")
     _ct_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/gif": ".gif"}
@@ -824,14 +838,22 @@ def _tariffa_operatore(db: Session, utente_id, fallback_default: bool = True) ->
     return 0.0
 
 
+def _solo_interni(user: Utente):
+    """Ore manodopera con tariffe e importi: solo staff interno (admin, capo cantiere, amministrazione)."""
+    if user.ruolo.value not in RUOLI_INTERNI:
+        raise HTTPException(403, "Ore e costi manodopera riservati allo staff interno")
+
+
 @ore_router.get("", response_model=List[OreExtraOut])
 def lista_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _solo_interni(user)
     righe = db.query(OreExtra).filter(OreExtra.cantiere_id == cantiere_id).order_by(OreExtra.data.desc()).all()
     return [_ore_out(o) for o in righe]
 
 
 @ore_router.post("", response_model=OreExtraOut, status_code=201)
 def crea_ore(cantiere_id: int, body: OreExtraCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _solo_interni(user)
     dati = body.model_dump(exclude={"data"})
     # Se collegata a un operatore e non è stata passata una tariffa, usa il suo costo orario
     tariffa = body.tariffa_oraria or 0.0
@@ -864,6 +886,7 @@ def _sync_voce_extra(db: Session, ore: OreExtra) -> None:
 
 @ore_router.put("/{ore_id}", response_model=OreExtraOut)
 def aggiorna_ore(cantiere_id: int, ore_id: int, body: OreExtraUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _solo_interni(user)
     ore = db.query(OreExtra).filter(OreExtra.id == ore_id, OreExtra.cantiere_id == cantiere_id).first()
     if not ore: raise HTTPException(404, "Non trovato")
     dati = body.model_dump(exclude_none=True)
@@ -883,6 +906,7 @@ def aggiorna_ore(cantiere_id: int, ore_id: int, body: OreExtraUpdate, db: Sessio
 
 @ore_router.delete("/{ore_id}", status_code=204)
 def elimina_ore(cantiere_id: int, ore_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _solo_interni(user)
     ore = db.query(OreExtra).filter(OreExtra.id == ore_id, OreExtra.cantiere_id == cantiere_id).first()
     if not ore: raise HTTPException(404, "Non trovato")
     if ore.voce_extra_id:
@@ -894,6 +918,7 @@ def elimina_ore(cantiere_id: int, ore_id: int, db: Session = Depends(get_db), us
 
 @ore_router.post("/ricalcola")
 def ricalcola_ore(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    _solo_interni(user)
     """Sistema le righe ore incomplete: abbina l'operatore dal nome se manca, e
     (ri)calcola la tariffa — costo orario dell'operatore collegato, altrimenti
     COSTO_ORARIO_DEFAULT. Non tocca le righe con tariffa impostata a mano che hanno

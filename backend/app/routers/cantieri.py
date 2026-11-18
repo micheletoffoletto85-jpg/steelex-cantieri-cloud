@@ -19,6 +19,14 @@ _RUOLI_STAFF_EXT = (RuoloUtente.capo_cantiere_sub, RuoloUtente.direzione_lavori,
 # Ruoli esterni puri: vedono SOLO i cantieri dove sono esplicitamente assegnati
 _RUOLI_ESTERNI = (RuoloUtente.artigiano, RuoloUtente.fornitore, RuoloUtente.cliente)
 
+def _out(c: Cantiere, user: Utente) -> dict:
+    """Scheda cantiere per ruolo: l'importo del contratto non va ad artigiani, fornitori e operativi."""
+    d = CantiereOut.model_validate(c).model_dump()
+    if user.ruolo in (RuoloUtente.artigiano, RuoloUtente.fornitore, RuoloUtente.operativo):
+        d["budget"] = 0.0
+    return d
+
+
 def _check_accesso(cantiere: Cantiere, user: Utente):
     if user.ruolo == RuoloUtente.admin:
         return
@@ -53,7 +61,7 @@ def lista_cantieri(
     for c in cantieri:
         if c.fasi:
             c.avanzamento = round(sum(f.percentuale for f in c.fasi) / len(c.fasi), 1)
-    return cantieri
+    return [_out(c, user) for c in cantieri]
 
 @router.post("", response_model=CantiereOut, status_code=201)
 def crea_cantiere(data: CantiereCreate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
@@ -75,7 +83,7 @@ def get_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Utente =
     _check_accesso(cantiere, user)
     if cantiere.fasi:
         cantiere.avanzamento = round(sum(f.percentuale for f in cantiere.fasi) / len(cantiere.fasi), 1)
-    return cantiere
+    return _out(cantiere, user)
 
 @router.put("/{cantiere_id}", response_model=CantiereOut)
 def aggiorna_cantiere(cantiere_id: int, data: CantiereUpdate, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
@@ -83,7 +91,15 @@ def aggiorna_cantiere(cantiere_id: int, data: CantiereUpdate, db: Session = Depe
     if not cantiere:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
     _check_accesso(cantiere, user)
-    for k, v in data.model_dump(exclude_none=True).items():
+    # Modificano la scheda solo staff interno e staff esterno assegnato (sub, DL…);
+    # importo, responsabile e stato solo lo staff interno
+    if user.ruolo not in _RUOLI_STEELEX + _RUOLI_STAFF_EXT:
+        raise HTTPException(status_code=403, detail="Non autorizzato a modificare il cantiere")
+    dati = data.model_dump(exclude_none=True)
+    if user.ruolo not in _RUOLI_STEELEX:
+        for k in ("budget", "responsabile_id", "stato"):
+            dati.pop(k, None)
+    for k, v in dati.items():
         setattr(cantiere, k, v)
     db.commit()
     db.refresh(cantiere)
