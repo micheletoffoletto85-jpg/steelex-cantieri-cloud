@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 48,
-  "since_id_fr": 275,
+  "since_id_fr": 276,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -1227,6 +1227,17 @@
         "messaggio": "Timeout client dopo 60000ms",
         "url_pagina": "/",
         "dettagli": "{\"code\":\"ECONNABORTED\",\"message\":\"timeout of 60000ms exceeded\"}"
+      },
+      {
+        "id": 276,
+        "creato_il": "2026-11-18T07:01:28.881438+00:00",
+        "ruolo": "admin",
+        "endpoint": "/auth/me",
+        "metodo": "GET",
+        "status_code": 503,
+        "messaggio": "Request failed with status code 503",
+        "url_pagina": "/",
+        "dettagli": "\"upstream error\""
       }
     ]
   }
