@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 48,
-  "since_id_fr": 277,
+  "since_id_fr": 279,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -1249,6 +1249,28 @@
         "messaggio": "Network Error",
         "url_pagina": "/",
         "dettagli": "{\"code\":\"ERR_NETWORK\",\"message\":\"Network Error\"}"
+      },
+      {
+        "id": 278,
+        "creato_il": "2026-11-18T20:15:51.654854+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "[server] Trascrizione rifiutata da OpenAI — dettagli tecnici",
+        "url_pagina": "server",
+        "dettagli": "{\"errore_openai\": \"Error code: 400 - {'error': {'message': 'Audio file is too short. Minimum audio length is 0.1 seconds.', 'type': 'invalid_request_error', 'param': 'file', 'code': 'audio_too_short'}, 'usage': {'type': 'duration', 'seconds': 0}}\", \"filename\": \"rapportino.webm\", \"content_type\": \"audio/webm;codecs=opus\", \"byte\": 300938, \"inizio_file_hex\": \"1a45dfa39f4286810142f7810142f281\", \"ffprobe\": \"stream|codec_name=opus|sample_rate=48000|channels=1\\nformat|format_name=matroska,webm|duration=N/A|bit_rate=N/A\", \"audio_url\": \"https://pub-0c59919c8cbd41d9ac7d1e3950d7609f.r2.dev/rapportini/audio_falliti/cba87dab-09e9-4a06-8ff6-5327ca41a912.webm\"}"
+      },
+      {
+        "id": 279,
+        "creato_il": "2026-11-18T20:15:57.035564+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano",
+        "url_pagina": "/",
+        "dettagli": "{\"detail\":\"Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano\"}"
       }
     ]
   }
