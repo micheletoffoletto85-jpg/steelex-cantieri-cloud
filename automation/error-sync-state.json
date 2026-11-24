@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 48,
-  "since_id_fr": 288,
+  "since_id_fr": 290,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -1370,6 +1370,28 @@
         "messaggio": "Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano",
         "url_pagina": "/",
         "dettagli": "{\"detail\":\"Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano\"}"
+      },
+      {
+        "id": 289,
+        "creato_il": "2026-11-24T10:29:10.919225+00:00",
+        "ruolo": "commerciale",
+        "endpoint": "/commerciale/preventivi/27/sconto",
+        "metodo": "PATCH",
+        "status_code": 422,
+        "messaggio": "Sconto tra 0 e 100",
+        "url_pagina": "/commerciale/preventivi/27",
+        "dettagli": "{\"detail\":\"Sconto tra 0 e 100\"}"
+      },
+      {
+        "id": 290,
+        "creato_il": "2026-11-24T10:29:22.734139+00:00",
+        "ruolo": "commerciale",
+        "endpoint": "/commerciale/preventivi/27/sconto",
+        "metodo": "PATCH",
+        "status_code": 422,
+        "messaggio": "Sconto tra 0 e 100",
+        "url_pagina": "/commerciale/preventivi/27",
+        "dettagli": "{\"detail\":\"Sconto tra 0 e 100\"}"
       }
     ]
   }
