@@ -45,7 +45,8 @@ export default function CantierePage() {
   })
 
   const updateMutation = useMutation(
-    data => api.put(`/cantieri/${id}`, data),
+    // Le date non si salvano da qui: arrivano solo dalla conferma del Gantt Operatori
+    ({ data_inizio, data_fine_prevista, ...data }) => api.put(`/cantieri/${id}`, data),
     { onSuccess: r => { qc.setQueryData(['cantiere', id], r.data); qc.invalidateQueries('cantieri'); setEditing(false); toast.success('Salvato!') } }
   )
 
@@ -203,9 +204,12 @@ function InfoTab({ cantiere, editing, form, set, utente }) {
         <InfoField icon={<Users size={14} />} label="Cliente" value={data.cliente || ''} editing={editing} onChange={v => set('cliente', v)} />
         <InfoField icon={<MapPin size={14} />} label="Città" value={data.citta || ''} editing={editing} onChange={v => set('citta', v)} />
         <InfoField icon={<MapPin size={14} />} label="Indirizzo" value={data.indirizzo || ''} editing={editing} onChange={v => set('indirizzo', v)} className="col-span-2" />
-        <InfoField icon={<Calendar size={14} />} label="Inizio" type="date" value={data.data_inizio || ''} display={data.data_inizio ? dayjs(data.data_inizio).format('DD/MM/YYYY') : ''} editing={editing} onChange={v => set('data_inizio', v)} />
-        <InfoField icon={<Calendar size={14} />} label="Fine Prevista" type="date" value={data.data_fine_prevista || ''} display={data.data_fine_prevista ? dayjs(data.data_fine_prevista).format('DD/MM/YYYY') : ''} editing={editing} onChange={v => set('data_fine_prevista', v)} />
+        {/* Date: SOLO dal Gantt Operatori (si confermano dal riquadro sotto, non si scrivono a mano) */}
+        <InfoField icon={<Calendar size={14} />} label="Inizio · dal Gantt" value={cantiere.data_inizio || ''} display={cantiere.data_inizio ? dayjs(cantiere.data_inizio).format('DD/MM/YYYY') : ''} editing={false} />
+        <InfoField icon={<Calendar size={14} />} label="Fine prevista · dal Gantt" value={cantiere.data_fine_prevista || ''} display={cantiere.data_fine_prevista ? dayjs(cantiere.data_fine_prevista).format('DD/MM/YYYY') : ''} editing={false} />
       </div>
+
+      {!editing && <GanttConferma cantiereId={cantiere.id} utente={utente} />}
 
       {/* Riepilogo economico — solo admin e capo cantiere STEELEX */}
       {!editing && puoVedereEconomia && (
@@ -2224,6 +2228,84 @@ function DiarioTab({ cantiereId, utente }) {
   )
 }
 
+/* ─── CONFERMA DATE + TEAM DAL GANTT OPERATORI ───
+   Inizio/fine cantiere e team operativo arrivano solo dal Gantt Operatori:
+   qui si vede cosa propone il Gantt e si conferma con un tap. */
+const RUOLI_CONFERMA_GANTT = ['admin', 'capo_cantiere', 'amministrazione']
+const fmtG = d => d ? dayjs(d).format('DD/MM/YYYY') : '—'
+
+function GanttConferma({ cantiereId, utente }) {
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const abilitato = RUOLI_CONFERMA_GANTT.includes(utente?.ruolo)
+  const { data: p } = useQuery(
+    ['gantt-proposta', String(cantiereId)],
+    () => api.get(`/cantieri/${cantiereId}/gantt-proposta`).then(r => r.data),
+    { enabled: abilitato, staleTime: 15000 }
+  )
+  const conferma = useMutation(
+    () => api.post(`/cantieri/${cantiereId}/gantt-conferma`),
+    {
+      onSuccess: r => {
+        qc.invalidateQueries(['gantt-proposta', String(cantiereId)])
+        qc.invalidateQueries(['cantiere', String(cantiereId)])
+        qc.invalidateQueries(['cantiere', cantiereId])
+        qc.invalidateQueries(['artigiani', String(cantiereId)])
+        qc.invalidateQueries(['artigiani', cantiereId])
+        qc.invalidateQueries(['team', cantiereId])
+        qc.invalidateQueries(['team-rubrica', cantiereId])
+        const n = r.data?.aggiunti || 0
+        toast.success(n ? `Confermato — ${n} ${n === 1 ? 'persona aggiunta' : 'persone aggiunte'} al team` : 'Date confermate dal Gantt')
+      },
+      onError: e => toast.error(e.response?.data?.detail || 'Errore'),
+    }
+  )
+  if (!abilitato || !p) return null
+
+  // Nessuna giornata pianificata: le date restano vuote finché non si pianifica
+  if (!p.giornate) {
+    return (
+      <div className="rounded-xl border border-dashed border-steelex-border p-3 flex items-center justify-between gap-3">
+        <p className="text-xs text-steelex-muted-fg">Cantiere non ancora pianificato nel Gantt Operatori: inizio, fine e team si compilano da lì.</p>
+        <button onClick={() => navigate('/gantt-operatori')} className="text-xs font-semibold text-steelex-orange whitespace-nowrap">Apri Gantt →</button>
+      </div>
+    )
+  }
+  if (!p.da_confermare) {
+    return p.senza_account?.length > 0 ? (
+      <p className="text-xs text-steelex-muted-fg">Nel Gantt ma senza account (non entrano nel team): {p.senza_account.join(', ')}</p>
+    ) : null
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-steelex-orange/40 bg-orange-50 p-3 space-y-2">
+      <p className="text-sm font-semibold text-steelex-ink flex items-center gap-1.5">
+        <Calendar size={15} className="text-steelex-orange" /> Dal Gantt Operatori — da confermare
+      </p>
+      {p.date_diverse && (
+        <p className="text-sm text-steelex-ink">
+          Inizio <b className="tnums">{fmtG(p.data_inizio)}</b> · Fine prevista <b className="tnums">{fmtG(p.data_fine)}</b>
+          {(p.data_inizio_attuale || p.data_fine_attuale) && (
+            <span className="block text-xs text-steelex-muted-fg">ora: {fmtG(p.data_inizio_attuale)} → {fmtG(p.data_fine_attuale)}</span>
+          )}
+        </p>
+      )}
+      {p.da_aggiungere?.length > 0 && (
+        <p className="text-sm text-steelex-ink">
+          Da aggiungere al team: <b>{p.da_aggiungere.map(u => `${u.nome} ${u.cognome}`).join(', ')}</b>
+        </p>
+      )}
+      {p.senza_account?.length > 0 && (
+        <p className="text-xs text-steelex-muted-fg">Senza account (non entrano nel team): {p.senza_account.join(', ')}</p>
+      )}
+      <button onClick={() => conferma.mutate()} disabled={conferma.isLoading}
+        className="btn-primary w-full py-3 text-base flex items-center justify-center gap-2">
+        <Check size={18} /> {conferma.isLoading ? 'Conferma in corso...' : 'Conferma'}
+      </button>
+    </div>
+  )
+}
+
 /* ─── TAB TEAM ─── */
 function TeamTab({ cantiereId, utente }) {
   const qc = useQueryClient()
@@ -2293,6 +2375,7 @@ function TeamTab({ cantiereId, utente }) {
 
   return (
     <div className="space-y-4">
+      <GanttConferma cantiereId={cantiereId} utente={utente} />
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-gray-800 flex items-center gap-2"><Users size={16} /> Team di cantiere</h2>
         {puoValutare && (
