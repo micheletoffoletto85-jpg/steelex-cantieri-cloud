@@ -207,6 +207,112 @@ def rimuovi_artigiano(cantiere_id: int, utente_id: int, db: Session = Depends(ge
     cantiere.artigiani = [a for a in cantiere.artigiani if a.id != utente_id]
     db.commit()
 
+# ─── DATE E TEAM DAL GANTT OPERATORI ──────────────────────────────────────────
+# Le date del cantiere e il team operativo vengono SOLO dal Gantt Operatori:
+# l'app propone, chi gestisce il cantiere conferma con un tap.
+
+def proposta_dal_gantt(db: Session, cantiere: Cantiere) -> dict:
+    """Confronta il cantiere con le sue giornate nel Gantt Operatori.
+
+    Inizio = primo giorno pianificato, fine prevista = ultimo giorno pianificato.
+    Team = account di chi compare nel Gantt su questo cantiere (direttamente o
+    tramite la scheda rubrica collegata). Si aggiunge e basta: clienti, fornitori,
+    direzione lavori ecc. restano nel team anche se non sono nel Gantt.
+    """
+    from sqlalchemy import func as sa_func
+    from app.models.assegnazione import AssegnazioneOperatore
+    from app.models.artigiano import Artigiano
+
+    base = db.query(AssegnazioneOperatore).filter(
+        AssegnazioneOperatore.cantiere_id == cantiere.id,
+        (AssegnazioneOperatore.tipo == "cantiere") | (AssegnazioneOperatore.tipo.is_(None)),
+    )
+    primo, ultimo = base.with_entities(
+        sa_func.min(AssegnazioneOperatore.data), sa_func.max(AssegnazioneOperatore.data)
+    ).one()
+    giornate = base.with_entities(AssegnazioneOperatore.data).distinct().count()
+
+    # Persone nel Gantt → account utente
+    righe = base.with_entities(AssegnazioneOperatore.utente_id, AssegnazioneOperatore.artigiano_id).distinct().all()
+    utenti_ids = {u for u, _ in righe if u}
+    artigiani_ids = {a for _, a in righe if a}
+    senza_account = []
+    if artigiani_ids:
+        for a in db.query(Artigiano).filter(Artigiano.id.in_(artigiani_ids)).all():
+            if a.utente_id:
+                utenti_ids.add(a.utente_id)
+            else:
+                senza_account.append(f"{a.nome} {a.cognome}".strip())
+
+    gia_nel_team = {u.id for u in cantiere.artigiani}
+    da_aggiungere = []
+    if utenti_ids - gia_nel_team:
+        da_aggiungere = (
+            db.query(Utente)
+            .filter(Utente.id.in_(utenti_ids - gia_nel_team), Utente.attivo == True)
+            .order_by(Utente.cognome, Utente.nome)
+            .all()
+        )
+
+    date_diverse = bool(primo) and (cantiere.data_inizio != primo or cantiere.data_fine_prevista != ultimo)
+    return {
+        "data_inizio": primo.isoformat() if primo else None,
+        "data_fine": ultimo.isoformat() if ultimo else None,
+        "giornate": giornate,
+        "data_inizio_attuale": cantiere.data_inizio.isoformat() if cantiere.data_inizio else None,
+        "data_fine_attuale": cantiere.data_fine_prevista.isoformat() if cantiere.data_fine_prevista else None,
+        "date_diverse": date_diverse,
+        "da_aggiungere": [
+            {"id": u.id, "nome": u.nome, "cognome": u.cognome,
+             "ruolo": u.ruolo.value if hasattr(u.ruolo, "value") else u.ruolo}
+            for u in da_aggiungere
+        ],
+        "senza_account": sorted(senza_account),
+        "da_confermare": date_diverse or bool(da_aggiungere),
+        "_utenti": da_aggiungere,
+        "_primo": primo,
+        "_ultimo": ultimo,
+    }
+
+
+def applica_gantt(db: Session, cantiere: Cantiere) -> dict:
+    """Scrive sul cantiere date e team proposti dal Gantt."""
+    p = proposta_dal_gantt(db, cantiere)
+    if p["_primo"]:
+        cantiere.data_inizio = p["_primo"]
+        cantiere.data_fine_prevista = p["_ultimo"]
+    for u in p["_utenti"]:
+        if u not in cantiere.artigiani:
+            cantiere.artigiani.append(u)
+    db.commit()
+    return {"ok": True, "aggiunti": len(p["_utenti"]), "date_aggiornate": p["date_diverse"]}
+
+
+def _pulisci(p: dict) -> dict:
+    return {k: v for k, v in p.items() if not k.startswith("_")}
+
+
+@router.get("/{cantiere_id}/gantt-proposta")
+def gantt_proposta(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Date e team che il Gantt Operatori propone per il cantiere."""
+    if user.ruolo not in _RUOLI_STEELEX:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    return _pulisci(proposta_dal_gantt(db, cantiere))
+
+
+@router.post("/{cantiere_id}/gantt-conferma")
+def gantt_conferma(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Conferma: date inizio/fine e team presi dal Gantt Operatori."""
+    if user.ruolo not in _RUOLI_STEELEX:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    if not cantiere:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    return applica_gantt(db, cantiere)
+
 # ─── EXPORT / IMPORT CANTIERE ────────────────────────────────────────────────
 
 @router.get("/{cantiere_id}/export")
