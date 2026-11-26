@@ -611,7 +611,7 @@ def _cantieri_per_match(db: Session) -> list:
     il cast a testo evita 'invalid input value for enum' con valori non-label come 'attivo'."""
     from sqlalchemy import String as _Str
     return db.query(Cantiere).filter(
-        Cantiere.stato.cast(_Str).notin_(["completato", "annullato"])
+        Cantiere.stato.cast(_Str).notin_(["completato", "annullato", "archiviato"])
     ).all()
 
 

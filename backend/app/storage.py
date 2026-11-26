@@ -113,13 +113,38 @@ def leggi_file(chiave_o_percorso: str) -> tuple[bytes, str]:
             return f.read(), _content_type(os.path.splitext(chiave_o_percorso)[1])
 
 
-def elimina_file(chiave_o_percorso: str):
-    """Elimina un file da R2 o dal filesystem."""
+def elimina_file(chiave_o_percorso: str, subito: bool = False):
+    """Elimina un file da R2 o dal filesystem.
+    Se lo elimina un utente (richiesta DELETE) il file va nel cestino: resta
+    dov'è finché si svuota il cestino, così il ripristino lo ritrova."""
+    if not subito and _metti_nel_cestino(chiave_o_percorso):
+        return
     client = _r2_client()
     if client and not os.path.isabs(chiave_o_percorso) and not chiave_o_percorso.startswith("/"):
         client.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=chiave_o_percorso)
     elif os.path.exists(chiave_o_percorso):
         os.remove(chiave_o_percorso)
+
+
+def _metti_nel_cestino(chiave: str) -> bool:
+    try:
+        from app.cestino_auto import richiesta_corrente
+        ric = richiesta_corrente.get()
+        if not ric or ric.get("metodo") != "DELETE":
+            return False
+        from app.database import SessionLocal
+        from app.models.sicurezza import FileInCestino
+        db = SessionLocal()
+        db.info["senza_cestino"] = True
+        try:
+            db.add(FileInCestino(chiave=chiave[:500], richiesta=ric["id"]))
+            db.commit()
+        finally:
+            db.close()
+        return True
+    except Exception as e:
+        print(f"[storage] cestino file non riuscito, elimino subito: {e}", flush=True)
+        return False
 
 
 def _content_type(estensione: str) -> str:

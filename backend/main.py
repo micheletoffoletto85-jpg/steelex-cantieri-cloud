@@ -9,7 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import utente, cantiere, diario, documento, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp, rapportino, programmazione, assegnazione  # importa tutti i modelli
+from app.models import utente, cantiere, diario, documento, economico, notifica, raccolta_docs, nota_campo, fornitore_rating, artigiano, non_conformita, notifica_inapp, rapportino, programmazione, assegnazione, sicurezza  # importa tutti i modelli
 from app.routers import auth, utenti, cantieri, diari, trascrizioni, documenti, economico as economico_router, notifiche
 from app.routers import raccolta_docs as raccolta_docs_router
 from app.routers import archivio as archivio_router
@@ -26,6 +26,8 @@ from app.routers import appunti as appunti_router
 from app.routers import assegnazioni as assegnazioni_router
 from app.routers import ore_lavorate as ore_lavorate_router
 from app.routers import contabilita as contabilita_router
+from app.routers import sicurezza as sicurezza_router
+from app.routers import andamento as andamento_router
 from sqlalchemy import text
 
 # Crea tabelle al primo avvio
@@ -337,6 +339,9 @@ def _alembic_upgrade():
 _alembic_upgrade()
 
 from app.storage import configura_cors_r2
+from app.database import SessionLocal as _SessionLocal
+from app import cestino_auto as _cestino_auto
+_cestino_auto.collega(_SessionLocal)   # ogni eliminazione fatta da un utente va nel cestino
 configura_cors_r2()
 
 limiter = Limiter(key_func=get_remote_address)
@@ -391,6 +396,33 @@ app.include_router(appunti_router.router, prefix="/api/v1")
 app.include_router(assegnazioni_router.router, prefix="/api/v1")
 app.include_router(ore_lavorate_router.router, prefix="/api/v1")
 app.include_router(contabilita_router.router, prefix="/api/v1")
+app.include_router(sicurezza_router.router, prefix="/api/v1")
+app.include_router(andamento_router.router, prefix="/api/v1")
+
+
+# Registro attività: ogni modifica (POST/PUT/PATCH/DELETE) si annota con chi e quando.
+# Si scrive in un thread a parte, dopo la risposta: non rallenta e non fa mai cadere l'app.
+@app.middleware("http")
+async def _registro_attivita(request: Request, call_next):
+    # chi sta facendo cosa: serve al cestino automatico (eliminazioni) e al registro
+    try:
+        from app import registro, cestino_auto
+        cestino_auto.richiesta_corrente.set(cestino_auto.nuova_richiesta(
+            request.method, request.url.path, registro._utente_da_token(request.headers.get("authorization", ""))))
+    except Exception as e:
+        print(f"[CESTINO] {e}", flush=True)
+    risposta = await call_next(request)
+    try:
+        from app import registro
+        if registro.da_registrare(request.method, request.url.path):
+            import asyncio
+            ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "")
+            asyncio.get_running_loop().run_in_executor(
+                None, registro.annota, request.method, request.url.path, risposta.status_code,
+                request.headers.get("authorization", ""), ip)
+    except Exception as e:
+        print(f"[REGISTRO] {e}", flush=True)
+    return risposta
 
 @app.get("/")
 def root():

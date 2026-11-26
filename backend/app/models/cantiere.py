@@ -18,6 +18,7 @@ class StatoCantiere(str, enum.Enum):
     sospeso = "sospeso"
     completato = "completato"
     annullato = "annullato"
+    archiviato = "archiviato"   # vecchi cantieri di prova: fuori da tutte le liste
 
 class Cantiere(Base):
     __tablename__ = "cantieri"

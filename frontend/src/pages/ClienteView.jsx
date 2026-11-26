@@ -32,7 +32,7 @@ const STATO_STYLE = {
   completato: 'bg-green-100 text-green-700',
   annullato:  'bg-red-100 text-red-700',
 }
-const STATO_LABEL = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
+const STATO_LABEL = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato', archiviato: 'Archiviato' }
 
 const STATO_FASE = {
   pianificata:  { label: 'Pianificata',  icon: Clock,         cls: 'text-gray-500' },

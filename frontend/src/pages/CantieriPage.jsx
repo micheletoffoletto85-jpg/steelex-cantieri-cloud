@@ -6,7 +6,7 @@ import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-const STATI = ['tutti', 'preventivo', 'in_corso', 'sospeso', 'completato']
+const STATI = ['tutti', 'preventivo', 'in_corso', 'sospeso', 'completato', 'archiviato']
 // Stato codificato da testo + pastiglia + banda laterale, mai dal solo colore (MASTER.md)
 const STATO_PILL = {
   preventivo: 'pill-neutral',
@@ -14,6 +14,7 @@ const STATO_PILL = {
   sospeso: 'pill-warn',
   completato: 'pill-ok',
   annullato: 'pill-late',
+  archiviato: 'pill-neutral',
 }
 const STATO_BAND = {
   preventivo: 'border-l-steelex-border-strong',
@@ -24,7 +25,7 @@ const STATO_BAND = {
 }
 const STATO_LABEL = {
   preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso',
-  completato: 'Completato', annullato: 'Annullato',
+  completato: 'Completato', annullato: 'Annullato', archiviato: 'Archiviato',
 }
 
 export default function CantieriPage() {
@@ -36,7 +37,12 @@ export default function CantieriPage() {
   const [showForm, setShowForm] = useState(false)
   const qc = useQueryClient()
 
-  const { data: cantieri = [], isLoading } = useQuery('cantieri', () => api.get('/cantieri').then(r => r.data))
+  const { data: attivi = [], isLoading: carico1 } = useQuery('cantieri', () => api.get('/cantieri').then(r => r.data))
+  // archiviati (vecchi cantieri di prova): fuori da tutte le liste, si caricano solo col filtro
+  const { data: archiviati = [], isLoading: carico2 } = useQuery('cantieri-archiviati',
+    () => api.get('/cantieri?archiviati=true').then(r => r.data), { enabled: filtroStato === 'archiviato' })
+  const cantieri = filtroStato === 'archiviato' ? archiviati : attivi
+  const isLoading = carico1 || (filtroStato === 'archiviato' && carico2)
 
   const createMutation = useMutation(
     data => api.post('/cantieri', data),

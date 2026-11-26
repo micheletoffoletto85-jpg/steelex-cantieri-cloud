@@ -122,6 +122,9 @@ def aggiorna_ore(oid: int, payload: OreIn, db: Session = Depends(get_db), utente
 def elimina_ore(oid: int, db: Session = Depends(get_db), utente=Depends(get_current_user)):
     _check(utente)
     _riga_o_404(oid, db, utente)
+    from app.cestino_auto import nel_cestino
+    r = db.execute(text("SELECT data, ore FROM ore_lavorate WHERE id = :id"), {"id": oid}).first()
+    nel_cestino(db, "ore_lavorate", oid, f"Ore lavorate: {r[1]} h del {r[0]}" if r else "Ore lavorate")
     db.execute(text("DELETE FROM ore_lavorate WHERE id = :id"), {"id": oid})
     db.commit()
     return {"ok": True}
