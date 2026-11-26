@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime
 from app.database import get_db
+from app.download import disposizione
 from app.routers.auth import get_current_user
 from pydantic import BaseModel
 from typing import Optional
@@ -121,7 +122,7 @@ def esporta_errori_txt(db: Session = Depends(get_db), utente=Depends(get_current
     nome_file = f"error-log-{datetime.now().strftime('%Y%m%d-%H%M')}.txt"
     return PlainTextResponse(
         contenuto,
-        headers={"Content-Disposition": f'attachment; filename="{nome_file}"'},
+        headers={"Content-Disposition": disposizione(f"{nome_file}", "attachment")},
     )
 
 @router.delete("/{eid}")

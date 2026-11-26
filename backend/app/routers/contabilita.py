@@ -19,6 +19,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from starlette.concurrency import run_in_threadpool
 
 from app.database import get_db
+from app.download import disposizione
 from app.auth import get_current_user
 from app.models.cantiere import Cantiere
 from app.models.utente import RuoloUtente, Utente
@@ -457,4 +458,4 @@ def report_pdf(cantiere_id: int, db: Session = Depends(get_db), user: Utente = D
     T.build(buf, story, title=f"Libretto misure — {cantiere.nome}")
     nome_file = f"libretto_misure_{(cantiere.nome or 'cantiere').replace(' ', '_')}.pdf"
     return StreamingResponse(buf, media_type="application/pdf",
-                             headers={"Content-Disposition": f'attachment; filename="{nome_file}"'})
+                             headers={"Content-Disposition": disposizione(f"{nome_file}", "attachment")})

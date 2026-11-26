@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Any
 from datetime import date, datetime
 from app.database import get_db
+from app.download import disposizione
 from app.models.economico import (
     PreventivoCantiere, SAL, StatoSAL, StatoPreventivo,
     Spesa, CategoriaSpesa, FaseLavoro, StatoFase,
@@ -2143,7 +2144,7 @@ def export_excel(cantiere_id: int, db: Session = Depends(get_db), user: Utente =
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{nome_file}"'},
+        headers={"Content-Disposition": disposizione(f"{nome_file}", "attachment")},
     )
 
 
@@ -2365,7 +2366,7 @@ def genera_pdf_tutti_computi(cantiere_id: int, modo: str = "preventivo",
     suff = "dettaglio" if dettaglio else "preventivo"
     nome_file = f"computi_{suff}_{(cantiere.nome or 'cantiere').replace(' ', '_')}.pdf"
     return StreamingResponse(buf, media_type="application/pdf",
-                             headers={"Content-Disposition": f'attachment; filename="{nome_file}"'})
+                             headers={"Content-Disposition": disposizione(f"{nome_file}", "attachment")})
 
 
 @router.get("/{cantiere_id}/preventivi/{prev_id}/genera-pdf")
@@ -2390,7 +2391,7 @@ def genera_pdf_preventivo(cantiere_id: int, prev_id: int, db: Session = Depends(
     return StreamingResponse(
         buf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{nome_file}"'},
+        headers={"Content-Disposition": disposizione(f"{nome_file}", "attachment")},
     )
 
 
