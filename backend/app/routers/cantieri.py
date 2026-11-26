@@ -97,7 +97,7 @@ def elimina_cantiere(cantiere_id: int, db: Session = Depends(get_db), user: Uten
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
     if not cantiere:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
-    elimina_cantiere_completo(db, cantiere_id)
+    elimina_cantiere_completo(db, cantiere_id, user)
     db.commit()
 
 
@@ -110,11 +110,21 @@ _TABELLE_SENZA_CASCADE = (
 )
 
 
-def elimina_cantiere_completo(db: Session, cantiere_id: int):
+def elimina_cantiere_completo(db: Session, cantiere_id: int, user=None):
     """Cancella il cantiere e tutto quello che c'è dentro (per cantieri aperti per
-    errore o di prova)."""
+    errore o di prova). Prima però tutto finisce nel CESTINO: si può ripristinare com'era."""
     from sqlalchemy import text
+    from app import cestino
+    from app.models.sicurezza import ElementoCestino
     p = {"c": cantiere_id}
+    foto = cestino.fotografa(db.connection(), "cantieri", [cantiere_id])
+    radice = (foto["righe"].get("cantieri") or [{}])[0]
+    db.add(ElementoCestino(
+        tipo="cantiere", oggetto_id=cantiere_id, nome=(radice.get("nome") or f"Cantiere {cantiere_id}")[:300],
+        dati=foto, righe=cestino.conta_righe(foto),
+        eliminato_da=getattr(user, "id", None),
+        eliminato_da_nome=(f"{user.nome} {user.cognome}".strip() if user else None)))
+    db.flush()
     # riferimenti incrociati fra figli: prima si staccano, poi si cancella
     for sql in (
         "UPDATE rapportini_operativi SET diario_id = NULL WHERE diario_id IN (SELECT id FROM diari_giornalieri WHERE cantiere_id = :c)",

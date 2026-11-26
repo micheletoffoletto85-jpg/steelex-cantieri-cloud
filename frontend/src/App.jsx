@@ -11,6 +11,7 @@ import ArtigianiPage from './pages/ArtigianiPage'
 import RapportiniPage from './pages/RapportiniPage'
 import GanttOperatoriPage from './pages/GanttOperatoriPage'
 import ErrorLogPage from './pages/ErrorLogPage'
+import SicurezzaPage from './pages/SicurezzaPage'
 import AppuntiPage from './pages/AppuntiPage'
 import OreLavoratePage from './pages/OreLavoratePage'
 import Layout from './components/Layout'
@@ -66,6 +67,7 @@ function AppContent() {
           <Route path="programmazione" element={<Navigate to="/" replace />} />
           <Route path="gantt-operatori" element={<GanttOperatoriPage />} />
           <Route path="error-log" element={<ErrorLogPage />} />
+          <Route path="sicurezza" element={<SicurezzaPage />} />
           <Route path="appunti" element={<AppuntiPage />} />
           <Route path="ore-lavorate" element={<OreLavoratePage />} />
         </Route>

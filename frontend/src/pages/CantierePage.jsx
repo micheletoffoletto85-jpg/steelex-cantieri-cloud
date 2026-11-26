@@ -3254,7 +3254,7 @@ function AuthImage({ url, className }) {
 function EliminaCantiereDialog({ cantiere, onClose, onEliminato }) {
   const [testo, setTesto] = useState('')
   const elimina = useMutation(() => api.delete(`/cantieri/${cantiere.id}`), {
-    onSuccess: () => { toast.success('Cantiere eliminato'); onEliminato() },
+    onSuccess: () => { toast.success('Cantiere eliminato: è nel cestino, si può ripristinare'); onEliminato() },
     onError: e => toast.error(e.response?.data?.detail || 'Errore durante l\'eliminazione'),
   })
   return (
@@ -3266,8 +3266,9 @@ function EliminaCantiereDialog({ cantiere, onClose, onEliminato }) {
         </div>
         <p className="text-sm text-gray-700"><strong>{cantiere.nome}</strong></p>
         <p className="text-sm text-gray-600">
-          Si cancellano anche diari, foto, rapportini, ore, documenti, computi, SAL e spese del cantiere.
-          <strong> Non si può annullare.</strong> Usalo per i cantieri aperti per errore o di prova.
+          Spariscono anche diari, foto, rapportini, ore, documenti, computi, SAL e spese del cantiere.
+          Usalo per i cantieri aperti per errore o di prova. Eliminato per sbaglio? Finisce nel
+          <strong> cestino</strong> (menu «Sicurezza e backup») e si ripristina com'era.
         </p>
         <label className="block">
           <span className="text-xs font-medium text-gray-500">Scrivi ELIMINA per confermare</span>
