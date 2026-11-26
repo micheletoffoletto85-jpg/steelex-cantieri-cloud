@@ -73,12 +73,17 @@ def calcola_anno(db: Session, anno: int) -> dict:
             elenco.append({"id": c.id, "nome": c.nome, "stato": c.stato.value, "mese": quando.month, "valore": valore,
                            "speso": speso, "margine": round((valore - speso) / valore, 3) if valore else None})
 
+    # costi e ore dei soli cantieri che contano (non archiviati di prova né annullati)
+    validi = [c.id for c in cantieri if c.stato not in (StatoCantiere.archiviato, StatoCantiere.annullato)]
     spese_m = _per_mese(db.query(extract("month", Spesa.data), func.sum(Spesa.importo))
-                        .filter(extract("year", Spesa.data) == anno).group_by(extract("month", Spesa.data)).all())
+                        .filter(extract("year", Spesa.data) == anno, Spesa.cantiere_id.in_(validi))
+                        .group_by(extract("month", Spesa.data)).all())
     mano_m = _per_mese(db.query(extract("month", OreExtra.data), func.sum(OreExtra.totale))
-                       .filter(extract("year", OreExtra.data) == anno).group_by(extract("month", OreExtra.data)).all())
+                       .filter(extract("year", OreExtra.data) == anno, OreExtra.cantiere_id.in_(validi))
+                       .group_by(extract("month", OreExtra.data)).all())
     ore_m = _per_mese(db.query(extract("month", OreExtra.data), func.sum(OreExtra.ore))
-                      .filter(extract("year", OreExtra.data) == anno).group_by(extract("month", OreExtra.data)).all())
+                      .filter(extract("year", OreExtra.data) == anno, OreExtra.cantiere_id.in_(validi))
+                      .group_by(extract("month", OreExtra.data)).all())
 
     con_valore = [e for e in elenco if e["valore"] and e["stato"] == "completato"]
     tot_v = sum(e["valore"] for e in con_valore)
@@ -109,5 +114,7 @@ def andamento(anno: Optional[int] = Query(None), db: Session = Depends(get_db),
     anno = anno or oggi.year
     attuale = calcola_anno(db, anno)
     precedente = calcola_anno(db, anno - 1)
-    anni = sorted({r[0] for r in db.query(extract("year", OreExtra.data)).distinct() if r[0]} | {oggi.year})
+    # anni con lavoro vero (almeno 40 ore): esclude date sbagliate isolate nei diari
+    anni = sorted({int(r[0]) for r in db.query(extract("year", OreExtra.data), func.sum(OreExtra.ore))
+                   .group_by(extract("year", OreExtra.data)).all() if r[0] and (r[1] or 0) >= 40} | {oggi.year})
     return {"oggi": oggi.isoformat(), "anni": [int(a) for a in anni], "attuale": attuale, "precedente": precedente}
