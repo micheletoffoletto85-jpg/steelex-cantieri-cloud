@@ -99,7 +99,7 @@ export default function AndamentoPage() {
               <Link key={c.id} to={`/cantieri/${c.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-steelex-muted">
                 <span className="text-xs text-steelex-muted-fg w-8">{MESI[c.mese - 1]}</span>
                 <span className="flex-1 min-w-0 truncate text-sm">{c.nome}</span>
-                {c.margine != null && c.speso > 0 && (
+                {c.margine != null && c.speso > 0 && c.stato === 'completato' && (
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.margine >= 0.2 ? 'bg-ok-tint text-ok' : c.margine >= 0 ? 'bg-warn-tint text-warn' : 'bg-danger-tint text-danger'}`}>
                     {perc(c.margine)}
                   </span>
@@ -163,7 +163,7 @@ function Progressivo({ att, prima, anno }) {
       {MESI.map((m, i) => (i % 2 === 0 || i === 11) && (
         <text key={m} x={x(i)} y={H - 3} textAnchor="middle" fontSize="10" fill="rgba(255,255,255,.5)">{m}</text>
       ))}
-      <text x={W - P} y={12} textAnchor="end" fontSize="10" fill="rgba(255,255,255,.5)">— — {anno - 1}</text>
+      {prima.some(Boolean) && <text x={W - P} y={12} textAnchor="end" fontSize="10" fill="rgba(255,255,255,.5)">— — {anno - 1}</text>}
     </svg>
   )
 }
