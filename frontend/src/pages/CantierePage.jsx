@@ -22,7 +22,7 @@ const STATO_PILL = {
   preventivo: 'pill-neutral', in_corso: 'pill-info', sospeso: 'pill-warn',
   completato: 'pill-ok', annullato: 'pill-late',
 }
-const STATO_LABEL = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
+const STATO_LABEL = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato', archiviato: 'Archiviato' }
 
 export default function CantierePage() {
   const { id } = useParams()

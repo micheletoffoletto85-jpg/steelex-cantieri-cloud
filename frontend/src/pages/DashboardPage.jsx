@@ -834,7 +834,7 @@ export default function DashboardPage() {
     preventivo: 'border-l-steelex-border-strong', in_corso: 'border-l-blue-500', sospeso: 'border-l-warn',
     completato: 'border-l-ok', annullato: 'border-l-danger',
   }
-  const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato' }
+  const STATO_LABEL_DASH = { preventivo: 'Preventivo', in_corso: 'In Corso', sospeso: 'Sospeso', completato: 'Completato', annullato: 'Annullato', archiviato: 'Archiviato' }
 
   if (isCliente) return <ClienteDashboard utente={utente} cantieri={cantieri} isLoading={cantieriLoading} />
   if (['artigiano', 'capo_cantiere', 'capo_cantiere_sub'].includes(utente?.ruolo)) return <ArtigianoDashboard utente={utente} cantieri={cantieri} />

@@ -54,36 +54,70 @@ export default function SicurezzaPage() {
 
 function Cestino() {
   const qc = useQueryClient()
+  const [cerca, setCerca] = useState('')
   const { data = [], isLoading } = useQuery('cestino', () => api.get('/sicurezza/cestino').then(r => r.data))
+  const aggiorna = () => { qc.invalidateQueries('cestino'); qc.invalidateQueries('cantieri') }
   const ripristina = useMutation(id => api.post(`/sicurezza/cestino/${id}/ripristina`).then(r => r.data), {
-    onSuccess: r => {
-      toast.success(`Ripristinato: ${r.righe} elementi, ${r.collegamenti} collegamenti`)
-      qc.invalidateQueries('cestino'); qc.invalidateQueries('cantieri')
-    },
+    onSuccess: () => { toast.success("Ripristinato com'era"); aggiorna() },
     onError: e => toast.error(e.response?.data?.detail || 'Ripristino non riuscito'),
   })
+  const elimina = useMutation(id => api.delete(`/sicurezza/cestino/${id}`), {
+    onSuccess: () => { toast.success('Eliminato per sempre'); aggiorna() },
+  })
+  const svuota = useMutation(() => api.delete('/sicurezza/cestino').then(r => r.data), {
+    onSuccess: r => { toast.success(`Cestino svuotato (${r.elementi} elementi)`); aggiorna() },
+  })
   if (isLoading) return <p className="text-sm text-gray-500">Carico…</p>
-  if (!data.length) return <div className="card text-sm text-gray-500">Il cestino è vuoto. Da adesso ogni cantiere eliminato finisce qui e si può ripristinare.</div>
+  const daRipristinare = data.filter(e => !e.ripristinato_il)
+  const lista = data.filter(e => !cerca.trim() || `${e.nome} ${e.eliminato_da_nome || ''}`.toLowerCase().includes(cerca.toLowerCase()))
   return (
-    <div className="space-y-2">
-      {data.map(e => (
-        <div key={e.id} className="card flex flex-col sm:flex-row sm:items-center gap-3">
+    <div className="space-y-3">
+      <div className="card flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1">
+          <p className="font-semibold text-gray-900 flex items-center gap-2"><Trash2 size={16} /> {daRipristinare.length} {daRipristinare.length === 1 ? 'elemento' : 'elementi'} nel cestino</p>
+          <p className="text-xs text-gray-500">Come il cestino di Windows: tutto quello che si elimina nell'app finisce qui, con foto e documenti. Dopo 90 giorni si svuota da solo.</p>
+        </div>
+        {data.length > 0 && (
+          <button className="btn-secondary text-red-600 flex items-center justify-center gap-2" disabled={svuota.isLoading}
+            onClick={() => { if (confirm(`Svuotare il cestino? ${daRipristinare.length} elementi e i loro file spariscono per sempre.`)) svuota.mutate() }}>
+            <Trash2 size={16} /> Svuota cestino
+          </button>
+        )}
+      </div>
+      {data.length > 5 && (
+        <label className="relative block">
+          <Search size={16} className="absolute left-3 top-3 text-gray-400" />
+          <input className="input-field pl-9" placeholder="Cerca nel cestino…" value={cerca} onChange={e => setCerca(e.target.value)} />
+        </label>
+      )}
+      {!data.length && <div className="card text-sm text-gray-500">Il cestino è vuoto.</div>}
+      {lista.map(e => (
+        <div key={e.id} className={`card flex flex-col sm:flex-row sm:items-center gap-3 ${e.ripristinato_il ? 'opacity-60' : ''}`}>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-gray-900 truncate">{e.nome}</p>
+            <p className="font-semibold text-gray-900 truncate">{e.tipo === 'cantiere' ? `Cantiere: ${e.nome}` : e.nome}</p>
             <p className="text-xs text-gray-500">
-              Eliminato il {quando(e.eliminato_il)}{e.eliminato_da_nome ? ` da ${e.eliminato_da_nome}` : ''} · {e.righe} elementi
-              {e.dettaglio?.diari_giornalieri ? ` · ${e.dettaglio.diari_giornalieri} diari` : ''}
-              {e.dettaglio?.foto_cantiere ? ` · ${e.dettaglio.foto_cantiere} foto` : ''}
-              {e.dettaglio?.rapportini_operativi ? ` · ${e.dettaglio.rapportini_operativi} rapportini` : ''}
+              Eliminato il {quando(e.eliminato_il)}{e.eliminato_da_nome ? ` da ${e.eliminato_da_nome}` : ''}
+              {e.tipo === 'cantiere' && <> · {e.righe} elementi
+                {e.dettaglio?.diari_giornalieri ? ` · ${e.dettaglio.diari_giornalieri} diari` : ''}
+                {e.dettaglio?.foto_cantiere ? ` · ${e.dettaglio.foto_cantiere} foto` : ''}
+                {e.dettaglio?.rapportini_operativi ? ` · ${e.dettaglio.rapportini_operativi} rapportini` : ''}</>}
             </p>
-            {e.ripristinato_il && <p className="text-xs text-green-700">Ripristinato il {quando(e.ripristinato_il)} da {e.ripristinato_da_nome}</p>}
+            {e.ripristinato_il
+              ? <p className="text-xs text-green-700">Ripristinato il {quando(e.ripristinato_il)} da {e.ripristinato_da_nome}</p>
+              : e.scade_il && <p className="text-[11px] text-gray-400">Si elimina da solo il {dayjs(e.scade_il).format('DD/MM/YYYY')}</p>}
           </div>
-          {!e.ripristinato_il && (
-            <button className="btn-primary flex items-center justify-center gap-2" disabled={ripristina.isLoading}
-              onClick={() => { if (confirm(`Ripristinare «${e.nome}» com'era al momento dell'eliminazione?`)) ripristina.mutate(e.id) }}>
-              <RotateCcw size={16} /> Ripristina
+          <div className="flex gap-2">
+            {!e.ripristinato_il && (
+              <button className="btn-primary flex-1 flex items-center justify-center gap-2" disabled={ripristina.isLoading}
+                onClick={() => { if (confirm(`Ripristinare «${e.nome}» com'era al momento dell'eliminazione?`)) ripristina.mutate(e.id) }}>
+                <RotateCcw size={16} /> Ripristina
+              </button>
+            )}
+            <button className="btn-secondary px-3" aria-label="Elimina per sempre" title="Elimina per sempre"
+              onClick={() => { if (confirm(e.ripristinato_il ? 'Togliere questa riga dal cestino?' : `Eliminare per sempre «${e.nome}»? Non si potrà più ripristinare.`)) elimina.mutate(e.id) }}>
+              <Trash2 size={16} className="text-red-600" />
             </button>
-          )}
+          </div>
         </div>
       ))}
     </div>

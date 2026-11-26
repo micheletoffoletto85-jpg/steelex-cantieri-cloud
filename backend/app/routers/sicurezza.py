@@ -4,7 +4,7 @@ import io
 import json
 import secrets
 import zipfile
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 
 import sqlalchemy as sa
@@ -17,7 +17,7 @@ from app import cestino, registro
 from app.auth import require_admin
 from app.config import settings
 from app.database import get_db
-from app.models.sicurezza import ElementoCestino, RegistroAttivita, ChiaveBackup
+from app.models.sicurezza import ElementoCestino, RegistroAttivita, ChiaveBackup, FileInCestino
 from app.models.utente import Utente, RuoloUtente
 
 router = APIRouter(prefix="/sicurezza", tags=["Sicurezza e backup"])
@@ -29,14 +29,54 @@ def _nome(u) -> str:
 
 # ───────────────────────────── cestino ─────────────────────────────
 
+GIORNI_CESTINO = 90
+
+
+def _cancella_file(db: Session, richieste):
+    """Cancella davvero da R2 i file tenuti per queste voci del cestino."""
+    from app.storage import elimina_file
+    richieste = [r for r in richieste if r]
+    if not richieste:
+        return 0
+    n = 0
+    for f in db.query(FileInCestino).filter(FileInCestino.richiesta.in_(richieste)).all():
+        try:
+            elimina_file(f.chiave, subito=True)
+            n += 1
+        except Exception as e:
+            print(f"[CESTINO] file non cancellato {f.chiave}: {e}", flush=True)
+        db.delete(f)
+    return n
+
+
+def _pulizia_automatica(db: Session):
+    # come Windows con la pulizia automatica: dopo 90 giorni si svuota da solo
+    limite = datetime.now(timezone.utc) - timedelta(days=GIORNI_CESTINO)
+    vecchie = db.query(ElementoCestino).filter(ElementoCestino.eliminato_il < limite).all()
+    if vecchie:
+        _cancella_file(db, [e.richiesta for e in vecchie if not e.ripristinato_il])
+        for e in vecchie:
+            db.delete(e)
+    orfani = db.query(FileInCestino).filter(FileInCestino.creato_il < limite).all()
+    _cancella_file(db, list({f.richiesta for f in orfani}))
+    db.commit()
+
+
 @router.get("/cestino")
 def lista_cestino(db: Session = Depends(get_db), user: Utente = Depends(require_admin)):
-    righe = db.query(ElementoCestino).order_by(ElementoCestino.eliminato_il.desc()).limit(300).all()
+    db.info["senza_cestino"] = True
+    try:
+        _pulizia_automatica(db)
+    except Exception as e:
+        db.rollback()
+        print(f"[CESTINO] pulizia automatica: {e}", flush=True)
+    righe = db.query(ElementoCestino).order_by(ElementoCestino.eliminato_il.desc()).limit(500).all()
     return [{
         "id": e.id, "tipo": e.tipo, "oggetto_id": e.oggetto_id, "nome": e.nome, "righe": e.righe,
         "eliminato_il": e.eliminato_il, "eliminato_da_nome": e.eliminato_da_nome,
         "ripristinato_il": e.ripristinato_il, "ripristinato_da_nome": e.ripristinato_da_nome,
-        "dettaglio": {k: len(v) for k, v in (e.dati or {}).get("righe", {}).items()},
+        "dettaglio": {k: len(v) for k, v in (e.dati or {}).get("righe", {}).items() if v},
+        "scade_il": e.eliminato_il + timedelta(days=GIORNI_CESTINO) if e.eliminato_il else None,
     } for e in righe]
 
 
@@ -56,15 +96,42 @@ def ripristina_dal_cestino(elemento_id: int, db: Session = Depends(get_db), user
         raise HTTPException(404, "Elemento non trovato")
     if e.ripristinato_il:
         raise HTTPException(409, "Già ripristinato")
+    from app.cestino_auto import ripristina_voce
     conn = db.connection()
-    radice = e.dati.get("radice")
-    if conn.execute(sa.text(f"SELECT 1 FROM {radice} WHERE id = :i"), {"i": e.oggetto_id}).first():
+    if e.dati.get("radice") == "cantieri" and conn.execute(
+            sa.text("SELECT 1 FROM cantieri WHERE id = :i"), {"i": e.oggetto_id}).first():
         raise HTTPException(409, "Esiste già: non c'è niente da ripristinare")
-    esito = cestino.ripristina(conn, e.dati, extra_stacco=_riattacca_preventivo)
+    esito = ripristina_voce(conn, e.dati, extra_stacco=_riattacca_preventivo)
     e.ripristinato_il = datetime.now(timezone.utc)
     e.ripristinato_da_nome = _nome(user)
+    if e.richiesta:   # i file tornano in uso: non vanno più cancellati
+        db.query(FileInCestino).filter(FileInCestino.richiesta == e.richiesta).delete(synchronize_session=False)
     db.commit()
     return {"ok": True, **esito, "oggetto_id": e.oggetto_id}
+
+
+@router.delete("/cestino/{elemento_id}")
+def elimina_per_sempre(elemento_id: int, db: Session = Depends(get_db), user: Utente = Depends(require_admin)):
+    db.info["senza_cestino"] = True
+    e = db.query(ElementoCestino).filter(ElementoCestino.id == elemento_id).first()
+    if not e:
+        raise HTTPException(404, "Elemento non trovato")
+    if not e.ripristinato_il:
+        _cancella_file(db, [e.richiesta])
+    db.delete(e)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/cestino")
+def svuota_cestino(db: Session = Depends(get_db), user: Utente = Depends(require_admin)):
+    db.info["senza_cestino"] = True
+    tutte = db.query(ElementoCestino).all()
+    n_file = _cancella_file(db, [e.richiesta for e in tutte if not e.ripristinato_il])
+    for e in tutte:
+        db.delete(e)
+    db.commit()
+    return {"ok": True, "elementi": len(tutte), "file": n_file}
 
 
 # ───────────────────────────── registro ─────────────────────────────

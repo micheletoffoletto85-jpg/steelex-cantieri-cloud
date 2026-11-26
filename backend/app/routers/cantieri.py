@@ -32,10 +32,17 @@ def _check_accesso(cantiere: Cantiere, user: Utente):
 @router.get("", response_model=List[CantiereOut])
 def lista_cantieri(
     stato: Optional[StatoCantiere] = None,
+    archiviati: bool = False,
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
+    from sqlalchemy import or_ as _or
     q = db.query(Cantiere)
+    # gli archiviati non compaiono da nessuna parte (dashboard, Gantt, liste) se non chiesti
+    if archiviati or stato == StatoCantiere.archiviato:
+        q = q.filter(Cantiere.stato == StatoCantiere.archiviato)
+    else:
+        q = q.filter(_or(Cantiere.stato.is_(None), Cantiere.stato != StatoCantiere.archiviato))
     if user.ruolo in (RuoloUtente.admin, RuoloUtente.capo_cantiere, RuoloUtente.amministrazione):
         pass  # vede tutto
     elif user.ruolo in _RUOLI_STAFF_EXT:
@@ -110,6 +117,12 @@ _TABELLE_SENZA_CASCADE = (
 )
 
 
+def _id_richiesta():
+    from app.cestino_auto import richiesta_corrente
+    r = richiesta_corrente.get()
+    return r["id"] if r else None
+
+
 def elimina_cantiere_completo(db: Session, cantiere_id: int, user=None):
     """Cancella il cantiere e tutto quello che c'è dentro (per cantieri aperti per
     errore o di prova). Prima però tutto finisce nel CESTINO: si può ripristinare com'era."""
@@ -123,7 +136,8 @@ def elimina_cantiere_completo(db: Session, cantiere_id: int, user=None):
         tipo="cantiere", oggetto_id=cantiere_id, nome=(radice.get("nome") or f"Cantiere {cantiere_id}")[:300],
         dati=foto, righe=cestino.conta_righe(foto),
         eliminato_da=getattr(user, "id", None),
-        eliminato_da_nome=(f"{user.nome} {user.cognome}".strip() if user else None)))
+        eliminato_da_nome=(f"{user.nome} {user.cognome}".strip() if user else None),
+        richiesta=_id_richiesta()))
     db.flush()
     # riferimenti incrociati fra figli: prima si staccano, poi si cancella
     for sql in (

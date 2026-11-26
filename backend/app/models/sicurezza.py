@@ -20,6 +20,7 @@ class ElementoCestino(Base):
     eliminato_da_nome = Column(String(200))
     ripristinato_il = Column(DateTime(timezone=True), nullable=True)
     ripristinato_da_nome = Column(String(200))
+    richiesta = Column(String(40), index=True)              # una richiesta DELETE = una voce
 
 
 class RegistroAttivita(Base):
@@ -47,3 +48,14 @@ class ChiaveBackup(Base):
     creata_da_nome = Column(String(200))
     ultimo_uso = Column(DateTime(timezone=True), nullable=True)
     attiva = Column(Boolean, nullable=False, default=True)
+
+
+class FileInCestino(Base):
+    """File (foto, PDF…) eliminati dall'app: restano su R2 finché si svuota il
+    cestino o passano 90 giorni, così un ripristino li ritrova."""
+    __tablename__ = "file_in_cestino"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chiave = Column(String(500), nullable=False)
+    richiesta = Column(String(40), index=True)
+    creato_il = Column(DateTime(timezone=True), server_default=func.now(), index=True)
