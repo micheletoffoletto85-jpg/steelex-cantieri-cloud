@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 48,
-  "since_id_fr": 295,
+  "since_id_fr": 298,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -1447,6 +1447,39 @@
         "messaggio": "L'IA non ha restituito dati leggibili: nessun JSON",
         "url_pagina": "/commerciale",
         "dettagli": "{\"detail\":\"L'IA non ha restituito dati leggibili: nessun JSON\"}"
+      },
+      {
+        "id": 296,
+        "creato_il": "2026-11-26T16:46:09.787111+00:00",
+        "ruolo": "admin",
+        "endpoint": "/commerciale/preventivi/33",
+        "metodo": "PUT",
+        "status_code": 500,
+        "messaggio": "Request failed with status code 500",
+        "url_pagina": "/commerciale/preventivi/33",
+        "dettagli": "\"Internal Server Error\""
+      },
+      {
+        "id": 297,
+        "creato_il": "2026-11-26T20:57:57.026602+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "[server] Trascrizione rifiutata da OpenAI — dettagli tecnici",
+        "url_pagina": "server",
+        "dettagli": "{\"errore_openai\": \"Error code: 400 - {'error': {'message': 'Audio file is too short. Minimum audio length is 0.1 seconds.', 'type': 'invalid_request_error', 'param': 'file', 'code': 'audio_too_short'}, 'usage': {'type': 'duration', 'seconds': 0}}\", \"filename\": \"rapportino.webm\", \"content_type\": \"audio/webm;codecs=opus\", \"byte\": 493061, \"inizio_file_hex\": \"1a45dfa39f4286810142f7810142f281\", \"ffprobe\": \"stream|codec_name=opus|sample_rate=48000|channels=1\\nformat|format_name=matroska,webm|duration=N/A|bit_rate=N/A\", \"audio_url\": \"https://pub-0c59919c8cbd41d9ac7d1e3950d7609f.r2.dev/rapportini/audio_falliti/1fd7db55-fa4f-4361-9835-3bfc7464477d.webm\"}"
+      },
+      {
+        "id": 298,
+        "creato_il": "2026-11-26T20:58:01.956695+00:00",
+        "ruolo": "artigiano",
+        "endpoint": "/rapportini/trascrivi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano",
+        "url_pagina": "/",
+        "dettagli": "{\"detail\":\"Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano\"}"
       }
     ]
   }
