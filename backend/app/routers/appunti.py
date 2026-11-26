@@ -55,6 +55,9 @@ def aggiorna_appunto(aid: int, payload: AppuntoIn, db: Session = Depends(get_db)
 @router.delete("/{aid}")
 def elimina_appunto(aid: int, db: Session = Depends(get_db), utente=Depends(get_current_user)):
     _check(utente)
+    from app.cestino_auto import nel_cestino
+    testo = db.execute(text("SELECT testo FROM appunti_admin WHERE id = :id"), {"id": aid}).scalar()
+    nel_cestino(db, "appunti_admin", aid, f"Appunto: {(testo or '')[:120]}")
     db.execute(text("DELETE FROM appunti_admin WHERE id = :id"), {"id": aid})
     db.commit()
     return {"ok": True}

@@ -185,3 +185,22 @@ def ripristina_voce(conn, dati: dict, extra_stacco=None) -> dict:
         if t is not None and "id" in t.c:
             conn.execute(sa.delete(t).where(t.c.id == ag["id"]))
     return esito
+
+
+def nel_cestino(session, tabella: str, pk: int, etichetta: str):
+    """Per gli endpoint che eliminano con SQL diretto (senza oggetti ORM):
+    fotografa la riga prima di cancellarla e la mette nel cestino."""
+    from app.models.sicurezza import ElementoCestino
+    try:
+        conn = session.connection()
+        foto = cestino.fotografa(conn, tabella, [pk])
+        if not foto["righe"].get(tabella):
+            return
+        ric = richiesta_corrente.get() or {}
+        session.add(ElementoCestino(
+            tipo=tabella, oggetto_id=pk, nome=etichetta[:300], dati=foto, righe=cestino.conta_righe(foto),
+            eliminato_da=ric.get("utente_id"), eliminato_da_nome=_nome_utente(conn, ric.get("utente_id")),
+            richiesta=ric.get("id")))
+        session.flush()
+    except Exception as e:  # il cestino non deve mai bloccare l'eliminazione
+        print(f"[CESTINO] {tabella} {pk}: {e}", flush=True)
