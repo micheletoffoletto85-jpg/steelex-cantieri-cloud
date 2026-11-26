@@ -160,7 +160,8 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
   // Utilizzo del budget COSTI: speso reale vs costo previsto (non vs il ricavo!)
   // Il costo previsto è quello del SOLO computo base, quindi va confrontato con lo
   // speso al netto della manodopera segnata extra preventivo (che ha un ricavo a parte).
-  const budgetCosti = rv.costo_previsto || 0
+  // (lo speso include la manodopera registrata, quindi anche il previsto deve includerla)
+  const budgetCosti = rv.costo_previsto ? rv.costo_previsto + (rv.manodopera_prevista || 0) : 0
   const spesoSuComputo = Math.max((rv.totale_speso || 0) - (rv.costo_manodopera_extra || 0), 0)
   const percCosti = budgetCosti > 0 ? (spesoSuComputo / budgetCosti) * 100 : 0
   // % del fatturato consumato dai costi (fatturato = preventivo base + extra preventivi)
@@ -227,8 +228,13 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
               </div>
               <div>
                 <p className="text-xs text-gray-400 mb-0.5">Costo previsto</p>
-                <p className="text-base font-bold text-gray-900">− {fmt(rv.costo_previsto)}</p>
-                <p className="text-[10px] text-gray-400">{rv.costo_previsto_fonte === 'computo' ? 'costi nel computo' : 'da preventivi artigiani'}</p>
+                <p className="text-base font-bold text-gray-900">− {fmt((rv.costo_previsto || 0) + (rv.manodopera_prevista || 0))}</p>
+                <p className="text-[10px] text-gray-400">{fmt(rv.costo_previsto)} {rv.costo_previsto_fonte === 'computo' ? 'computo' : 'preventivi artigiani'}</p>
+                <p className="text-[10px] text-gray-400">
+                  + {fmt(rv.manodopera_prevista)} manodopera
+                  {rv.manodopera_prevista_fonte === 'gantt' && <> ({(rv.manodopera_ore_pianificate ?? 0).toLocaleString('it-IT')} h dal Gantt)</>}
+                  {rv.manodopera_prevista_fonte === 'ore_registrate' && <> ({(rv.manodopera_ore_registrate ?? 0).toLocaleString('it-IT')} h registrate)</>}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-gray-400 mb-0.5">Margine atteso</p>
@@ -238,6 +244,14 @@ function RiepilogoSection({ cantiereId, attiva, isDL = false }) {
             </div>
           )}
           <div className="border-t border-orange-200 pt-2 text-[11px] text-gray-500 space-y-0.5">
+            {rv.costo_previsto_fonte !== 'nessuno' && (
+              rv.manodopera_prevista_fonte === 'nessuna'
+                ? <p className="text-amber-600">⚠️ Nessuna manodopera nel previsionale: pianifica gli operatori nel <strong>Gantt</strong> o registra le <strong>Ore Manodopera</strong>.</p>
+                : <p>Manodopera: pianificata nel Gantt <strong>{(rv.manodopera_ore_pianificate ?? 0).toLocaleString('it-IT')} h · {fmt(rv.manodopera_costo_pianificato)}</strong> · già registrata <strong>{(rv.manodopera_ore_registrate ?? 0).toLocaleString('it-IT')} h · {fmt(rv.manodopera_costo_registrato)}</strong> — si usa la più alta</p>
+            )}
+            {rv.manodopera_nel_computo > 0 && rv.manodopera_prevista > 0 && (
+              <p className="text-amber-600">⚠️ Il computo ha già voci "Manodopera" per {fmt(rv.manodopera_nel_computo)}: verifica di non contarle due volte.</p>
+            )}
             {rv.preventivi_artigiani_totale > 0 && rv.costo_previsto_fonte === 'computo' && (
               <p>Confronto: preventivi artigiani ricevuti <strong>{fmt(rv.preventivi_artigiani_totale)}</strong> · costi nel computo <strong>{fmt(rv.costo_totale_computo)}</strong></p>
             )}
