@@ -7,6 +7,7 @@ import { useState, useRef, useEffect } from 'react'
 import dayjs from 'dayjs'
 import 'dayjs/locale/it'
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { AndamentoInCima } from './AndamentoPage'
 dayjs.locale('it')
 dayjs.extend(relativeTime)
 
@@ -846,6 +847,9 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-steelex-ink">Ciao, {utente?.nome} 👋</h1>
         <p className="text-steelex-muted-fg text-sm">Ecco la situazione dei cantieri oggi</p>
       </div>
+
+      {/* Andamento dell'anno: solo admin e amministrazione, tocca per la pagina completa */}
+      {['admin', 'amministrazione'].includes(utente?.ruolo) && <AndamentoInCima />}
 
       {/* Sommario: riga KPI a tutta larghezza, prima del dettaglio (MASTER.md) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

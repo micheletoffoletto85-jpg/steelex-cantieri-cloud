@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
 import { Link } from 'react-router-dom'
-import { TrendingUp, TrendingDown, HardHat, Clock, Receipt, Percent, Info } from 'lucide-react'
+import { ArrowRight, TrendingUp, TrendingDown, HardHat, Clock, Receipt, Percent, Info } from 'lucide-react'
 import api from '../lib/api'
 
 const MESI = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
@@ -22,7 +22,6 @@ export default function AndamentoPage() {
   const a = data.attuale, p = data.precedente
   const oggi = new Date(data.oggi)
   const mesiFatti = anno < oggi.getFullYear() ? 12 : anno > oggi.getFullYear() ? 0 : oggi.getMonth() + 1
-  const delta = p.kpi.acquisito ? (a.kpi.acquisito - p.kpi.acquisito) / p.kpi.acquisito : null
 
   return (
     <div className="max-w-5xl mx-auto space-y-4">
@@ -44,22 +43,7 @@ export default function AndamentoPage() {
       </div>
 
       {/* Hero: lavoro acquisito, progressivo dell'anno contro l'anno prima */}
-      <div className="rounded-2xl bg-steelex-dark text-white p-5 sm:p-6 grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-4 items-center">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-white/60">Lavoro acquisito</p>
-          <p className="font-mono tabular-nums text-4xl sm:text-5xl font-medium mt-1">{eur(a.kpi.acquisito)}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            {delta != null && (
-              <span className={`inline-flex items-center gap-1 font-semibold ${delta >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                {delta >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                {delta >= 0 ? '+' : ''}{perc(delta)} sul {anno - 1}
-              </span>
-            )}
-            <span className="text-white/60">{a.kpi.cantieri_acquisiti} cantieri · {eur(a.kpi.portafoglio)} ancora da fare</span>
-          </div>
-        </div>
-        <Progressivo att={cumul(a.mesi.acquisito).map((v, i) => i < mesiFatti ? v : null)} prima={cumul(p.mesi.acquisito)} anno={anno} />
-      </div>
+      <RiquadroAcquisito a={a} p={p} anno={anno} mesiFatti={mesiFatti} />
 
       {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -119,6 +103,45 @@ export default function AndamentoPage() {
       )}
     </div>
   )
+}
+
+// Riquadro "lavoro acquisito" con la curva dell'anno: in cima alla pagina
+// Andamento e (con link) in cima alla Dashboard di admin e amministrazione
+export function RiquadroAcquisito({ a, p, anno, mesiFatti, link }) {
+  const delta = p.kpi.acquisito ? (a.kpi.acquisito - p.kpi.acquisito) / p.kpi.acquisito : null
+  const corpo = (
+    <div className={`rounded-2xl bg-steelex-dark text-white p-5 sm:p-6 grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-4 items-center ${link ? 'hover:opacity-95 transition-opacity' : ''}`}>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-white/60">Lavoro acquisito {anno}</p>
+        <p className="font-mono tabular-nums text-4xl sm:text-5xl font-medium mt-1">{eur(a.kpi.acquisito)}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          {delta != null && (
+            <span className={`inline-flex items-center gap-1 font-semibold ${delta >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+              {delta >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+              {delta >= 0 ? '+' : ''}{perc(delta)} sul {anno - 1}
+            </span>
+          )}
+          <span className="text-white/60">{a.kpi.cantieri_acquisiti} cantieri · {eur(a.kpi.portafoglio)} ancora da fare</span>
+        </div>
+      </div>
+      <Progressivo att={cumul(a.mesi.acquisito).map((v, i) => i < mesiFatti ? v : null)} prima={cumul(p.mesi.acquisito)} anno={anno} />
+      {link && (
+        <span className="sm:col-span-2 text-xs text-white/60 flex items-center gap-1">
+          Andamento {anno} completo <ArrowRight size={12} />
+        </span>
+      )}
+    </div>
+  )
+  return link ? <Link to="/andamento" className="block" aria-label={`Apri l'andamento ${anno}`}>{corpo}</Link> : corpo
+}
+
+// Versione per la Dashboard: carica da sola i dati dell'anno in corso
+export function AndamentoInCima() {
+  const anno = new Date().getFullYear()
+  const { data } = useQuery(['andamento', anno], () => api.get(`/andamento?anno=${anno}`).then(r => r.data), { staleTime: 5 * 60000 })
+  if (!data) return <div className="rounded-2xl bg-steelex-muted h-40 animate-pulse" />
+  const oggi = new Date(data.oggi)
+  return <RiquadroAcquisito a={data.attuale} p={data.precedente} anno={anno} mesiFatti={oggi.getMonth() + 1} link />
 }
 
 function Leg({ colore, linea, children }) {
