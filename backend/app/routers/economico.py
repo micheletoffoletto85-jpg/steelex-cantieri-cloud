@@ -92,30 +92,74 @@ def _blocca_cliente(user: Utente):
 
 # ─── RIEPILOGO ────────────────────────────────────────────────────────────────
 
-ORE_PER_TURNO = 4.0   # un turno del Gantt (mattina o pomeriggio) = mezza giornata
+
+def _ore_per_turno() -> float:
+    """Un turno del Gantt (mattina o pomeriggio) = mezza giornata di lavoro."""
+    from app.config import settings
+    return float(getattr(settings, "ORE_GIORNATA", 8.0) or 8.0) / 2
+
+
+def provvigione_perc(commerciale) -> float:
+    """% di provvigione sul fatturato: solo se il lavoro l'ha portato un utente
+    con ruolo commerciale (i preventivi fatti dalla direzione non ne pagano)."""
+    from app.config import settings
+    if commerciale is None:
+        return 0.0
+    ruolo = getattr(commerciale, "ruolo", None)
+    ruolo = getattr(ruolo, "value", ruolo)
+    if ruolo != "commerciale":
+        return 0.0
+    return float(getattr(settings, "PROVVIGIONE_COMMERCIALE_PERC", 0) or 0)
+
+
+def manodopera_nel_computo(cantiere, voci_base: list) -> dict:
+    """Manodopera interna GIÀ compresa nel costo delle voci del computo.
+
+    I prezzi del listino comprendono la posa: quando un preventivo commerciale
+    diventa cantiere ogni voce porta con sé `manodopera_unitario` (ore listino ×
+    costo orario). Per i computi creati prima si ricava dallo studio salvato sul
+    cantiere (ore squadra × costo orario). Le voci di categoria "Manodopera"
+    inserite a mano nel computo sono manodopera per intero.
+    """
+    tot = 0.0
+    con_campo = False
+    for v in voci_base:
+        if str(v.get("categoria") or "").strip().lower() == "manodopera":
+            tot += float(v.get("totale_costo") or 0)
+        elif v.get("manodopera_unitario") is not None:
+            con_campo = True
+            tot += float(v.get("manodopera_unitario") or 0) * float(v.get("qt") or 0)
+    st = getattr(cantiere, "studio_commessa", None) or {}
+    md = st.get("manodopera") or {}
+    da_listino = bool(md) and st.get("manodopera_da_listino", True)
+    if not con_campo and da_listino:
+        tot += float(md.get("ore_fr") or 0) * float(md.get("costo_orario") or 0)
+    allest = float(md.get("allestimento_perc") or 0) if da_listino else 0.0
+    tot = round(tot, 2)
+    # il listino aggiunge una % di allestimento/pulizia alle ore della squadra
+    return {"costo": tot, "con_allestimento": round(tot * (1 + allest / 100), 2), "allestimento_perc": allest}
 
 
 def manodopera_prevista(db: Session, cantiere_id: int, ore_mano: list) -> dict:
-    """Costo della manodopera da mettere nel previsionale del cantiere.
+    """Manodopera interna dal Gantt Operatori e dalle ore registrate.
 
-    - pianificata: turni del Gantt Operatori sul cantiere × 4h × costo orario
+    - pianificata: turni del Gantt sul cantiere × mezza giornata × costo orario
       dell'operatore (costo_orario dell'utente, anche via rubrica artigiani;
-      altrimenti COSTO_ORARIO_DEFAULT)
+      altrimenti COSTO_ORARIO_DEFAULT). Gli artigiani della rubrica SENZA account
+      sono ditte esterne pagate a preventivo/mq: non contano come ore.
     - registrata: ore manodopera già inserite (escluse quelle extra preventivo,
       che hanno un ricavo a parte)
-    Il previsionale usa il valore più alto dei due: il Gantt è il piano, ma se in
-    cantiere si sono già fatte più ore di quelle pianificate contano quelle vere.
     """
     from app.models.assegnazione import AssegnazioneOperatore
     from app.models.artigiano import Artigiano
     from app.config import settings
 
     default = float(getattr(settings, "COSTO_ORARIO_DEFAULT", 0) or 0)
+    ore_turno = _ore_per_turno()
     turni = (db.query(AssegnazioneOperatore)
                .filter(AssegnazioneOperatore.cantiere_id == cantiere_id,
                        AssegnazioneOperatore.tipo == "cantiere")
                .all())
-    # costo orario per utente (diretto o tramite la rubrica artigiani)
     art_ids = {t.artigiano_id for t in turni if t.artigiano_id}
     art_utente = {}
     if art_ids:
@@ -126,36 +170,27 @@ def manodopera_prevista(db: Session, cantiere_id: int, ore_mano: list) -> dict:
         tariffe = {u.id: float(u.costo_orario) for u in db.query(Utente).filter(Utente.id.in_(uids)).all()
                    if u.costo_orario and u.costo_orario > 0}
 
-    ore_pian = 0.0
-    costo_pian = 0.0
+    ore_pian = costo_pian = 0.0
     for t in turni:
         uid = t.utente_id or art_utente.get(t.artigiano_id)
-        ore_pian += ORE_PER_TURNO
-        costo_pian += ORE_PER_TURNO * tariffe.get(uid, default)
+        if not uid:
+            continue
+        ore_pian += ore_turno
+        costo_pian += ore_turno * tariffe.get(uid, default)
 
     righe = [o for o in ore_mano if not o.extra_preventivo]
-    ore_reg = sum(float(o.ore or 0) for o in righe)
-    costo_reg = sum(float(o.totale or 0) for o in righe)
-
-    costo_pian, costo_reg = round(costo_pian, 2), round(costo_reg, 2)
-    if costo_pian <= 0 and costo_reg <= 0:
-        fonte = "nessuna"
-    else:
-        fonte = "gantt" if costo_pian >= costo_reg else "ore_registrate"
     return {
-        "costo": max(costo_pian, costo_reg),
-        "fonte": fonte,
         "ore_pianificate": round(ore_pian, 1),
-        "costo_pianificato": costo_pian,
-        "ore_registrate": round(ore_reg, 1),
-        "costo_registrato": costo_reg,
+        "costo_pianificato": round(costo_pian, 2),
+        "ore_registrate": round(sum(float(o.ore or 0) for o in righe), 1),
+        "costo_registrato": round(sum(float(o.totale or 0) for o in righe), 2),
     }
 
 
 class RiepilogoOut(BaseModel):
     budget_preventivo: float     # totale preventivo accettato (IVA esclusa) = ricavo previsionale
     budget_iva: float            # con IVA
-    totale_speso: float          # somma spese registrate
+    totale_speso: float          # spese registrate + ore manodopera + provvigione commerciale
     margine_atteso: float        # (budget + extra preventivi) - totale_speso (margine consuntivo)
     totale_sal_emessi: float     # SAL emessi + pagati
     totale_sal_pagati: float     # SAL incassati
@@ -167,20 +202,26 @@ class RiepilogoOut(BaseModel):
     margine_obiettivo: Optional[float] = None   # % margine sul fatturato concordato col commerciale
     margine_reale_perc: float = 0.0             # margine_atteso / (budget + extra preventivi) * 100
     # ─── Previsionale (fascia in alto del riepilogo) ───
-    costo_previsto: float = 0.0                # costo previsto (dal computo o dai preventivi artigiani)
+    costo_previsto: float = 0.0                # costo del computo (o dei preventivi artigiani), manodopera listino compresa
     costo_previsto_fonte: str = "nessuno"      # "computo" | "preventivi_artigiani" | "nessuno"
     costo_totale_computo: float = 0.0          # somma costi voci del computo base (anche se = ricavo)
     preventivi_artigiani_totale: float = 0.0   # somma preventivi artigiani ricevuti (confronto)
-    margine_previsionale: float = 0.0          # ricavo computo base - costo previsto
+    margine_previsionale: float = 0.0          # ricavo - costo_previsto_totale
     margine_previsionale_perc: float = 0.0     # % sul ricavo computo (= margine sul fatturato)
-    # Manodopera nel previsionale (Gantt Operatori / ore registrate)
-    manodopera_prevista: float = 0.0
-    manodopera_prevista_fonte: str = "nessuna"  # "gantt" | "ore_registrate" | "nessuna"
+    # Scomposizione del costo previsto (la manodopera si conta UNA volta sola)
+    costo_previsto_totale: float = 0.0          # materiali + manodopera prevista + provvigione
+    costo_materiali_previsto: float = 0.0       # costo previsto senza la manodopera interna
+    manodopera_prevista: float = 0.0            # max(listino, Gantt, ore registrate)
+    manodopera_prevista_fonte: str = "nessuna"  # "listino" | "gantt" | "ore_registrate" | "nessuna"
+    manodopera_listino: float = 0.0             # manodopera già nel computo (+ allestimento)
     manodopera_ore_pianificate: float = 0.0
     manodopera_costo_pianificato: float = 0.0
     manodopera_ore_registrate: float = 0.0
     manodopera_costo_registrato: float = 0.0
-    manodopera_nel_computo: float = 0.0         # costi di voci "Manodopera" già nel computo (possibile doppio conteggio)
+    voci_senza_costo: int = 0                   # voci del computo con prezzo ma senza costo
+    provvigione_perc: float = 0.0               # % al commerciale sul fatturato
+    provvigione_prevista: float = 0.0           # sul ricavo del computo base
+    provvigione_consuntivo: float = 0.0         # su base + extra (inclusa in totale_speso)
 
 @router.get("/{cantiere_id}/economia")
 def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
@@ -198,7 +239,11 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     # "approvato / trasforma in spesa" è stato ritirato, ora le ore contano sempre)
     ore_mano = db.query(OreExtra).filter(OreExtra.cantiere_id == cantiere_id).all()
     cantiere = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+    return _calcola_riepilogo(db, user, cantiere, preventivi, spese, sal_list, prev_art, ore_mano)
 
+
+def _calcola_riepilogo(db, user, cantiere, preventivi, spese, sal_list, prev_art, ore_mano) -> RiepilogoOut:
+    cantiere_id = cantiere.id
     # Solo i computi BASE per il budget contrattuale; gli extra a parte
     base_prevs = [p for p in preventivi if (p.tipo or "base") == "base"]
     extra_prevs = [p for p in preventivi if (p.tipo or "base") == "extra"]
@@ -208,10 +253,17 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
     budget_iva = sum(p.totale    for p in base_use) or budget
     budget_extra = round(sum(p.subtotale for p in extra_prevs), 2)
     costo_totale_computo = round(sum(p.costo_totale or 0 for p in base_use), 2)
+    voci_base = [v for p in base_use for v in (p.voci or [])]
+
+    # Provvigione del commerciale (da contratto, % sul fatturato)
+    prov_perc = provvigione_perc(getattr(cantiere, "commerciale", None))
+    ricavo_consuntivo = budget + budget_extra
+    prov_prevista = round(budget * prov_perc / 100, 2)
+    prov_consuntivo = round(ricavo_consuntivo * prov_perc / 100, 2)
 
     costo_manodopera = round(sum(o.totale or 0 for o in ore_mano), 2)
     costo_manodopera_extra = round(sum(o.totale or 0 for o in ore_mano if o.extra_preventivo), 2)
-    totale_speso = sum(s.importo for s in spese) + costo_manodopera
+    totale_speso = sum(s.importo for s in spese) + costo_manodopera + prov_consuntivo
     sal_emessi = sum(s.importo for s in sal_list if s.stato in ("emesso","pagato"))
     sal_pagati = sum(s.importo for s in sal_list if s.stato == "pagato")
 
@@ -221,6 +273,8 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         cat_totali[cat] = cat_totali.get(cat, 0) + s.importo
     if costo_manodopera > 0:
         cat_totali["manodopera"] = cat_totali.get("manodopera", 0) + costo_manodopera
+    if prov_consuntivo > 0:
+        cat_totali["provvigione commerciale"] = prov_consuntivo
 
     # Preventivi artigiani: usa gli accettati; se nessuno accettato, tutti tranne i rifiutati
     pa_accettati = [p for p in prev_art if (p.stato or "") == "accettato"]
@@ -234,24 +288,34 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         costo_previsto, costo_previsto_fonte = prev_art_totale, "preventivi_artigiani"
     else:
         costo_previsto, costo_previsto_fonte = 0.0, "nessuno"
-    # Manodopera interna (Gantt / ore registrate): è un costo in più rispetto a
-    # materiali e preventivi artigiani, va tolta anche dal margine previsionale
+
+    # Manodopera: si conta UNA volta. Il costo del computo comprende già la
+    # manodopera del listino; se il Gantt (o le ore già fatte) dicono di più,
+    # quella del listino viene SOSTITUITA dal valore più alto, non sommata.
+    if costo_previsto_fonte == "computo":
+        nel_computo = manodopera_nel_computo(cantiere, voci_base)
+    else:
+        nel_computo = {"costo": 0.0, "con_allestimento": 0.0, "allestimento_perc": 0.0}
     mano = manodopera_prevista(db, cantiere_id, ore_mano)
-    manodopera_nel_computo = round(sum(
-        float(v.get("totale_costo") or 0)
-        for p in base_use for v in (p.voci or [])
-        if str(v.get("categoria") or "").strip().lower() == "manodopera"
-    ), 2)
+    candidati = [("listino", nel_computo["con_allestimento"]), ("gantt", mano["costo_pianificato"]),
+                 ("ore_registrate", mano["costo_registrato"])]
+    mano_fonte, mano_costo = max(candidati, key=lambda x: x[1])
+    if mano_costo <= 0:
+        mano_fonte = "nessuna"
+    materiali_previsti = round(max(costo_previsto - nel_computo["costo"], 0.0), 2)
+    voci_senza_costo = sum(1 for v in voci_base
+                           if float(v.get("totale_cliente") or 0) > 0 and not float(v.get("totale_costo") or 0))
+
     calcolabile = costo_previsto_fonte != "nessuno"
-    margine_prev = (budget - costo_previsto - mano["costo"]) if calcolabile else 0.0
+    costo_prev_tot = round(materiali_previsti + mano_costo + prov_prevista, 2) if calcolabile else 0.0
+    margine_prev = round(budget - costo_prev_tot, 2) if calcolabile else 0.0
     margine_prev_perc = round(margine_prev / budget * 100, 1) if (budget > 0 and calcolabile) else 0.0
     # Ricavo consuntivo = preventivo base + extra preventivi: nel totale_speso
     # rientrano già i costi extra (manodopera/spese segnate extra preventivo),
     # quindi il ricavo che ci confrontiamo deve includere i relativi ricavi.
-    ricavo_consuntivo = budget + budget_extra
     margine_atteso = ricavo_consuntivo - totale_speso
     margine_reale_perc = round(margine_atteso / ricavo_consuntivo * 100, 1) if ricavo_consuntivo > 0 else 0.0
-    margine_obiettivo = cantiere.margine_obiettivo if cantiere else None
+    margine_obiettivo = cantiere.margine_obiettivo
 
     if _is_dl(user):
         return RiepilogoOut(
@@ -291,13 +355,19 @@ def riepilogo(cantiere_id: int, db: Session = Depends(get_db), user: Utente = De
         preventivi_artigiani_totale=prev_art_totale,
         margine_previsionale=margine_prev,
         margine_previsionale_perc=margine_prev_perc,
-        manodopera_prevista=mano["costo"],
-        manodopera_prevista_fonte=mano["fonte"],
+        costo_previsto_totale=costo_prev_tot,
+        costo_materiali_previsto=materiali_previsti,
+        manodopera_prevista=round(mano_costo, 2),
+        manodopera_prevista_fonte=mano_fonte,
+        manodopera_listino=nel_computo["con_allestimento"],
         manodopera_ore_pianificate=mano["ore_pianificate"],
         manodopera_costo_pianificato=mano["costo_pianificato"],
         manodopera_ore_registrate=mano["ore_registrate"],
         manodopera_costo_registrato=mano["costo_registrato"],
-        manodopera_nel_computo=manodopera_nel_computo,
+        voci_senza_costo=voci_senza_costo,
+        provvigione_perc=prov_perc,
+        provvigione_prevista=prov_prevista,
+        provvigione_consuntivo=prov_consuntivo,
     )
 
 

@@ -1,5 +1,7 @@
-# Margine previsionale: la manodopera (Gantt Operatori / ore registrate) va tolta
+# Margine previsionale: la manodopera si conta UNA volta (computo / Gantt / ore
+# registrate, vale la più alta)
 from datetime import date
+from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -10,7 +12,7 @@ from app.models.utente import Utente
 from app.models.artigiano import Artigiano
 from app.models.assegnazione import AssegnazioneOperatore
 from app.models.diario import OreExtra
-from app.routers.economico import manodopera_prevista
+from app.routers.economico import manodopera_prevista, manodopera_nel_computo, provvigione_perc, _calcola_riepilogo, _ore_per_turno
 
 
 def _db():
@@ -29,57 +31,74 @@ def _utente(db, nome, costo=None):
     return u
 
 
-def test_manodopera_dal_gantt():
+def test_gantt_solo_operatori_con_account():
     db = _db()
     mario = _utente(db, "mario", 30)
-    luca = _utente(db, "luca", 40)
-    c = Cantiere(nome="Moro", cliente="Nicola Moro")
-    altro = Cantiere(nome="Altro", cliente="Y")
+    c = Cantiere(nome="C", cliente="X"); altro = Cantiere(nome="A", cliente="Y")
     db.add_all([c, altro]); db.flush()
-    a_luca = Artigiano(nome="Luca", cognome="X", categoria="altro", utente_id=luca.id, attivo=True)
-    a_senza = Artigiano(nome="Gino", cognome="Senza", categoria="altro", attivo=True)
-    db.add_all([a_luca, a_senza]); db.flush()
+    esterno = Artigiano(nome="Ditta", cognome="Esterna", categoria="altro", attivo=True)
+    db.add(esterno); db.flush()
     db.add_all([
-        # mario: giornata intera = 8h × 30
         AssegnazioneOperatore(utente_id=mario.id, data=date(2026, 12, 1), turno="M", tipo="cantiere", cantiere_id=c.id),
         AssegnazioneOperatore(utente_id=mario.id, data=date(2026, 12, 1), turno="P", tipo="cantiere", cantiere_id=c.id),
-        # luca via rubrica: 4h × 40
-        AssegnazioneOperatore(artigiano_id=a_luca.id, data=date(2026, 12, 2), turno="M", tipo="cantiere", cantiere_id=c.id),
-        # artigiano senza account: tariffa di default
-        AssegnazioneOperatore(artigiano_id=a_senza.id, data=date(2026, 12, 2), turno="P", tipo="cantiere", cantiere_id=c.id),
-        # non contano: altro cantiere, ferie
-        AssegnazioneOperatore(utente_id=mario.id, data=date(2026, 12, 3), turno="M", tipo="cantiere", cantiere_id=altro.id),
-        AssegnazioneOperatore(utente_id=luca.id, data=date(2026, 12, 4), turno="M", tipo="ferie"),
+        # ditta esterna senza account: pagata a preventivo, non a ore
+        AssegnazioneOperatore(artigiano_id=esterno.id, data=date(2026, 12, 1), turno="M", tipo="cantiere", cantiere_id=c.id),
+        AssegnazioneOperatore(utente_id=mario.id, data=date(2026, 12, 2), turno="M", tipo="cantiere", cantiere_id=altro.id),
+        AssegnazioneOperatore(utente_id=mario.id, data=date(2026, 12, 3), turno="M", tipo="ferie"),
     ])
     db.commit()
-
-    from app.config import settings
-    default = settings.COSTO_ORARIO_DEFAULT
     m = manodopera_prevista(db, c.id, [])
-    assert m["ore_pianificate"] == 16
-    assert m["costo_pianificato"] == round(8 * 30 + 4 * 40 + 4 * default, 2)
-    assert m["fonte"] == "gantt"
-    assert m["costo"] == m["costo_pianificato"]
+    assert m["ore_pianificate"] == 2 * _ore_per_turno()
+    assert m["costo_pianificato"] == round(2 * _ore_per_turno() * 30, 2)
 
 
-def test_ore_registrate_superano_il_gantt():
+def test_ore_registrate_escluse_extra():
     db = _db()
-    c = Cantiere(nome="Moro", cliente="X")
-    db.add(c); db.commit()
+    c = Cantiere(nome="C", cliente="X"); db.add(c); db.commit()
     ore = [
         OreExtra(cantiere_id=c.id, operaio_nome="A", ore=10, totale=300, data=date(2026, 12, 1)),
-        # extra preventivo: ha un ricavo a parte, non entra nel previsionale
         OreExtra(cantiere_id=c.id, operaio_nome="B", ore=5, totale=150, data=date(2026, 12, 1), extra_preventivo=True),
     ]
     m = manodopera_prevista(db, c.id, ore)
-    assert m["fonte"] == "ore_registrate"
-    assert m["costo"] == 300
-    assert m["ore_registrate"] == 10
+    assert m["costo_registrato"] == 300 and m["ore_registrate"] == 10
 
 
-def test_nessuna_manodopera():
+def test_voci_manodopera_del_computo():
+    voci = [{"categoria": "Materiali", "qt": 1, "totale_costo": 500},
+            {"categoria": "Manodopera", "qt": 1, "totale_costo": 400}]
+    assert manodopera_nel_computo(SimpleNamespace(), voci)["costo"] == 400
+    assert provvigione_perc(None) == 0
+
+
+def _computo(voci, sub, costo):
+    return SimpleNamespace(tipo="base", stato="accettato", subtotale=sub, totale=sub * 1.22,
+                           costo_totale=costo, voci=voci)
+
+
+def test_manodopera_del_computo_sostituita_dal_gantt():
+    """Il computo ha già 400 € di manodopera: se il Gantt ne prevede di più vale
+    il Gantt (al posto, non in aggiunta); se ne prevede meno vale il computo."""
     db = _db()
-    c = Cantiere(nome="Vuoto", cliente="X")
-    db.add(c); db.commit()
-    m = manodopera_prevista(db, c.id, [])
-    assert m["fonte"] == "nessuna" and m["costo"] == 0
+    mario = _utente(db, "mario", 30)
+    c = Cantiere(nome="C", cliente="X", budget=2000)
+    db.add(c); db.flush()
+    for g in (date(2026, 12, 1), date(2026, 12, 2)):
+        for t in ("M", "P"):
+            db.add(AssegnazioneOperatore(utente_id=mario.id, data=g, turno=t, tipo="cantiere", cantiere_id=c.id))
+    db.commit(); db.refresh(c)
+    voci = [{"categoria": "Materiali", "qt": 1, "totale_costo": 500, "totale_cliente": 1200},
+            {"categoria": "Manodopera", "qt": 1, "totale_costo": 400, "totale_cliente": 800}]
+    rv = _calcola_riepilogo(db, SimpleNamespace(ruolo="admin"), c, [_computo(voci, 2000, 900)], [], [], [], [])
+    gantt = round(4 * _ore_per_turno() * 30, 2)
+    assert rv.costo_materiali_previsto == 500
+    assert rv.manodopera_prevista == max(gantt, 400)
+    assert rv.costo_previsto_totale == round(500 + max(gantt, 400), 2)
+    assert rv.provvigione_prevista == 0
+
+    # senza Gantt: resta la manodopera del computo, niente doppio conteggio
+    db2 = _db()
+    c2 = Cantiere(nome="C2", cliente="X", budget=2000); db2.add(c2); db2.commit(); db2.refresh(c2)
+    rv2 = _calcola_riepilogo(db2, SimpleNamespace(ruolo="admin"), c2, [_computo(voci, 2000, 900)], [], [], [], [])
+    assert rv2.manodopera_prevista_fonte == "listino"
+    assert rv2.costo_previsto_totale == 900
+    assert rv2.margine_previsionale == 1100
