@@ -1,6 +1,6 @@
 {
   "since_id_steelex": 48,
-  "since_id_fr": 292,
+  "since_id_fr": 295,
   "deleted_id_steelex": 43,
   "deleted_id_fr": 169,
   "pending": {
@@ -1414,6 +1414,39 @@
         "messaggio": "Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano",
         "url_pagina": "/",
         "dettagli": "{\"detail\":\"Formato audio non supportato — la registrazione è stata salvata per l'ufficio. Riprova, oppure scrivi il rapportino a mano\"}"
+      },
+      {
+        "id": 293,
+        "creato_il": "2026-11-26T09:40:16.736046+00:00",
+        "ruolo": "admin",
+        "endpoint": "/cantieri/36/preventivi/26/genera-pdf",
+        "metodo": "GET",
+        "status_code": 500,
+        "messaggio": "Request failed with status code 500",
+        "url_pagina": "/cantieri/36",
+        "dettagli": "{}"
+      },
+      {
+        "id": 294,
+        "creato_il": "2026-11-26T13:28:21.074908+00:00",
+        "ruolo": "commerciale",
+        "endpoint": "/commerciale/preventivi/importa/leggi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "L'IA non ha restituito dati leggibili: Expecting ',' delimiter: line 44 column 6 (char 2943)",
+        "url_pagina": "/commerciale",
+        "dettagli": "{\"detail\":\"L'IA non ha restituito dati leggibili: Expecting ',' delimiter: line 44 column 6 (char 2943)\"}"
+      },
+      {
+        "id": 295,
+        "creato_il": "2026-11-26T13:39:18.999081+00:00",
+        "ruolo": "commerciale",
+        "endpoint": "/commerciale/preventivi/importa/leggi",
+        "metodo": "POST",
+        "status_code": 422,
+        "messaggio": "L'IA non ha restituito dati leggibili: nessun JSON",
+        "url_pagina": "/commerciale",
+        "dettagli": "{\"detail\":\"L'IA non ha restituito dati leggibili: nessun JSON\"}"
       }
     ]
   }
