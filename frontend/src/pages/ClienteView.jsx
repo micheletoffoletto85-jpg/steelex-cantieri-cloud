@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { MapPin, Map, FileText, Calendar, Mic, ChevronDown, ChevronRight, CheckCircle2, Clock, AlertTriangle, PauseCircle, Users, Phone, Mail, Download } from 'lucide-react'
+import Miniatura from '../components/Miniatura'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import dayjs from 'dayjs'
@@ -360,7 +361,7 @@ export default function ClienteView({ cantiere }) {
                   {pinSel.foto_urls?.length > 0 && (
                     <div className="flex gap-2 flex-wrap mt-1">
                       {pinSel.foto_urls.map((url, i) => (
-                        <img key={i} src={url} className="w-20 h-20 object-cover rounded-lg border" alt="" />
+                        <Miniatura key={i} url={url} className="w-20 h-20 object-cover rounded-lg border" alt="" />
                       ))}
                     </div>
                   )}

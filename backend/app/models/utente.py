@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, Float, JSON, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -40,6 +40,10 @@ class Utente(Base):
     costo_orario = Column(Float, nullable=True)   # €/h — costo della manodopera di questo operatore
     attivo = Column(Boolean, default=True)
     lingua_preferita = Column(String(10), nullable=False, server_default="it")
+    # Categorie di notifiche spente dall'utente (vedi app/categorie_notifiche.py) — vuoto = tutte attive
+    notifiche_disattivate = Column(JSON, nullable=True)
+    # Copia cifrata della password, leggibile solo dall'admin per i recuperi (app/password_visibile.py)
+    password_cifrata = Column(Text, nullable=True)
     creato_il = Column(DateTime(timezone=True), server_default=func.now())
     aggiornato_il = Column(DateTime(timezone=True), onupdate=func.now())
 

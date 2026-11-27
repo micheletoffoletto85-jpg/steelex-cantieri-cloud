@@ -1866,6 +1866,29 @@ class SegmentoDividi(BaseModel):
     lavorazioni: Optional[List[str]] = []
     materiali: Optional[List[str]] = []
     riassunto: Optional[str] = None
+    # Foto che vanno a QUESTO cantiere (scelte dall'admin nel pannello). Prima ogni
+    # parte riceveva tutte le foto del rapportino → finivano in tutti i cantieri
+    foto_urls: Optional[List[str]] = None
+    foto_extra_urls: Optional[List[str]] = None
+
+
+def _foto_per_segmento(r, segmenti) -> list[tuple[list, list]]:
+    """(foto avanzamento, foto extra) per ogni parte della divisione.
+    Se l'admin le ha assegnate si usa la sua scelta (solo foto davvero del rapportino,
+    ognuna a un solo cantiere); altrimenti vanno tutte alla prima parte, come il testo."""
+    av = list(r.foto_avanzamento_urls or [])
+    ex = list(r.foto_extra_urls or [])
+    if not any(sg.foto_urls is not None or sg.foto_extra_urls is not None for sg in segmenti):
+        return [(av, ex) if i == 0 else ([], []) for i in range(len(segmenti))]
+    usate: set[str] = set()
+    esito = []
+    for sg in segmenti:
+        a = [u for u in (sg.foto_urls or []) if u in av and u not in usate]
+        usate.update(a)
+        e = [u for u in (sg.foto_extra_urls or []) if u in ex and u not in usate]
+        usate.update(e)
+        esito.append((a, e))
+    return esito
 
 
 @router.put("/{rapportino_id}/dividi")
@@ -1911,6 +1934,7 @@ def dividi_rapportino(
             db.delete(vecchio_diario)
     db.flush()
 
+    foto_seg = _foto_per_segmento(r, segmenti)
     creati = []
     for i, seg in enumerate(segmenti):
         cantiere = None
@@ -1938,9 +1962,9 @@ def dividi_rapportino(
             lingua_originale   = r.lingua_originale,
             cantiere_rilevato  = (cantiere.nome if cantiere else ((seg.cantiere or "").strip()[:300] or None)),
             descrizione_lavori = testo_seg,
-            foto_avanzamento_urls = r.foto_avanzamento_urls or [],
+            foto_avanzamento_urls = foto_seg[i][0],
             descrizione_extra  = r.descrizione_extra if i == 0 else None,
-            foto_extra_urls    = r.foto_extra_urls or [] if i == 0 else [],
+            foto_extra_urls    = foto_seg[i][1],
             ore_extra          = r.ore_extra if i == 0 else None,
             materiale_extra    = r.materiale_extra if i == 0 else None,
             ore_lavorate       = seg.ore,
@@ -2038,7 +2062,19 @@ def elimina_rapportino(
 
 
 @router.get("")
-def lista_rapportini(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+def lista_rapportini(pagina: Optional[int] = None, per_pagina: int = 10,
+                     db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    # Con ?pagina=N (da 1): una pagina di "Tutti" su tutto lo storico, con il totale.
+    # Prepara solo i 10 rapportini mostrati invece di 100 (foto comprese).
+    if pagina is not None and user.ruolo in RUOLI_ADMIN:
+        per_pagina = max(1, min(per_pagina, 50))
+        pagina = max(1, pagina)
+        base = db.query(RapportinoOperativo)
+        totale = base.count()
+        rs = (base.order_by(RapportinoOperativo.creato_il.desc(), RapportinoOperativo.id.desc())
+                  .offset((pagina - 1) * per_pagina).limit(per_pagina).all())
+        return {"elementi": [_rap_dict(r, db) for r in rs], "totale": totale,
+                "pagina": pagina, "per_pagina": per_pagina}
     if user.ruolo in RUOLI_ADMIN:
         rs = db.query(RapportinoOperativo).order_by(
             RapportinoOperativo.creato_il.desc()).limit(100).all()

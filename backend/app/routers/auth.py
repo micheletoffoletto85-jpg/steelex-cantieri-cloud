@@ -33,6 +33,13 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
     password_ok = utente is not None and verify_password(data.password, utente.password_hash)
     if not password_ok:
         raise HTTPException(status_code=401, detail="Email o password errati")
+    # Copia cifrata per la scheda Utenti dell'admin (password già esistenti: si riempie qui)
+    try:
+        from app import password_visibile
+        if password_visibile.aggiorna_copia(utente, data.password):
+            db.commit()
+    except Exception:
+        db.rollback()
     access_token = create_access_token({"sub": str(utente.id)})
     refresh_token = create_refresh_token(utente.id)
     return {"access_token": access_token, "refresh_token": refresh_token, "utente": utente}

@@ -10,6 +10,8 @@ import MaterialiUsati from '../components/MaterialiUsati'
 import ClienteView from './ClienteView'
 import GanttTab from './GanttTab'
 import toast from 'react-hot-toast'
+import Miniatura from '../components/Miniatura'
+import Paginazione, { PER_PAGINA } from '../components/Paginazione'
 import api from '../lib/api'
 import { inCoda } from '../lib/coda'
 import { useAuth } from '../lib/auth'
@@ -1138,7 +1140,7 @@ function MappeTab({ cantiereId }) {
                       <div className="flex gap-2 flex-wrap">
                         {pinSelezionato.foto_urls.map((url, i) => (
                           <div key={i} className="relative group">
-                            <img src={url} onClick={() => setLightbox({ urls: pinSelezionato.foto_urls, idx: i })}
+                            <Miniatura url={url} onClick={() => setLightbox({ urls: pinSelezionato.foto_urls, idx: i })}
                               className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
                             {canContrib && (
                               <div className="absolute bottom-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2008,7 +2010,7 @@ function DiarioTab({ cantiereId, utente }) {
               {(r.foto_avanzamento_urls?.length > 0 || r.foto_extra_urls?.length > 0) && (
                 <div className="flex gap-1.5 flex-wrap">
                   {[...(r.foto_avanzamento_urls || []), ...(r.foto_extra_urls || [])].map((url, i) => (
-                    <img key={i} src={url} alt="" className="w-12 h-12 object-cover rounded-lg border border-gray-200 opacity-60" />
+                    <Miniatura key={i} url={url} alt="" className="w-12 h-12 object-cover rounded-lg border border-gray-200 opacity-60" />
                   ))}
                 </div>
               )}
@@ -2152,7 +2154,7 @@ function DiarioTab({ cantiereId, utente }) {
               <div className="flex gap-2 flex-wrap">
                 {d.foto_urls.map((url, i) => (
                   <div key={i} className="relative group">
-                    <img src={url} onClick={() => setLightbox({ urls: d.foto_urls, idx: i })}
+                    <Miniatura url={url} onClick={() => setLightbox({ urls: d.foto_urls, idx: i })}
                       className="w-20 h-20 object-cover rounded-lg border cursor-zoom-in hover:opacity-90 transition-opacity" alt={`foto ${i+1}`} />
                     {isAdminDiario && (
                       <button
@@ -3014,6 +3016,12 @@ function FotoTab({ cantiereId, utente }) {
     () => api.get(`/cantieri/${cantiereId}/foto`).then(r => r.data),
     { staleTime: 0 }
   )
+  // 10 foto per pagina: si scaricano solo le miniature della pagina aperta
+  const [pagina, setPagina] = useState(1)
+  const ultimaPagina = Math.max(1, Math.ceil(foto.length / PER_PAGINA))
+  useEffect(() => { if (pagina > ultimaPagina) setPagina(ultimaPagina) }, [pagina, ultimaPagina])
+  const inizio = (pagina - 1) * PER_PAGINA
+  const fotoPagina = foto.slice(inizio, inizio + PER_PAGINA)
 
   // Carica più foto 3 alla volta (tutte insieme andavano in timeout) e
   // segnala alla fine quante sono riuscite e quante no
@@ -3110,10 +3118,10 @@ function FotoTab({ cantiereId, utente }) {
       ) : editMode ? (
         /* ── Modalità modifica: riordino, visibilità cliente, eliminazione ── */
         <div className="space-y-2">
-          {foto.map((f, i) => (
+          {fotoPagina.map((f, j) => { const i = inizio + j; return (
             <div key={f.id} className="card flex items-center gap-3 py-2.5">
               <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                <AuthImage url={f.url} className="w-full h-full object-cover" />
+                <AuthImage url={f.url} miniatura className="w-full h-full object-cover" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-gray-700 truncate">{f.autore || 'Foto'}</p>
@@ -3141,15 +3149,15 @@ function FotoTab({ cantiereId, utente }) {
                 </div>
               )}
             </div>
-          ))}
+          )})}
         </div>
       ) : (
         /* ── Griglia di visualizzazione ── */
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {foto.map((f, i) => (
+          {fotoPagina.map((f, j) => (
             <div key={f.id} className="relative group cursor-pointer rounded-xl overflow-hidden bg-gray-100 aspect-square"
-              onClick={() => setSelIdx(i)}>
-              <AuthImage url={f.url} className="w-full h-full object-cover" />
+              onClick={() => setSelIdx(inizio + j)}>
+              <AuthImage url={f.url} miniatura className="w-full h-full object-cover" />
               {f.visibile_cliente && (
                 <div className="absolute top-1.5 left-1.5 bg-black/50 rounded-full p-1" title="Visibile al cliente">
                   <Eye size={11} className="text-white" />
@@ -3163,6 +3171,8 @@ function FotoTab({ cantiereId, utente }) {
           ))}
         </div>
       )}
+
+      {foto.length > 0 && <Paginazione pagina={pagina} totale={foto.length} onCambia={setPagina} />}
 
       {/* Lightbox navigabile */}
       {!editMode && selIdx !== null && foto[selIdx] && (
@@ -3244,8 +3254,10 @@ function LightboxNav({ urls, idx, onClose, onSetIdx, renderImg }) {
   )
 }
 
-function AuthImage({ url, className }) {
+function AuthImage({ url, className, miniatura = false }) {
   const { src } = useAuthImage(url)
+  // Nelle griglie: miniatura compressa per le foto R2, l'originale solo nel lightbox
+  if (miniatura && url?.startsWith('http')) return <Miniatura url={url} className={className} />
   return <img src={src} className={className} alt="" loading="lazy" />
 }
 

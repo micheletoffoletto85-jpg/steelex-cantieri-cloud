@@ -13,6 +13,7 @@ import GanttOperatoriPage from './pages/GanttOperatoriPage'
 import ErrorLogPage from './pages/ErrorLogPage'
 import AppuntiPage from './pages/AppuntiPage'
 import OreLavoratePage from './pages/OreLavoratePage'
+import AccountPage from './pages/AccountPage'
 import Layout from './components/Layout'
 import SplashScreen from './components/SplashScreen'
 
@@ -68,6 +69,7 @@ function AppContent() {
           <Route path="error-log" element={<ErrorLogPage />} />
           <Route path="appunti" element={<AppuntiPage />} />
           <Route path="ore-lavorate" element={<OreLavoratePage />} />
+          <Route path="account" element={<AccountPage />} />
         </Route>
       </Routes>
     </>

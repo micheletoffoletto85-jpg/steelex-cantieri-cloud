@@ -4,7 +4,7 @@ Sostituisce il mount StaticFiles pubblico — solo utenti loggati possono scaric
 """
 import os
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from app.auth import get_current_user
 from app.config import settings
 from app.storage import leggi_file
@@ -31,3 +31,17 @@ def scarica_file(percorso: str, _=Depends(get_current_user)):
         raise HTTPException(404, "File non trovato")
 
     return Response(content=contenuto, media_type=content_type)
+
+
+@router.get("/api/v1/files/anteprima")
+def anteprima(u: str):
+    """Miniatura compressa di una foto del bucket (la crea al primo accesso).
+    Senza login: i tag <img> non mandano il token, e accetta solo URL del nostro
+    bucket R2 — che sono già pubblici — quindi non espone niente di nuovo."""
+    from app.anteprime import url_anteprima, chiave_da_url
+    if not chiave_da_url(u):
+        # niente redirect verso indirizzi che non sono foto nostre
+        raise HTTPException(404, "Anteprima non disponibile")
+    dest = url_anteprima(u)
+    # La miniatura di un URL non cambia mai: il browser può ricordarsi il redirect
+    return RedirectResponse(dest, status_code=302, headers={"Cache-Control": "public, max-age=604800"})
