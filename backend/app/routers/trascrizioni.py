@@ -50,6 +50,8 @@ async def trascrivi_audio(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
+    if getattr(user.ruolo, "value", user.ruolo) in ("cliente", "fornitore"):
+        raise HTTPException(status_code=403, detail="Non autorizzato")
     if not settings.OPENAI_API_KEY:
         raise HTTPException(status_code=503, detail="OpenAI API key non configurata. Aggiungila su Railway.")
 

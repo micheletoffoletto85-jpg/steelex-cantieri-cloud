@@ -17,6 +17,7 @@ from app.storage import salva_file
 router = APIRouter(prefix="/artigiani", tags=["Artigiani"])
 
 _RUOLI_SCRIVE = {"admin", "capo_cantiere", "capo_cantiere_sub", "direzione_lavori", "amministrazione"}
+from app.permessi import RUOLI_RUBRICA, solo_ruoli, verifica_cantiere  # noqa: E402
 
 CATEGORIE = [
     "carpenteria_metallica",
@@ -205,6 +206,7 @@ def lista_artigiani(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
+    solo_ruoli(user, RUOLI_RUBRICA, "Rubrica riservata allo staff")
     query = db.query(Artigiano)
     if solo_attivi:
         query = query.filter(Artigiano.attivo == True)
@@ -298,6 +300,8 @@ def artigiani_del_cantiere(
     Artigiani del cantiere: rubrica linked agli utenti del team via utente_id.
     Si aggiorna automaticamente quando si aggiunge/rimuove un membro dal team.
     """
+    solo_ruoli(user, RUOLI_RUBRICA, "Rubrica riservata allo staff")
+    verifica_cantiere(db, cantiere_id, user)
     from app.models.cantiere import cantiere_artigiani as team_table
     from sqlalchemy import select
     # ID utenti nel team del cantiere
@@ -402,6 +406,7 @@ def documenti_in_scadenza(
     user: Utente = Depends(get_current_user),
 ):
     """Tutti i documenti in scadenza o scaduti, su tutti gli artigiani attivi."""
+    solo_ruoli(user, RUOLI_RUBRICA, "Rubrica riservata allo staff")
     from datetime import timedelta
     oggi = date.today()
     limite = oggi + timedelta(days=giorni)

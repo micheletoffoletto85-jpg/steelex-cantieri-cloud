@@ -61,6 +61,9 @@ def _out(nc: NonConformita, db: Session) -> NCOut:
 
 @router.get("/cantiere/{cantiere_id}", response_model=List[NCOut])
 def lista_nc(cantiere_id: int, db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    from app.permessi import RUOLI_RUBRICA, solo_ruoli, verifica_cantiere
+    solo_ruoli(user, RUOLI_RUBRICA, "Non conformità riservate allo staff")
+    verifica_cantiere(db, cantiere_id, user)
     ncs = db.query(NonConformita).filter(NonConformita.cantiere_id == cantiere_id)\
             .order_by(NonConformita.creato_il.desc()).all()
     return [_out(nc, db) for nc in ncs]
