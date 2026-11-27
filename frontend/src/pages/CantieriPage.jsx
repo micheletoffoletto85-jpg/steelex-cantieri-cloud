@@ -30,7 +30,8 @@ const STATO_LABEL = {
 export default function CantieriPage() {
   const { utente } = useAuth()
   const isCliente = utente?.ruolo === 'cliente'
-  const soloLettura = ['cliente', 'fornitore', 'artigiano', 'architetto', 'responsabile_sicurezza'].includes(utente?.ruolo)
+  // Solo questi ruoli possono creare un cantiere (stesso controllo del backend)
+  const puoCreare = ['admin', 'capo_cantiere', 'amministrazione'].includes(utente?.ruolo)
   const [filtroStato, setFiltroStato] = useState('tutti')
   const [ricerca, setRicerca] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -56,7 +57,7 @@ export default function CantieriPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Cantieri</h1>
-        {!soloLettura && (
+        {puoCreare && (
           <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
             <Plus size={18} /> Nuovo
           </button>

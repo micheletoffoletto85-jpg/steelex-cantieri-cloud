@@ -407,8 +407,11 @@ function ArtigianoDashboard({ utente, cantieri }) {
           setFase('error')
         }
       }
-      // Timeslice 1s: chunk progressivi — se la registrazione si interrompe non si perde tutto
-      mr.start(1000)
+      // Timeslice 1s (chunk progressivi) solo per webm/ogg: su iPhone (audio/mp4) i pezzi
+      // a tempo danno un MP4 frammentato che spesso OpenAI rifiuta ("Formato audio non
+      // supportato") — lì un solo blocco a fine registrazione
+      if ((mr.mimeType || mimeType || '').includes('mp4')) mr.start()
+      else mr.start(1000)
       mediaRef.current = mr
       setFase('recording')
       setErrore(null)
