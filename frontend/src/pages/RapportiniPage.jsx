@@ -140,6 +140,23 @@ function ListaEditor({ label, items, onChange, placeholder }) {
 }
 
 // ── Card rapportino ───────────────────────────────────────────────────────────
+// Cantieri conclusi: selezionabili solo per i rapportini di ritocco/assistenza
+function useCantieriConclusi(enabled = true) {
+  const { data = [] } = useQuery('cantieri-conclusi',
+    () => api.get('/rapportini/cantieri-conclusi').then(r => r.data),
+    { enabled, staleTime: 5 * 60 * 1000 })
+  return data
+}
+
+function OpzioniConclusi({ conclusi = [] }) {
+  if (!conclusi.length) return null
+  return (
+    <optgroup label="🔧 Cantieri conclusi — ritocchi">
+      {conclusi.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+    </optgroup>
+  )
+}
+
 function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica, onDividi, onRianalizza, onMaterialeSpesa, cantieri = [] }) {
   const [aperto, setAperto] = useState(false)
   const [noteAdmin, setNoteAdmin] = useState('')
@@ -147,6 +164,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const [confermaElimina, setConfermaElimina] = useState(false)
   const [modificaCantiere, setModificaCantiere] = useState(false)
   const [nuovoCantiere, setNuovoCantiere] = useState('')
+  const conclusi = useCantieriConclusi(isAdmin)
   const [modificaTesto, setModificaTesto] = useState(false)
   const [dataEdit, setDataEdit] = useState(r.data_lavoro || '')
   const [testoEdit, setTestoEdit] = useState(r.descrizione_lavori || r.testo_italiano || '')
@@ -290,7 +308,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
               </span>
             )}
             <span className={`pill ${statoPill}`}>{statoLabel}</span>
-            {isAdmin && r.stato !== 'inviato' && r.stato !== 'diviso' && (
+            {isAdmin && r.stato !== 'diviso' && (
               <button onClick={() => setModificaCantiere(v => !v)}
                 className={`transition-colors ${modificaCantiere ? 'text-steelex-orange' : 'text-gray-400 hover:text-steelex-orange'}`}
                 title="Assegna / cambia cantiere">
@@ -327,6 +345,11 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
           : r.cantiere_rilevato
           ? <p className="text-xs text-gray-400 mt-0.5">"{r.cantiere_rilevato}" — non abbinato</p>
           : null}
+        {r.ritocco && (
+          <span className="inline-block mt-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+            🔧 Ritocco su cantiere concluso
+          </span>
+        )}
 
         <Chips r={r} />
         <FotoPreview urls={r.foto_avanzamento_urls} />
@@ -542,7 +565,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
           </div>
         )}
 
-        {/* Modifica cantiere — per rapportini già validati/rifiutati */}
+        {/* Cambia cantiere — in qualsiasi stato, anche verso "fuori cantiere" (corsi, magazzino…) */}
         {modificaCantiere && (
           <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
             <div className="flex items-center gap-1.5">
@@ -556,16 +579,18 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
               onChange={e => setNuovoCantiere(e.target.value)}
               className="w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
               <option value="">— scegli cantiere —</option>
+              {r.cantiere_id && <option value="fuori">Fuori cantiere (corso, magazzino, ufficio…)</option>}
               {cantieri.map(c => (
                 <option key={c.id} value={c.id}>{c.nome}</option>
               ))}
+              <OpzioniConclusi conclusi={conclusi} />
             </select>
             <div className="flex gap-2">
               <button
                 disabled={!nuovoCantiere}
                 onClick={() => { onAssegna(r.id, nuovoCantiere); setModificaCantiere(false); setNuovoCantiere('') }}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-steelex-orange text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
-                <CheckCircle size={15} /> Assegna al cantiere
+                <CheckCircle size={15} /> {nuovoCantiere === 'fuori' ? 'Sposta fuori cantiere' : 'Assegna al cantiere'}
               </button>
               <button onClick={() => { setModificaCantiere(false); setNuovoCantiere('') }}
                 className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
@@ -718,6 +743,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                 {cantieri.map(c => (
                   <option key={c.id} value={c.id}>{c.nome}</option>
                 ))}
+                <OpzioniConclusi conclusi={conclusi} />
               </select>
             </div>
           )}
@@ -750,6 +776,7 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
 // "valida subito" farlo diventare operativo all'istante.
 function RegistraRapportinoAdmin({ cantieri = [], onChiudi }) {
   const qc = useQueryClient()
+  const conclusi = useCantieriConclusi()
   const { utente } = useAuth()
   const oggiStr = new Date().toISOString().slice(0, 10)
 
@@ -883,6 +910,7 @@ function RegistraRapportinoAdmin({ cantieri = [], onChiudi }) {
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-steelex-orange">
               <option value="">Rileva da testo</option>
               {cantieri.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              <OpzioniConclusi conclusi={conclusi} />
             </select>
           </div>
         </div>
@@ -1065,7 +1093,7 @@ function VistaAdmin() {
 
   const assegnaMutation = useMutation(
     ({ id, cantiere_id }) =>
-      api.put(`/rapportini/${id}/assegna-cantiere`, { cantiere_id: parseInt(cantiere_id) }),
+      api.put(`/rapportini/${id}/assegna-cantiere`, { cantiere_id: cantiere_id === 'fuori' ? null : parseInt(cantiere_id) }),
     {
       onSuccess: () => {
         qc.invalidateQueries('rapp-da-validare')

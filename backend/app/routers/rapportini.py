@@ -534,6 +534,24 @@ def _verifica_ore(testo: str, dati: dict) -> dict:
 
 _PAROLE_NOISE = {"cantiere", "cliente", "via", "presso", "sig", "signor", "signora", "ditta", "azienda"}
 
+# Luoghi generici che l'IA restituisce quando la giornata NON è in un cantiere (vedi prompt
+# blocchi: 'ufficio' / 'sede' / 'magazzino' / 'officina' / 'corso' / 'trasferta'): non vanno
+# mai abbinati a un cantiere. Prima "corso" (corso 626) combaciava con l'indirizzo
+# "Corso felice e fortunato 79" e il rapportino finiva nel Condominio maria.
+_LUOGHI_FUORI_CANTIERE = {"ufficio", "sede", "magazzino", "officina", "corso", "trasferta",
+                          "formazione", "corso formazione", "corso sicurezza", "ferie",
+                          "malattia", "permesso", "riunione"}
+
+# Parti generiche di un indirizzo: da sole non identificano un cantiere
+_PAROLE_STRADA = {"via", "viale", "corso", "piazza", "piazzale", "strada", "contra", "contrada",
+                  "largo", "vicolo", "localita", "loc", "borgo", "str", "frazione", "fraz"}
+
+
+def _indirizzo_norm(s: Optional[str]) -> str:
+    """Indirizzo normalizzato senza 'via/corso/piazza…' e senza numeri civici/CAP."""
+    return " ".join(p for p in _normalizza_nome(s).split()
+                    if p not in _PAROLE_STRADA and not p.isdigit())
+
 
 def _normalizza_nome(s: Optional[str]) -> str:
     """Minuscolo, senza accenti, senza punteggiatura, senza parole generiche — così
@@ -552,14 +570,18 @@ def _match_cantiere(nome_rilevato: Optional[str], cantieri: list) -> Optional[in
     una parola significativa in comune (es. il cognome del cliente), per essere tollerante
     a piccoli errori di trascrizione invece di lasciare il rapportino sempre fuori cantiere."""
     nome_norm = _normalizza_nome(nome_rilevato)
-    if not nome_norm:
+    if not nome_norm or nome_norm in _LUOGHI_FUORI_CANTIERE:
         return None
+    nome_ind = _indirizzo_norm(nome_rilevato)
     for c in cantieri:
         nome_c = _normalizza_nome(c.nome)
         if nome_c and (nome_norm in nome_c or nome_c in nome_norm):
             return c.id
-        indirizzo_c = _normalizza_nome(getattr(c, "indirizzo", None))
-        if indirizzo_c and (nome_norm in indirizzo_c or indirizzo_c in nome_norm):
+        # Indirizzo: solo la parte che identifica davvero (nome della via, località),
+        # mai parole come "corso"/"via" o numeri da soli
+        indirizzo_c = _indirizzo_norm(getattr(c, "indirizzo", None))
+        if (indirizzo_c and len(nome_ind) >= 4
+                and (nome_ind in indirizzo_c or indirizzo_c in nome_ind)):
             return c.id
     parole_rilevate = {p for p in nome_norm.split() if len(p) >= 4}
     if parole_rilevate:
@@ -613,6 +635,24 @@ def _cantieri_per_match(db: Session) -> list:
     return db.query(Cantiere).filter(
         Cantiere.stato.cast(_Str).notin_(["completato", "annullato"])
     ).all()
+
+
+_STATI_CONCLUSI = ("completato",)
+
+
+def _stato_cantiere(c) -> str:
+    st = getattr(c, "stato", None)
+    return str(getattr(st, "value", st) or "")
+
+
+def _e_concluso(c) -> bool:
+    return bool(c) and _stato_cantiere(c) in _STATI_CONCLUSI
+
+
+def _cantieri_conclusi(db: Session) -> list:
+    """Cantieri chiusi (completati): ci si torna solo per ritocchi/assistenza."""
+    from sqlalchemy import String as _Str
+    return db.query(Cantiere).filter(Cantiere.stato.cast(_Str).in_(list(_STATI_CONCLUSI))).all()
 
 
 def _query_operatori(db: Session):
@@ -731,6 +771,7 @@ def _rap_dict(r: RapportinoOperativo, db: Optional[Session] = None) -> dict:
         "riassunto": r.riassunto,
         "stato": r.stato,
         "fuori_cantiere": r.fuori_cantiere,
+        "ritocco": bool(getattr(r, "ritocco", False)),
         "multi_cantiere": r.multi_cantiere,
         "segmenti_cantieri": r.segmenti_cantieri or [],
         "validato_da": f"{r.validato_da.nome} {r.validato_da.cognome}" if r.validato_da else None,
@@ -928,6 +969,8 @@ async def invia_rapportino(
     per_conto_id: Optional[int] = Form(None),      # operatore con account
     operatore_nome: Optional[str] = Form(None),    # nome libero (esterno senza account)
     valida_subito: Optional[bool] = Form(False),   # crea subito diario + ore + spese
+    # Ritocchi/assistenza su un cantiere già concluso (scelto a mano dall'operatore)
+    ritocco: Optional[bool] = Form(False),
     # Foto
     foto_avanzamento: List[UploadFile] = File(default=[]),
     foto_extra: List[UploadFile] = File(default=[]),
@@ -1045,9 +1088,13 @@ async def invia_rapportino(
     # ── Risolvi cantiere ──────────────────────────────────────────────────────
     multi_cantiere = False
     segmenti_cantieri = None
+    e_ritocco = bool(ritocco)
     if not cantiere_id and dati_ai.get("cantiere"):
         cantieri_attivi = _cantieri_per_match(db)
         cantiere_id = _match_cantiere(dati_ai.get("cantiere"), cantieri_attivi)
+        # Nessun cantiere aperto corrisponde: forse è un ritocco su un cantiere concluso
+        if not cantiere_id:
+            cantiere_id = _match_cantiere(dati_ai.get("cantiere"), _cantieri_conclusi(db))
 
         # Rilevamento multi-cantiere: Claude segnala se il rapportino parla di più cantieri.
         # Se il nome non corrisponde a nessun cantiere attivo, cantiere_id resta null cosi'
@@ -1107,6 +1154,10 @@ async def invia_rapportino(
         multi_cantiere    = multi_cantiere,
         segmenti_cantieri = segmenti_cantieri,
     )
+    # Ritocco: scelto a mano oppure il cantiere (dettato o selezionato) è già concluso
+    if cantiere_id:
+        _c_r = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+        rapportino.ritocco = e_ritocco or _e_concluso(_c_r)
     db.add(rapportino); db.commit(); db.refresh(rapportino)
 
     # Registrazione da admin con "valida subito": crea diario + ore + registro all'istante
@@ -1328,6 +1379,8 @@ class ValidaBody(BaseModel):
     cantiere_id: Optional[int] = None
     note_admin: Optional[str] = None
     rifiuta: bool = False
+    # Valida lasciandolo FUORI cantiere anche se l'IA l'aveva abbinato a uno
+    fuori_cantiere: bool = False
 
 
 def _costruisci_testo_diario(r: RapportinoOperativo) -> str:
@@ -1335,6 +1388,8 @@ def _costruisci_testo_diario(r: RapportinoOperativo) -> str:
     (la versione corretta a mano dall'admin, se c'è) e non la dettatura grezza. Prima le
     lavorazioni elencate non finivano da nessuna parte nel testo/PDF: ora ci sono."""
     testo = r.descrizione_lavori or r.testo_italiano or r.riassunto or ""
+    if getattr(r, "ritocco", False):
+        testo = "🔧 Ritocco su cantiere concluso\n\n" + testo
     if r.lavorazioni:
         testo += "\n\nLavorazioni: " + ", ".join(r.lavorazioni)
     if r.materiale_extra:
@@ -1461,7 +1516,18 @@ def _crea_diario_da_rapportino(db: Session, r: RapportinoOperativo, cantiere_id:
 
 
 class AssegnaBody(BaseModel):
-    cantiere_id: int
+    # null = sposta FUORI cantiere (corso, magazzino, ufficio…)
+    cantiere_id: Optional[int] = None
+
+
+@router.get("/cantieri-conclusi")
+def lista_cantieri_conclusi(db: Session = Depends(get_db), user: Utente = Depends(get_current_user)):
+    """Cantieri conclusi selezionabili per un rapportino di ritocco. Tutti gli interni li
+    vedono: chi torna per un ritocco spesso non è più nel Team di quel cantiere."""
+    if str(getattr(user.ruolo, "value", user.ruolo)) in ("cliente", "fornitore"):
+        raise HTTPException(403)
+    cs = sorted(_cantieri_conclusi(db), key=lambda c: (c.nome or "").lower())
+    return [{"id": c.id, "nome": c.nome} for c in cs]
 
 
 @router.put("/{rapportino_id}/assegna-cantiere")
@@ -1471,17 +1537,37 @@ def assegna_cantiere_rapportino(
     db: Session = Depends(get_db),
     user: Utente = Depends(get_current_user),
 ):
-    """Admin: assegna (o riassegna) un cantiere a un rapportino già validato rimasto fuori cantiere."""
+    """Admin: assegna, sposta o toglie il cantiere di un rapportino, in qualsiasi stato
+    (da validare o già validato). cantiere_id null = fuori cantiere: diario e ore nei costi
+    del vecchio cantiere vengono tolti e le ore restano solo nel registro personale."""
     if user.ruolo not in RUOLI_ADMIN:
         raise HTTPException(403)
     r = db.query(RapportinoOperativo).filter(RapportinoOperativo.id == rapportino_id).first()
     if not r: raise HTTPException(404)
+    if r.stato == "diviso":
+        raise HTTPException(400, "Rapportino già diviso: sposta i singoli pezzi")
+
+    if body.cantiere_id is None:
+        if r.stato == "validato":
+            _annulla_imputazione(db, r)
+        r.cantiere_id = None
+        r.fuori_cantiere = True
+        r.ritocco = False
+        if r.stato == "validato":
+            try:
+                data_obj = date_today.fromisoformat(r.data_lavoro) if r.data_lavoro else date_today.today()
+            except Exception:
+                data_obj = date_today.today()
+            _registro_ore_fuori_cantiere(db, r, data_obj)
+        db.commit()
+        return _rap_dict(r, db)
 
     cantiere = db.query(Cantiere).filter(Cantiere.id == body.cantiere_id).first()
     if not cantiere: raise HTTPException(404, "Cantiere non trovato")
 
     r.cantiere_id = cantiere.id
     r.fuori_cantiere = False
+    r.ritocco = _e_concluso(cantiere)
 
     if r.diario_id:
         # Sposta la nota diario esistente sul nuovo cantiere
@@ -1891,6 +1977,33 @@ def _foto_per_segmento(r, segmenti) -> list[tuple[list, list]]:
     return esito
 
 
+def _annulla_imputazione(db: Session, r: RapportinoOperativo) -> None:
+    """Toglie quanto creato in automatico dalla validazione (nota diario, ore nei costi del
+    cantiere, righe del registro ore personale). Prima si azzerano i riferimenti sul
+    rapportino (flush), poi si cancellano le righe, per non violare le chiavi esterne."""
+    vecchio_ore_extra_id = r.ore_extra_id
+    vecchio_diario_id = r.diario_id
+    r.ore_extra_id = None
+    r.ore_lavorate_id = None
+    r.diario_id = None
+    db.flush()
+    if vecchio_ore_extra_id:
+        vecchie_ore = db.query(OreExtra).filter(OreExtra.id == vecchio_ore_extra_id).first()
+        if vecchie_ore:
+            db.delete(vecchie_ore)
+    if vecchio_diario_id:
+        # ore dei colleghi e viaggio legate alla stessa nota diario
+        db.query(OreExtra).filter(OreExtra.diario_id == vecchio_diario_id).delete(synchronize_session=False)
+    # tutte le righe registro-ore di questo rapportino (operativo + colleghi, anche
+    # quelle create quando era "fuori cantiere")
+    db.query(OreLavorate).filter(OreLavorate.rapportino_id == r.id).delete(synchronize_session=False)
+    if vecchio_diario_id:
+        vecchio_diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == vecchio_diario_id).first()
+        if vecchio_diario:
+            db.delete(vecchio_diario)
+    db.flush()
+
+
 @router.put("/{rapportino_id}/dividi")
 def dividi_rapportino(
     rapportino_id: int,
@@ -1911,28 +2024,8 @@ def dividi_rapportino(
     if r.stato == "diviso":
         raise HTTPException(400, "Rapportino già diviso")
 
-    # Ripulisce diario/ore create in automatico dalla validazione precedente (se c'era) —
-    # prima si azzerano i riferimenti sul rapportino (flush), poi si cancellano le righe,
-    # per non violare i vincoli di chiave esterna
-    vecchio_ore_extra_id = r.ore_extra_id
-    vecchio_ore_lavorate_id = r.ore_lavorate_id
-    vecchio_diario_id = r.diario_id
-    r.ore_extra_id = None
-    r.ore_lavorate_id = None
-    r.diario_id = None
-    db.flush()
-    if vecchio_ore_extra_id:
-        vecchie_ore = db.query(OreExtra).filter(OreExtra.id == vecchio_ore_extra_id).first()
-        if vecchie_ore:
-            db.delete(vecchie_ore)
-    # tutte le righe registro-ore di questo rapportino (operativo + colleghi, anche
-    # quelle create quando era "fuori cantiere") — i figli le rifaranno alla validazione
-    db.query(OreLavorate).filter(OreLavorate.rapportino_id == r.id).delete(synchronize_session=False)
-    if vecchio_diario_id:
-        vecchio_diario = db.query(DiarioGiornaliero).filter(DiarioGiornaliero.id == vecchio_diario_id).first()
-        if vecchio_diario:
-            db.delete(vecchio_diario)
-    db.flush()
+    # Ripulisce diario/ore create in automatico dalla validazione precedente (se c'era)
+    _annulla_imputazione(db, r)
 
     foto_seg = _foto_per_segmento(r, segmenti)
     creati = []
@@ -1994,6 +2087,11 @@ def _esegui_validazione(db: Session, r: RapportinoOperativo, cantiere_id: Option
     /valida e la registrazione da admin con valida_subito."""
     r.cantiere_id = cantiere_id
     r.fuori_cantiere = cantiere_id is None
+    if cantiere_id:
+        c_val = db.query(Cantiere).filter(Cantiere.id == cantiere_id).first()
+        r.ritocco = bool(getattr(r, "ritocco", False)) or _e_concluso(c_val)
+    else:
+        r.ritocco = False
 
     if cantiere_id:
         _crea_diario_da_rapportino(db, r, cantiere_id)
@@ -2031,7 +2129,8 @@ def valida_rapportino(
         db.commit()
         return _rap_dict(r, db)
 
-    _esegui_validazione(db, r, body.cantiere_id or r.cantiere_id, user, note_admin=body.note_admin)
+    cid = None if body.fuori_cantiere else (body.cantiere_id or r.cantiere_id)
+    _esegui_validazione(db, r, cid, user, note_admin=body.note_admin)
     db.commit()
 
     try:
