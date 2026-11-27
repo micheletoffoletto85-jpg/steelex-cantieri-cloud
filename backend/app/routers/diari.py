@@ -6,6 +6,7 @@ from sqlalchemy import func
 from typing import List, Optional
 from pydantic import BaseModel
 from app.database import get_db
+from app.download import disposizione
 from app.models.diario import DiarioGiornaliero, OreExtra
 from app.models.cantiere import Cantiere
 from app.models.utente import Utente
@@ -411,7 +412,7 @@ def genera_relazione_pdf(
     return StreamingResponse(
         buf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{nome_file}"'},
+        headers={"Content-Disposition": disposizione(f"{nome_file}", "attachment")},
     )
 
 
@@ -1596,4 +1597,4 @@ def genera_verbale_pdf(cantiere_id: int, db: Session = Depends(get_db), user: Ut
     nome_file = f"verbale_chiusura_{(cantiere.nome or 'cantiere').replace(' ', '_')}.pdf"
     from fastapi.responses import StreamingResponse
     return StreamingResponse(buf, media_type="application/pdf",
-                             headers={"Content-Disposition": f'attachment; filename="{nome_file}"'})
+                             headers={"Content-Disposition": disposizione(f"{nome_file}", "attachment")})

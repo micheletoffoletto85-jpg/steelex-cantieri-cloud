@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.database import get_db
+from app.download import disposizione
 from app.routers.auth import get_current_user
 from pydantic import BaseModel
 from typing import Optional
@@ -178,7 +179,7 @@ def report_pdf(mese: Optional[str] = None, utente_id: Optional[int] = None,
         buf = io.BytesIO()
         T.build(buf, story, title="Ore lavorate")
         return StreamingResponse(buf, media_type="application/pdf",
-                                 headers={"Content-Disposition": 'attachment; filename="ore_lavorate.pdf"'})
+                                 headers={"Content-Disposition": disposizione("ore_lavorate.pdf", "attachment")})
 
     def _f(x):
         return f"{float(x):.2f}".rstrip("0").rstrip(".").replace(".", ",")
@@ -260,4 +261,4 @@ def report_pdf(mese: Optional[str] = None, utente_id: Optional[int] = None,
     T.build(buf, story, title="Ore lavorate")
     nome = f"ore_lavorate_{mese or 'tutte'}.pdf"
     return StreamingResponse(buf, media_type="application/pdf",
-                             headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+                             headers={"Content-Disposition": disposizione(f"{nome}", "attachment")})
