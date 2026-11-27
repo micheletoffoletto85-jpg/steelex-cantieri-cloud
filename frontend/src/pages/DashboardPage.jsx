@@ -309,6 +309,11 @@ function ArtigianoDashboard({ utente, cantieri }) {
   const [fase, setFase] = useState('idle') // idle | recording | processing | done | error
   const [testoLibero, setTestoLibero] = useState('')
   const [cantiereSelezionato, setCantiereSelezionato] = useState('')
+  // Ritocchi su un cantiere già concluso (i ragazzi tornano per sistemare qualcosa)
+  const [ritocco, setRitocco] = useState(false)
+  const [cantiereRitocco, setCantiereRitocco] = useState('')
+  const { data: cantieriConclusi = [] } = useQuery('cantieri-conclusi',
+    () => api.get('/rapportini/cantieri-conclusi').then(r => r.data), { staleTime: 5 * 60 * 1000 })
   const [foto, setFoto] = useState([]) // array di File
   const [risultato, setRisultato] = useState(null)
   const [errore, setErrore] = useState(null)
@@ -342,6 +347,8 @@ function ArtigianoDashboard({ utente, cantieri }) {
         setTestoLibero('')
         setFoto([])
         setCantiereSelezionato('')
+        setRitocco(false)
+        setCantiereRitocco('')
         setMostraTestuale(false)
         qc.invalidateQueries('rapportini-miei')
       },
@@ -356,7 +363,10 @@ function ArtigianoDashboard({ utente, cantieri }) {
     const fd = new FormData()
     fd.append('testo', testo)
     fd.append('lingua_hint', linguaReg)
-    if (cantiereSelezionato) fd.append('cantiere_id', cantiereSelezionato)
+    if (ritocco && cantiereRitocco) {
+      fd.append('cantiere_id', cantiereRitocco)
+      fd.append('ritocco', 'true')
+    } else if (cantiereSelezionato) fd.append('cantiere_id', cantiereSelezionato)
     if (dataRif) fd.append('data_riferimento', dataRif)
     foto.forEach(f => fd.append('foto_avanzamento', f))
     return fd
@@ -653,6 +663,25 @@ function ArtigianoDashboard({ utente, cantieri }) {
           )}
 
           {/* Pulsante microfono grande */}
+          {cantieriConclusi.length > 0 && (
+            <div>
+              <button type="button" onClick={() => { setRitocco(v => !v); setCantiereRitocco('') }}
+                className={`w-full py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors ${ritocco ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-gray-200 text-gray-600 hover:border-amber-400'}`}>
+                🔧 {ritocco ? 'Ritocco su cantiere concluso' : 'Sei tornato per un ritocco su un cantiere finito?'}
+              </button>
+              {ritocco && (
+                <div className="relative mt-2">
+                  <select value={cantiereRitocco} onChange={e => setCantiereRitocco(e.target.value)}
+                    className="w-full border border-amber-300 rounded-xl px-3 py-2.5 text-sm appearance-none bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400 pr-8">
+                    <option value="">— scegli il cantiere concluso —</option>
+                    {cantieriConclusi.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-col items-center gap-3">
             {fase === 'idle' || fase === 'error' ? (
               <button

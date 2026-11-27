@@ -64,6 +64,9 @@ class RapportinoOperativo(Base):
     # Stato validazione
     stato             = Column(String(20), default="inviato")  # inviato | validato | rifiutato | diviso
     fuori_cantiere    = Column(Boolean, default=False)
+    # Ritocchi/assistenza su un cantiere già concluso: il rapportino va comunque nel
+    # diario e nei costi di quel cantiere, ma segnalato come lavoro dopo la chiusura
+    ritocco           = Column(Boolean, default=False)
     validato_da_id    = Column(Integer, ForeignKey("utenti.id"), nullable=True)
     validato_il       = Column(DateTime, nullable=True)
     note_admin        = Column(Text, nullable=True)
