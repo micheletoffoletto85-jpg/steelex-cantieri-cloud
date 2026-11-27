@@ -7,6 +7,8 @@ import {
   Edit3, Save, GitBranch, Sparkles
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import Miniatura from '../components/Miniatura'
+import Paginazione, { PER_PAGINA } from '../components/Paginazione'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import MaterialiUsati from '../components/MaterialiUsati'
@@ -92,7 +94,7 @@ function FotoPreview({ urls }) {
     <>
       <div className="flex flex-wrap gap-1.5 mt-2">
         {urls.map((url, i) => (
-          <img key={i} src={url} alt={`foto ${i+1}`} onClick={() => setIdx(i)}
+          <Miniatura key={i} url={url} alt={`foto ${i+1}`} onClick={() => setIdx(i)}
             className="w-20 h-20 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity" />
         ))}
       </div>
@@ -229,8 +231,19 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
   const aggiungiSegmento = () =>
     setSegmenti(s => [...s, { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '', testo: '' }])
 
-  const rimuoviSegmento = (idx) =>
-    setSegmenti(s => s.length > 1 ? s.filter((_, i) => i !== idx) : s)
+  const rimuoviSegmento = (idx) => {
+    if (segmenti.length <= 1) return
+    setSegmenti(s => s.filter((_, i) => i !== idx))
+    // le foto del cantiere tolto restano da assegnare, gli indici dopo scalano
+    setFotoSeg(m => Object.fromEntries(Object.entries(m).map(([u, k]) => [u, k === idx ? -1 : k > idx ? k - 1 : k])))
+  }
+
+  // Divisione: ogni foto va a UN solo cantiere (prima finivano in tutti).
+  // url → indice del segmento, -1 = esclusa. All'apertura stanno tutte sul primo.
+  const fotoTutte = [...(r.foto_avanzamento_urls || []), ...(r.foto_extra_urls || [])]
+  const [fotoSeg, setFotoSeg] = useState({})
+  const toccaFoto = (url, idx) => setFotoSeg(m => ({ ...m, [url]: m[url] === idx ? -1 : idx }))
+  const fotoNonAssegnate = fotoTutte.filter(u => (fotoSeg[u] ?? 0) < 0).length
 
   // Apre il pannello di divisione: se l'IA aveva già rilevato dei segmenti li riusa,
   // altrimenti parte da due righe (la prima col testo completo da tagliare/dividere a mano,
@@ -245,17 +258,20 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
         { cantiere: '', cantiere_id: '', ore: '', lavorazioni: [], riassunto: '', testo: '' },
       ])
     }
+    setFotoSeg(Object.fromEntries(fotoTutte.map(u => [u, 0])))
     setDividendo(true)
   }
 
   // cantiere_id === 'fuori' = quella parte resta fuori cantiere (cliente senza cantiere aperto)
   const confermaDivisione = () => {
     if (segmenti.some(s => !s.cantiere_id)) return
-    onDividi(r.id, segmenti.map(s => ({
+    onDividi(r.id, segmenti.map((s, i) => ({
       cantiere_id: s.cantiere_id === 'fuori' ? null : parseInt(s.cantiere_id),
       cantiere: s.cantiere || null,
       ore: s.ore ? parseFloat(s.ore) : null,
       lavorazioni: s.lavorazioni || [], riassunto: s.riassunto || null, testo: s.testo || null,
+      foto_urls: (r.foto_avanzamento_urls || []).filter(u => (fotoSeg[u] ?? 0) === i),
+      foto_extra_urls: (r.foto_extra_urls || []).filter(u => (fotoSeg[u] ?? 0) === i),
     })))
     setDividendo(false)
   }
@@ -628,8 +644,33 @@ function RapportinoCard({ r, isAdmin, onValida, onElimina, onAssegna, onModifica
                         onChange={e => aggiornaSegmento(i, 'ore', e.target.value)}
                         className="w-20 border border-purple-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400" />
                     </div>
+                    {fotoTutte.length > 0 && (
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">
+                          Foto di questo cantiere <span className="text-gray-400">— tocca per assegnarla qui</span>
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {fotoTutte.map(u => {
+                            const mia = (fotoSeg[u] ?? 0) === i
+                            const altrove = !mia && (fotoSeg[u] ?? 0) >= 0
+                            return (
+                              <button key={u} type="button" onClick={() => toccaFoto(u, i)}
+                                className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${mia ? 'border-purple-600' : 'border-transparent'}`}
+                                title={mia ? 'Assegnata a questo cantiere' : altrove ? `Assegnata al segmento ${(fotoSeg[u] ?? 0) + 1} — tocca per spostarla qui` : 'Non assegnata'}>
+                                <Miniatura url={u} className={`w-full h-full object-cover ${mia ? '' : 'opacity-30 grayscale'}`} />
+                                {mia && <span className="absolute top-0.5 right-0.5 bg-purple-600 text-white rounded-full w-4 h-4 text-[10px] leading-4 text-center">✓</span>}
+                                {altrove && <span className="absolute bottom-0.5 left-0.5 bg-black/60 text-white rounded px-1 text-[9px]">{(fotoSeg[u] ?? 0) + 1}</span>}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
+                {fotoNonAssegnate > 0 && (
+                  <p className="text-xs text-amber-700">⚠️ {fotoNonAssegnate} foto non assegnate a nessun cantiere: non verranno salvate nei cantieri</p>
+                )}
                 <button onClick={aggiungiSegmento}
                   className="text-xs text-purple-700 underline">+ Aggiungi cantiere</button>
                 <div className="flex gap-2">
@@ -981,9 +1022,14 @@ function VistaAdmin() {
     () => api.get('/rapportini/da-validare').then(r => r.data),
     { staleTime: 30000 })
 
-  const { data: tutti = [] } = useQuery('rapp-tutti',
-    () => api.get('/rapportini').then(r => r.data),
-    { staleTime: 30000, enabled: tab === 'tutti' })
+  // Una pagina alla volta (10 rapportini): con tante foto la lista intera era lentissima
+  const [pagina, setPagina] = useState(1)
+  useEffect(() => { setPagina(1) }, [tab])
+  const { data: paginaTutti, isFetching: caricaTutti } = useQuery(['rapp-tutti', 'pagina', pagina],
+    () => api.get('/rapportini', { params: { pagina, per_pagina: PER_PAGINA } }).then(r => r.data),
+    { staleTime: 30000, enabled: tab === 'tutti', keepPreviousData: true })
+  const tutti = paginaTutti?.elementi || []
+  const totaleTutti = paginaTutti?.totale || 0
 
   const { data: fuoriCantiere = [] } = useQuery('rapp-fuori',
     () => api.get('/rapportini/fuori-cantiere').then(r => r.data),
@@ -1079,7 +1125,8 @@ function VistaAdmin() {
   const [batchProgress, setBatchProgress] = useState(null)
 
   const rianalizzaTutti = async () => {
-    const eleggibili = tutti.filter(r => r.stato !== 'diviso' && (r.descrizione_lavori || r.testo_italiano))
+    const ultimi = await api.get('/rapportini').then(r => r.data).catch(() => [])
+    const eleggibili = ultimi.filter(r => r.stato !== 'diviso' && (r.descrizione_lavori || r.testo_italiano))
     if (!eleggibili.length) return
     setBatchProgress({ fatti: 0, totale: eleggibili.length, errori: 0 })
     let errori = 0
@@ -1101,6 +1148,13 @@ function VistaAdmin() {
 
   const lista = tab === 'da-validare' ? daValidare : tab === 'fuori' ? fuoriCantiere : tutti
   const fuoriCount = fuoriCantiere.filter(r => r.stato === 'inviato').length
+  // "Tutti" è già paginato dal server; da validare e fuori cantiere si dividono qui
+  const paginaServer = tab === 'tutti'
+  const totaleLista = paginaServer ? totaleTutti : lista.length
+  const listaPagina = paginaServer ? lista : lista.slice((pagina - 1) * PER_PAGINA, pagina * PER_PAGINA)
+  // Dopo una validazione/eliminazione l'ultima pagina può svuotarsi: torna a quella prima
+  const ultimaPagina = Math.max(1, Math.ceil(totaleLista / PER_PAGINA))
+  useEffect(() => { if (pagina > ultimaPagina) setPagina(ultimaPagina) }, [pagina, ultimaPagina])
 
   return (
     <div className="space-y-5">
@@ -1131,7 +1185,7 @@ function VistaAdmin() {
         {[
           { key: 'da-validare', label: 'Da validare' },
           { key: 'fuori', label: 'Fuori cantiere' },
-          { key: 'tutti', label: 'Tutti' },
+          { key: 'tutti', label: `Tutti${totaleTutti ? ` (${totaleTutti})` : ''}` },
         ].map(({ key, label }) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-colors ${
@@ -1174,7 +1228,7 @@ function VistaAdmin() {
         </div>
       ) : (
         <div className="space-y-3">
-          {lista.map(r => (
+          {listaPagina.map(r => (
             <RapportinoCard key={r.id} r={r} isAdmin cantieri={cantieri}
               onValida={(id, rifiuta, note_admin, cantiere_id) =>
                 validaMutation.mutate({ id, rifiuta, note_admin, cantiere_id })}
@@ -1185,6 +1239,7 @@ function VistaAdmin() {
               onRianalizza={(id) => rianalizzaMutation.mutateAsync(id)}
               onMaterialeSpesa={(id, body) => materialeSpesaMutation.mutateAsync({ id, ...body })} />
           ))}
+          <Paginazione pagina={pagina} totale={totaleLista} onCambia={setPagina} caricando={paginaServer && caricaTutti} />
         </div>
       )}
     </div>

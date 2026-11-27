@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models.utente import Utente
 from app.schemas.utente import UtenteCreate, UtenteOut, UtenteUpdate
 from app.auth import get_current_user, require_admin, hash_password
+from app import password_visibile
 
 router = APIRouter(prefix="/utenti", tags=["Utenti"])
 
@@ -17,7 +18,8 @@ def crea_utente(data: UtenteCreate, db: Session = Depends(get_db), _=Depends(req
     if db.query(Utente).filter(Utente.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email già registrata")
     try:
-        utente = Utente(**data.model_dump(mode='json', exclude={"password"}), password_hash=hash_password(data.password))
+        utente = Utente(**data.model_dump(mode='json', exclude={"password"}), password_hash=hash_password(data.password),
+                        password_cifrata=password_visibile.cifra(data.password))
         db.add(utente)
         db.commit()
         db.refresh(utente)
@@ -33,8 +35,16 @@ def aggiorna_utente(utente_id: int, data: UtenteUpdate, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Utente non trovato")
     # mode='json' garantisce stringhe pure (non oggetti enum) — compatibile col tipo nativo PostgreSQL
     update_data = data.model_dump(mode='json', exclude_none=True)
+    # professione e costo orario si possono anche svuotare (null esplicito dal form)
+    for campo in ("tipo_professione", "costo_orario", "telefono"):
+        if campo in data.model_fields_set and getattr(data, campo) is None:
+            update_data[campo] = None
     if "password" in update_data:
-        utente.password_hash = hash_password(update_data.pop("password"))
+        nuova = update_data.pop("password")
+        if not nuova.strip():
+            raise HTTPException(status_code=400, detail="La password non può essere vuota")
+        utente.password_hash = hash_password(nuova)
+        utente.password_cifrata = password_visibile.cifra(nuova)
     try:
         for k, v in update_data.items():
             setattr(utente, k, v)
@@ -54,3 +64,16 @@ def elimina_utente(utente_id: int, db: Session = Depends(get_db), current_user=D
         raise HTTPException(status_code=404, detail="Utente non trovato")
     db.delete(utente)
     db.commit()
+
+
+@router.post("/{utente_id}/mostra-password")
+def mostra_password(utente_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Password attuale dell'utente, per i recuperi (solo admin)."""
+    utente = db.query(Utente).filter(Utente.id == utente_id).first()
+    if not utente:
+        raise HTTPException(status_code=404, detail="Utente non trovato")
+    pw = password_visibile.decifra(utente.password_cifrata)
+    return {
+        "password": pw,
+        "nota": None if pw else "Non ancora disponibile: compare dopo il prossimo accesso dell'utente, oppure impostala tu dalla modifica",
+    }

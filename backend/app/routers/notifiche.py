@@ -220,6 +220,31 @@ def test_push(
     return {"ok": tutti_ok, "subscriptions": len(subs), "risultati": risultati, "vapid_sub": vapid_sub}
 
 
+# ─── PREFERENZE: quali categorie di notifiche ricevere ───────────────────────
+
+class PreferenzeBody(BaseModel):
+    disattivate: List[str] = []
+
+
+@router.get("/preferenze")
+def leggi_preferenze(user: Utente = Depends(get_current_user)):
+    from app.categorie_notifiche import CATEGORIE
+    spente = set(user.notifiche_disattivate or [])
+    return {"categorie": [
+        {"chiave": k, "etichetta": e, "descrizione": d, "attiva": k not in spente}
+        for k, e, d in CATEGORIE
+    ]}
+
+
+@router.put("/preferenze")
+def salva_preferenze(body: PreferenzeBody, db: Session = Depends(get_db),
+                     user: Utente = Depends(get_current_user)):
+    from app.categorie_notifiche import CHIAVI
+    user.notifiche_disattivate = sorted({k for k in body.disattivate if k in CHIAVI})
+    db.commit()
+    return leggi_preferenze(user)
+
+
 # ─── HELPER: notifica basata su ruoli per un cantiere ─────────────────────────
 
 def notifica_cantiere(
@@ -232,6 +257,7 @@ def notifica_cantiere(
     extra_user_ids: list[int] | None = None,
     tipo: str = "info",
     url: str | None = None,
+    categoria: str | None = None,
 ):
     from app.models.utente import Utente as UtenteModel
     ruoli_estesi = list(set(ruoli) | {"admin", "capo_cantiere", "amministrazione"})
@@ -246,7 +272,7 @@ def notifica_cantiere(
         ids.discard(escludi_id)
     if ids:
         dest_url = url or f"/cantieri/{cantiere_id}"
-        invia_notifica(db, list(ids), titolo, corpo, dest_url, tipo=tipo, cantiere_id=cantiere_id)
+        invia_notifica(db, list(ids), titolo, corpo, dest_url, tipo=tipo, cantiere_id=cantiere_id, categoria=categoria)
 
 
 # ─── HELPER: invia notifica a uno o più utenti ────────────────────────────────
@@ -259,8 +285,17 @@ def invia_notifica(
     url: str = "/",
     tipo: str = "info",
     cantiere_id: int | None = None,
+    categoria: str | None = None,
 ):
-    """Invia notifica in-app (DB) + push a tutti i dispositivi degli utenti indicati."""
+    """Invia notifica in-app (DB) + push a tutti i dispositivi degli utenti indicati.
+    Salta chi ha spento la categoria della notifica nelle sue preferenze."""
+    from app.categorie_notifiche import categoria_da, filtra_destinatari
+    try:
+        user_ids = filtra_destinatari(db, user_ids, categoria or categoria_da(titolo, url))
+    except Exception:
+        logger.exception("[NOTIFICHE] filtro preferenze non riuscito — invio a tutti")
+    if not user_ids:
+        return
     for uid in user_ids:
         try:
             n = NotificaInApp(user_id=uid, titolo=titolo, corpo=corpo, url=url, tipo=tipo, cantiere_id=cantiere_id)

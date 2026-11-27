@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser, ClipboardList, CalendarDays, AlertTriangle, StickyNote, LayoutGrid, Clock } from 'lucide-react'
+import { LayoutDashboard, HardHat, LogOut, Menu, X, Users, Bell, BellOff, Star, BookUser, ClipboardList, CalendarDays, AlertTriangle, StickyNote, LayoutGrid, Clock, UserCog } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { registraPushNotifications, disattivaPushNotifications, supportaNotifiche, risincronizzaPush } from '../lib/push'
@@ -17,6 +17,8 @@ const navItems = [
   { to: '/appunti', label: 'Appunti', icon: StickyNote, roles: ['admin', 'amministrazione'] },
   { to: '/utenti', label: 'Utenti', icon: Users, adminOnly: true },
   { to: '/error-log', label: 'Error Log', icon: AlertTriangle, adminOnly: true },
+  // Per tutti: preferenze personali (quali notifiche ricevere)
+  { to: '/account', label: 'Il mio account', icon: UserCog },
 ]
 
 function filtraNav(items, utente) {
@@ -27,7 +29,7 @@ function filtraNav(items, utente) {
     return true
   }).filter(i => {
     // operativo interno: dashboard (registrazione rapportini) + registro ore personali
-    if (isOperativo) return i.to === '/' || i.to === '/ore-lavorate'
+    if (isOperativo) return i.to === '/' || i.to === '/ore-lavorate' || i.to === '/account'
     return true
   })
 }

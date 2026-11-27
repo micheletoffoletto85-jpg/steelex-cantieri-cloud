@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { UserPlus, Shield, HardHat, User, ToggleLeft, ToggleRight, Edit2, Trash2, X, Save, Briefcase, AlertTriangle } from 'lucide-react'
+import { UserPlus, Shield, HardHat, User, ToggleLeft, ToggleRight, Edit2, Trash2, X, Save, Briefcase, AlertTriangle, KeyRound, Copy } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -71,6 +71,41 @@ const RUOLI_CON_COSTO = ['artigiano', 'operativo', 'capo_cantiere', 'capo_cantie
 
 const FORM_VUOTO = { nome: '', cognome: '', email: '', telefono: '', password: '', ruolo: 'capo_cantiere', tipo_professione: '', costo_orario: '' }
 
+// Messaggio leggibile anche quando FastAPI risponde con la lista di errori di validazione (422):
+// passare l'array a toast faceva sparire il messaggio o rompere la pagina
+const msgErrore = (err, fallback) => {
+  const d = err?.response?.data?.detail
+  if (Array.isArray(d)) return d.map(e => (e.msg || '').replace(/^Value error, /, '') || JSON.stringify(e)).join(', ')
+  return typeof d === 'string' ? d : fallback
+}
+
+// Password attualmente impostata (solo admin): si legge su richiesta
+function PasswordAttuale({ utenteId, compatta = false }) {
+  const [stato, setStato] = useState(null) // null | 'carico' | { password, nota }
+  const leggi = async () => {
+    if (stato && stato !== 'carico') { setStato(null); return }
+    setStato('carico')
+    try { setStato((await api.post(`/utenti/${utenteId}/mostra-password`)).data) }
+    catch (e) { setStato(null); toast.error(msgErrore(e, 'Password non leggibile')) }
+  }
+  const copia = () => { navigator.clipboard?.writeText(stato.password).then(() => toast.success('Password copiata')) }
+  const aperta = stato && stato !== 'carico'
+  return (
+    <div className={`flex items-center gap-1.5 flex-wrap ${compatta ? 'mt-1' : ''}`}>
+      <button type="button" onClick={leggi}
+        className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-steelex-orange px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100">
+        <KeyRound size={13} /> {aperta ? 'Nascondi password' : stato === 'carico' ? 'Leggo…' : 'Vedi password'}
+      </button>
+      {aperta && (stato.password
+        ? <>
+            <code className="text-sm font-mono bg-yellow-50 border border-yellow-200 text-gray-900 px-2 py-0.5 rounded select-all">{stato.password}</code>
+            <button type="button" onClick={copia} className="p-1 text-gray-400 hover:text-steelex-orange" title="Copia"><Copy size={14} /></button>
+          </>
+        : <span className="text-xs text-amber-600">{stato.nota}</span>)}
+    </div>
+  )
+}
+
 export default function UtentiPage() {
   const { utente: me } = useAuth()
   const [showCreate, setShowCreate] = useState(false)
@@ -91,11 +126,7 @@ export default function UtentiPage() {
         setForm(FORM_VUOTO)
         toast.success('Utente creato!')
       },
-      onError: err => {
-        const d = err.response?.data?.detail
-        const msg = Array.isArray(d) ? d.map(e => e.msg || JSON.stringify(e)).join(', ') : (d || 'Errore creazione')
-        toast.error(msg)
-      }
+      onError: err => toast.error(msgErrore(err, 'Errore creazione'))
     }
   )
 
@@ -107,7 +138,7 @@ export default function UtentiPage() {
         setEditando(null)
         toast.success('Utente aggiornato!')
       },
-      onError: err => toast.error(err.response?.data?.detail || 'Errore aggiornamento')
+      onError: err => toast.error(msgErrore(err, 'Errore aggiornamento'))
     }
   )
 
@@ -115,13 +146,13 @@ export default function UtentiPage() {
     id => api.delete(`/utenti/${id}`),
     {
       onSuccess: () => { qc.invalidateQueries('utenti'); toast.success('Utente eliminato') },
-      onError: err => toast.error(err.response?.data?.detail || 'Errore eliminazione')
+      onError: err => toast.error(msgErrore(err, 'Errore eliminazione'))
     }
   )
 
   const toggleMutation = useMutation(
     ({ id, attivo }) => api.put(`/utenti/${id}`, { attivo }),
-    { onSuccess: () => qc.invalidateQueries('utenti') }
+    { onSuccess: () => qc.invalidateQueries('utenti'), onError: err => toast.error(msgErrore(err, 'Errore aggiornamento')) }
   )
 
   const apriModifica = (u) => {
@@ -169,7 +200,10 @@ export default function UtentiPage() {
           </div>
           <input className="input-field" type="email" placeholder="Email *" value={form.email} onChange={e => set('email', e.target.value)} />
           <input className="input-field" type="tel" placeholder="Telefono" value={form.telefono} onChange={e => set('telefono', e.target.value)} />
-          <input className="input-field" type="password" placeholder="Password *" value={form.password} onChange={e => set('password', e.target.value)} />
+          <div>
+            <input className="input-field" type="text" autoComplete="off" placeholder="Password *" value={form.password} onChange={e => set('password', e.target.value)} />
+            <p className="text-xs text-gray-400 mt-1">Almeno 8 caratteri, una maiuscola e un numero</p>
+          </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={form.ruolo} onChange={e => set('ruolo', e.target.value)}>
@@ -225,7 +259,10 @@ export default function UtentiPage() {
             <input className="input-field" placeholder="Cognome" value={editForm.cognome} onChange={e => setE('cognome', e.target.value)} />
           </div>
           <input className="input-field" type="tel" placeholder="Telefono" value={editForm.telefono} onChange={e => setE('telefono', e.target.value)} />
-          <input className="input-field" type="password" placeholder="Nuova password (lascia vuoto per non cambiare)" value={editForm.password} onChange={e => setE('password', e.target.value)} />
+          <div className="space-y-2">
+            <PasswordAttuale utenteId={editando.id} />
+            <input className="input-field" type="text" autoComplete="off" placeholder="Nuova password (lascia vuoto per non cambiare)" value={editForm.password} onChange={e => setE('password', e.target.value)} />
+          </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Ruolo</label>
             <select className="input-field" value={editForm.ruolo} onChange={e => setE('ruolo', e.target.value)}>
@@ -236,6 +273,7 @@ export default function UtentiPage() {
               <option value="responsabile_sicurezza">Resp. Sicurezza</option>
               <option value="amministrazione">Amministrazione</option>
               <option value="artigiano">Artigiano / Operativo</option>
+              {editando.ruolo === 'operativo' && <option value="operativo">Operativo Interno (solo rapportini)</option>}
               <option value="fornitore">Fornitore</option>
               <option value="cliente">Cliente</option>
               <option value="admin">Admin</option>
@@ -307,6 +345,7 @@ export default function UtentiPage() {
                     {u.tipo_professione && (
                       <p className="text-xs text-purple-600 font-medium mt-0.5">{u.tipo_professione}</p>
                     )}
+                    <PasswordAttuale key={u.id} utenteId={u.id} compatta />
                   </div>
                   <div className="flex items-center gap-1">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${RUOLO_COLOR[u.ruolo] || 'text-gray-600 bg-gray-50'}`}>

@@ -86,6 +86,10 @@ def salva_file(contenuto: bytes, cartella: str, estensione: str) -> tuple[str, s
             Body=contenuto,
             ContentType=content_type,
         )
+        # Miniatura compressa per le liste (vedi app/anteprime.py)
+        from app.anteprime import ESTENSIONI_IMMAGINE, salva_anteprima
+        if estensione.lower() in ESTENSIONI_IMMAGINE:
+            salva_anteprima(client, settings.R2_BUCKET_NAME, chiave, contenuto)
         base = (settings.R2_PUBLIC_URL or "").rstrip("/")
         url = f"{base}/{chiave}"
         return url, chiave
